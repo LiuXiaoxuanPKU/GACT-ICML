@@ -280,3 +280,41 @@ def get_pytorch_val_loader(data_path, batch_size, num_classes, one_hot, workers=
             collate_fn=fast_collate)
 
     return PrefetchedWrapper(val_loader, num_classes, fp16, one_hot), len(val_loader)
+
+
+def get_pytorch_train_loader_cifar10(data_path, batch_size, num_classes, one_hot, workers=5, _worker_init_fn=None, fp16=False):
+    transform_train = transforms.Compose([
+        transforms.RandomCrop(32, padding=4),
+        transforms.RandomHorizontalFlip()
+    ])
+    train_dataset = datasets.CIFAR10(root=data_path, train=True, download=True, transform=transform_train)
+
+    if torch.distributed.is_initialized():
+        train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
+    else:
+        train_sampler = None
+
+    train_loader = torch.utils.data.DataLoader(
+            train_dataset, batch_size=batch_size, shuffle=(train_sampler is None),
+            num_workers=workers, worker_init_fn=_worker_init_fn, pin_memory=True, sampler=train_sampler,
+        collate_fn=fast_collate, drop_last=True)
+
+    return PrefetchedWrapper(train_loader, num_classes, fp16, one_hot), len(train_loader)
+
+
+def get_pytorch_val_loader_cifar10(data_path, batch_size, num_classes, one_hot, workers=5, _worker_init_fn=None, fp16=False):
+    val_dataset = datasets.CIFAR10(root=data_path, train=False, download=True)
+
+    if torch.distributed.is_initialized():
+        val_sampler = torch.utils.data.distributed.DistributedSampler(val_dataset)
+    else:
+        val_sampler = None
+
+    val_loader = torch.utils.data.DataLoader(
+            val_dataset,
+            sampler=val_sampler,
+            batch_size=batch_size, shuffle=False,
+            num_workers=workers, worker_init_fn=_worker_init_fn, pin_memory=True,
+            collate_fn=fast_collate)
+
+    return PrefetchedWrapper(val_loader, num_classes, fp16, one_hot), len(val_loader)

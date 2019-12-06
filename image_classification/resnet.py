@@ -304,3 +304,20 @@ def build_resnet(version, config, model_state=None):
                            version['num_classes'])
 
     return model
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

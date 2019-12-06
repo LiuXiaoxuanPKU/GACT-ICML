@@ -40,6 +40,8 @@ def add_parser_arguments(parser):
 
     parser.add_argument('data', metavar='DIR',
                         help='path to dataset')
+    parser.add_argument('--dataset', type=str, default='imagenet')
+
     parser.add_argument('--data-backend', metavar='BACKEND', default='pytorch',
                         choices=DATA_BACKEND_CHOICES)
 
@@ -215,13 +217,17 @@ def main(args):
         loss = lambda: LabelSmoothing(args.label_smoothing)
 
     model_and_loss = ModelAndLoss(
+            args.dataset,
             (args.arch, args.model_config),
             loss,
             pretrained_weights=pretrained_weights,
             cuda = True, fp16 = args.fp16)
 
     # Create data loaders and optimizers as needed
-    if args.data_backend == 'pytorch':
+    if args.dataset == 'cifar10':
+        get_train_loader = get_pytorch_train_loader_cifar10
+        get_val_loader = get_pytorch_val_loader_cifar10
+    elif args.data_backend == 'pytorch':
         get_train_loader = get_pytorch_train_loader
         get_val_loader = get_pytorch_val_loader
     elif args.data_backend == 'dali-gpu':

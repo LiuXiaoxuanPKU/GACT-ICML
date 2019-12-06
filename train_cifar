@@ -1,0 +1,2 @@
+mkdir results/cifar
+python ./multiproc.py --nproc_per_node 8 ./main.py --dataset cifar10 --gather-checkpoints --workspace results/cifar --batch-size 16 --lr 0.1 --warmup 2 --weight-decay 1e-4 --epochs 200 ~/data/cifar10

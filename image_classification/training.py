@@ -7,6 +7,7 @@ from torch.autograd import Variable
 from . import logger as log
 from . import resnet as models
 from . import utils
+from .debug import dump
 
 try:
     from apex.parallel import DistributedDataParallel as DDP
@@ -343,21 +344,24 @@ def train_loop(model_and_loss, optimizer, lr_scheduler, train_loader, val_loader
             prec1 = validate(val_loader, model_and_loss, fp16, logger, epoch, prof = prof, register_metrics=epoch==start_epoch)
 
         if save_checkpoints and (not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0):
-            is_best = prec1 > best_prec1
-            best_prec1 = max(prec1, best_prec1)
+            if not skip_training:
+                is_best = prec1 > best_prec1
+                best_prec1 = max(prec1, best_prec1)
 
-            if should_backup_checkpoint(epoch):
-                backup_filename = 'checkpoint-{}.pth.tar'.format(epoch + 1)
-            else:
-                backup_filename = None
-            utils.save_checkpoint({
-                'epoch': epoch + 1,
-                'arch': model_and_loss.arch,
-                'state_dict': model_and_loss.model.state_dict(),
-                'best_prec1': best_prec1,
-                'optimizer' : optimizer.state_dict(),
-            }, is_best, checkpoint_dir=checkpoint_dir, backup_filename=backup_filename)
+                if should_backup_checkpoint(epoch):
+                    backup_filename = 'checkpoint-{}.pth.tar'.format(epoch + 1)
+                else:
+                    backup_filename = None
+                utils.save_checkpoint({
+                    'epoch': epoch + 1,
+                    'arch': model_and_loss.arch,
+                    'state_dict': model_and_loss.model.state_dict(),
+                    'best_prec1': best_prec1,
+                    'optimizer' : optimizer.state_dict(),
+                }, is_best, checkpoint_dir=checkpoint_dir, backup_filename=backup_filename)
 
         if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
             logger.end()
-# }}}
+
+    if skip_training:
+        dump(model_and_loss, optimizer, val_loader, checkpoint_dir)

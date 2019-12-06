@@ -171,6 +171,7 @@ class Logger(object):
 
 class JsonBackend(object):
     def __init__(self, filename, log_level=0):
+        print("Logger: ", filename)
         self.level = log_level
         self.filename = filename
         self.json_log = OrderedDict([

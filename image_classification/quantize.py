@@ -18,10 +18,6 @@ def _deflatten_as(x, x_full):
 
 
 quan_grad = True
-record_error = False
-error_signals = []
-stdevs = []
-running_time_stats = 0.0
 
 
 def calculate_qparams(x, num_bits, flatten_dims=_DEFAULT_FLATTEN, reduce_dim=0,  reduce_type='mean', keepdim=False, true_zero=False):
@@ -51,9 +47,6 @@ def calculate_qparams(x, num_bits, flatten_dims=_DEFAULT_FLATTEN, reduce_dim=0, 
         range_values = max_values - min_values
         end.record()
         torch.cuda.synchronize()
-
-        global running_time_stats
-        running_time_stats += start.elapsed_time(end) / 1000
 
         return QParams(range=range_values, zero_point=min_values,
                        num_bits=num_bits)
@@ -130,23 +123,6 @@ class UniformQuantizeGrad(InplaceFunction):
             grad_input = quantize(grad_output, num_bits=None,
                                   qparams=qparams, flatten_dims=ctx.flatten_dims, reduce_dim=ctx.reduce_dim,
                                   dequantize=True, signed=ctx.signed, stochastic=ctx.stochastic, inplace=False)
-            if record_error:
-                error_signals.append(grad_input.detach().cpu().numpy())
-
-                # grad_input_2 = quantize(grad_output, num_bits=None,
-                #                       qparams=qparams, flatten_dims=ctx.flatten_dims, reduce_dim=ctx.reduce_dim,
-                #                       dequantize=False, signed=ctx.signed, stochastic=ctx.stochastic, inplace=False)
-                # error_signals.append(grad_input_2)
-                #
-                # grads = []
-                # with torch.no_grad():
-                #     for iter in range(100):
-                #         grads.append(
-                #             quantize(grad_output, num_bits=None,
-                #                      qparams=qparams, flatten_dims=ctx.flatten_dims, reduce_dim=ctx.reduce_dim,
-                #                      dequantize=True, signed=ctx.signed, stochastic=ctx.stochastic, inplace=False))
-                #     grads = torch.stack(grads, 0)
-                #     stdevs.append(grads.std(0).detach().cpu().numpy())
 
         return grad_input, None, None, None, None, None, None, None
 
@@ -183,51 +159,6 @@ def quantize(x, num_bits=None, qparams=None, flatten_dims=_DEFAULT_FLATTEN, redu
 
 def quantize_grad(x, num_bits=None, qparams=None, flatten_dims=_DEFAULT_FLATTEN_GRAD, reduce_dim=0, dequantize=True, signed=False, stochastic=True):
     return UniformQuantizeGrad().apply(x, num_bits, qparams, flatten_dims, reduce_dim, dequantize, signed, stochastic)
-
-
-# class QuantMeasure(nn.Module):
-#     """docstring for QuantMeasure."""
-#
-#     def __init__(self, num_bits=8, shape_measure=(1,), flatten_dims=_DEFAULT_FLATTEN,
-#                  inplace=False, dequantize=True, stochastic=False, momentum=0.1, measure=False):
-#         super(QuantMeasure, self).__init__()
-#         self.register_buffer('running_zero_point', torch.zeros(*shape_measure))
-#         self.register_buffer('running_range', torch.zeros(*shape_measure))
-#         self.measure = measure
-#         if self.measure:
-#             self.register_buffer('num_measured', torch.zeros(1))
-#         self.flatten_dims = flatten_dims
-#         self.momentum = momentum
-#         self.dequantize = dequantize
-#         self.stochastic = stochastic
-#         self.inplace = inplace
-#         self.num_bits = num_bits
-#
-#     def forward(self, input, qparams=None):
-#
-#         if self.training or self.measure:
-#             if qparams is None:
-#                 qparams = calculate_qparams(
-#                     input, num_bits=self.num_bits, flatten_dims=self.flatten_dims, reduce_dim=0)
-#             with torch.no_grad():
-#                 if self.measure:
-#                     momentum = self.num_measured / (self.num_measured + 1)
-#                     self.num_measured += 1
-#                 else:
-#                     momentum = self.momentum
-#                 self.running_zero_point.mul_(momentum).add_(
-#                     qparams.zero_point * (1 - momentum))
-#                 self.running_range.mul_(momentum).add_(
-#                     qparams.range * (1 - momentum))
-#         else:
-#             qparams = QParams(range=self.running_range,
-#                               zero_point=self.running_zero_point, num_bits=self.num_bits)
-#         if self.measure:
-#             return input
-#         else:
-#             q_input = quantize(input, qparams=qparams, dequantize=self.dequantize,
-#                                stochastic=self.stochastic, inplace=self.inplace)
-#             return q_input
 
 
 class QuantMeasure(nn.Module):
@@ -268,10 +199,10 @@ class QConv2d(nn.Conv2d):
 
     def forward(self, input):
         qinput = self.quantize_input(input)
+
         weight_qparams = calculate_qparams(
             self.weight, num_bits=self.num_bits_weight, flatten_dims=(1, -1), reduce_dim=None)
         qweight = quantize(self.weight, qparams=weight_qparams)
-        self.qweight = qweight
 
         if self.bias is not None:
             qbias = quantize(

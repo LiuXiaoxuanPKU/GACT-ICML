@@ -66,6 +66,9 @@ class ResNetBuilder(object):
 
         return bn
 
+    def linear(self, in_planes, out_planes):
+        return self.config['linear'](in_planes, out_planes)
+
     def activation(self):
         return self.config['activation']()
 
@@ -125,17 +128,30 @@ class Bottleneck(nn.Module):
         self.relu = builder.activation()
         self.downsample = downsample
         self.stride = stride
+        self.debug = False
 
     def forward(self, x):
         residual = x
+
+        if self.debug:
+            x.retain_grad()
+            self.conv1_in = x
 
         out = self.conv1(x)
         out = self.bn1(out)
         out = self.relu(out)
 
+        if self.debug:
+            out.retain_grad()
+            self.conv2_in = out
+
         out = self.conv2(out)
         out = self.bn2(out)
         out = self.relu(out)
+
+        if self.debug:
+            out.retain_grad()
+            self.conv3_in = out
 
         out = self.conv3(out)
         out = self.bn3(out)
@@ -164,7 +180,7 @@ class ResNet(nn.Module):
         self.layer3 = self._make_layer(builder, block, 256, layers[2], stride=2)
         self.layer4 = self._make_layer(builder, block, 512, layers[3], stride=2)
         self.avgpool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Linear(512 * block.expansion, num_classes)
+        self.fc = builder.linear(512 * block.expansion, num_classes)
 
     def _make_layer(self, builder, block, planes, blocks, stride=1):
         downsample = None
@@ -202,6 +218,12 @@ class ResNet(nn.Module):
         x = self.fc(x)
 
         return x
+
+    def set_debug(self, debug):
+        for l in [self.layer1, self.layer2, self.layer3, self.layer4]:
+            for b in l:
+                b.debug = debug
+
 # ResNet }}}
 
 

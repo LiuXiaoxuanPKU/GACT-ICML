@@ -40,7 +40,7 @@ def add_parser_arguments(parser):
 
     parser.add_argument('data', metavar='DIR',
                         help='path to dataset')
-    parser.add_argument('--data-backend', metavar='BACKEND', default='dali-cpu',
+    parser.add_argument('--data-backend', metavar='BACKEND', default='pytorch',
                         choices=DATA_BACKEND_CHOICES)
 
     parser.add_argument('--arch', '-a', metavar='ARCH', default='resnet50',
@@ -49,7 +49,7 @@ def add_parser_arguments(parser):
                         ' | '.join(model_names) +
                         ' (default: resnet50)')
 
-    parser.add_argument('--model-config', '-c', metavar='CONF', default='classic',
+    parser.add_argument('--model-config', '-c', metavar='CONF', default='fanin',
                         choices=model_configs,
                         help='model configs: ' +
                         ' | '.join(model_configs) + '(default: classic)')
@@ -60,34 +60,34 @@ def add_parser_arguments(parser):
                         help='number of total epochs to run')
     parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                         help='manual epoch number (useful on restarts)')
-    parser.add_argument('-b', '--batch-size', default=256, type=int,
+    parser.add_argument('-b', '--batch-size', default=64, type=int,
                         metavar='N', help='mini-batch size (default: 256) per gpu')
 
     parser.add_argument('--optimizer-batch-size', default=-1, type=int,
                         metavar='N', help='size of a total batch size, for simulating bigger batches')
 
-    parser.add_argument('--lr', '--learning-rate', default=0.1, type=float,
+    parser.add_argument('--lr', '--learning-rate', default=0.512, type=float,
                         metavar='LR', help='initial learning rate')
-    parser.add_argument('--lr-schedule', default='step', type=str, metavar='SCHEDULE', choices=['step','linear','cosine'])
+    parser.add_argument('--lr-schedule', default='cosine', type=str, metavar='SCHEDULE', choices=['step','linear','cosine'])
 
-    parser.add_argument('--warmup', default=0, type=int,
+    parser.add_argument('--warmup', default=4, type=int,
                         metavar='E', help='number of warmup epochs')
 
-    parser.add_argument('--label-smoothing', default=0.0, type=float,
+    parser.add_argument('--label-smoothing', default=0.1, type=float,
                         metavar='S', help='label smoothing')
     parser.add_argument('--mixup', default=0.0, type=float,
                         metavar='ALPHA', help='mixup alpha')
 
-    parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
+    parser.add_argument('--momentum', default=0.875, type=float, metavar='M',
                         help='momentum')
-    parser.add_argument('--weight-decay', '--wd', default=1e-4, type=float,
+    parser.add_argument('--weight-decay', '--wd', default=3.0517578125e-05, type=float,
                         metavar='W', help='weight decay (default: 1e-4)')
     parser.add_argument('--bn-weight-decay', action='store_true',
                         help='use weight_decay on batch normalization learnable parameters, default: false)')
     parser.add_argument('--nesterov', action='store_true',
                         help='use nesterov momentum, default: false)')
 
-    parser.add_argument('--print-freq', '-p', default=10, type=int,
+    parser.add_argument('--print-freq', '-p', default=100, type=int,
                         metavar='N', help='print frequency (default: 10)')
     parser.add_argument('--resume', default='', type=str, metavar='PATH',
                         help='path to latest checkpoint (default: none)')
@@ -114,7 +114,7 @@ def add_parser_arguments(parser):
     parser.add_argument('--gather-checkpoints', action='store_true',
                         help='Gather checkpoints throughout the training')
 
-    parser.add_argument('--raport-file', default='experiment_raport.json', type=str,
+    parser.add_argument('--raport-file', default='raport.json', type=str,
                         help='file in which to store JSON experiment raport')
 
     parser.add_argument('--final-weights', default='model.pth.tar', type=str,

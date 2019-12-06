@@ -1,5 +1,6 @@
 import torch
 import sys
+from image_classification.utils import *
 
 prefix = sys.argv[1]
 num_workers = 8
@@ -20,22 +21,6 @@ def load_state(prefix):
         errors[k] = torch.cat(errors[k], 0)
 
     return weights, errors
-
-
-def dict_add(x, y):
-    return {k: x[k] + y[k] for k in x}
-
-def dict_minus(x, y):
-    return {k: x[k] - y[k] for k in x}
-
-def dict_sqr(x):
-    return {k: x[k]**2 for k in x}
-
-def dict_sqrt(x):
-    return {k: torch.sqrt(x[k]) for k in x}
-
-def dict_mul(x, a):
-    return {k: x[k]*a for k in x}
 
 
 exact_weight, exact_errors = load_state(prefix + "/exact")

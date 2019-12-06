@@ -60,3 +60,18 @@ def reduce_tensor(tensor):
     dist.all_reduce(rt, op=dist.ReduceOp.SUM)
     rt /= torch.distributed.get_world_size() if torch.distributed.is_initialized() else 1
     return rt
+
+def dict_add(x, y):
+    return {k: x[k] + y[k] for k in x}
+
+def dict_minus(x, y):
+    return {k: x[k] - y[k] for k in x}
+
+def dict_sqr(x):
+    return {k: x[k]**2 for k in x}
+
+def dict_sqrt(x):
+    return {k: torch.sqrt(x[k]) for k in x}
+
+def dict_mul(x, a):
+    return {k: x[k]*a for k in x}

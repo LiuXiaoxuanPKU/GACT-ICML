@@ -2,6 +2,7 @@ import math
 import torch
 import torch.nn as nn
 import numpy as np
+from .quantize import QConv2d, QLinear
 
 __all__ = ['ResNet', 'build_resnet', 'resnet_versions', 'resnet_configs']
 
@@ -16,18 +17,17 @@ class ResNetBuilder(object):
 
     def conv(self, kernel_size, in_planes, out_planes, stride=1):
         if kernel_size == 3:
-            conv = self.config['conv'](
-                    in_planes, out_planes, kernel_size=3, stride=stride,
-                    padding=1, bias=False)
+            conv = self.config['conv'](in_planes, out_planes, kernel_size=3, stride=stride,
+                                       padding=1, bias=False)
         elif kernel_size == 1:
-            conv = nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride,
-                             bias=False)
+            conv = self.config['conv'](in_planes, out_planes, kernel_size=1, stride=stride,
+                                       bias=False)
         elif kernel_size == 5:
-            conv = nn.Conv2d(in_planes, out_planes, kernel_size=5, stride=stride,
-                             padding=2, bias=False)
+            conv = self.config['conv'](in_planes, out_planes, kernel_size=5, stride=stride,
+                                       padding=2, bias=False)
         elif kernel_size == 7:
-            conv = nn.Conv2d(in_planes, out_planes, kernel_size=7, stride=stride,
-                             padding=3, bias=False)
+            conv = self.config['conv'](in_planes, out_planes, kernel_size=7, stride=stride,
+                                       padding=3, bias=False)
         else:
             return None
 
@@ -208,17 +208,30 @@ class ResNet(nn.Module):
 resnet_configs = {
         'classic' : {
             'conv' : nn.Conv2d,
+            'linear' : nn.Linear,
             'conv_init' : 'fan_out',
             'nonlinearity' : 'relu',
             'last_bn_0_init' : False,
             'activation' : lambda: nn.ReLU(inplace=True),
+            'quantize_forward': False
             },
         'fanin' : {
             'conv' : nn.Conv2d,
+            'linear' : nn.Linear,
             'conv_init' : 'fan_in',
             'nonlinearity' : 'relu',
             'last_bn_0_init' : False,
             'activation' : lambda: nn.ReLU(inplace=True),
+            'quantize_forward': False
+            },
+        'quantize' : {
+            'conv' : QConv2d,
+            'linear' : QLinear,
+            'conv_init' : 'fan_in',
+            'nonlinearity' : 'relu',
+            'last_bn_0_init' : False,
+            'activation' : lambda: nn.ReLU(inplace=True),
+            'quantize_forward': True
             },
         }
 

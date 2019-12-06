@@ -357,4 +357,7 @@ def train_loop(model_and_loss, optimizer, lr_scheduler, train_loader, val_loader
                 'best_prec1': best_prec1,
                 'optimizer' : optimizer.state_dict(),
             }, is_best, checkpoint_dir=checkpoint_dir, backup_filename=backup_filename)
+
+        if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
+            logger.end()
 # }}}

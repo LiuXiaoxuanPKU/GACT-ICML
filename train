@@ -1,1 +1,2 @@
-python ./multiproc.py --nproc_per_node 8 ./main.py ~/data/imagenet
+mkdir results/$1
+python ./multiproc.py --nproc_per_node 8 ./main.py --arch $1 --gather-checkpoints --workspace results/$1 ~/data/imagenet

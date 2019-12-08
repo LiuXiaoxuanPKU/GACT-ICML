@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 from .quantize import QConv2d, QLinear
+from .preact_resnet import PreActBlock, PreActBottleneck, PreActResNet
 
 __all__ = ['ResNet', 'build_resnet', 'resnet_versions', 'resnet_configs']
 
@@ -288,6 +289,36 @@ resnet_versions = {
             'layers' : [3, 8, 36, 3],
             'num_classes' : 1000,
             },
+        'preact_resnet20' : {
+            'net' : PreActResNet,
+            'block' : PreActBlock,
+            'layers' : [3, 3, 3],
+            'num_classes' : 10,
+            },
+        'preact_resnet56' : {
+            'net' : PreActResNet,
+            'block' : PreActBlock,
+            'layers' : [9, 9, 9],
+            'num_classes' : 10,
+            },
+        'preact_resnet110' : {
+            'net' : PreActResNet,
+            'block' : PreActBlock,
+            'layers' : [18, 18, 18],
+            'num_classes' : 10,
+            },
+        'preact_resnet164' : {
+            'net' : PreActResNet,
+            'block' : PreActBottleneck,
+            'layers' : [18, 18, 18],
+            'num_classes' : 10,
+            },
+        'preact_resnet1001' : {
+            'net' : PreActResNet,
+            'block' : PreActBottleneck,
+            'layers' : [111, 111, 111],
+            'num_classes' : 10,
+            },
         }
 
 
@@ -304,20 +335,3 @@ def build_resnet(version, config, model_state=None):
                            version['num_classes'])
 
     return model
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

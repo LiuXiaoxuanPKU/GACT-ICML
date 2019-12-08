@@ -217,7 +217,6 @@ def main(args):
         loss = lambda: LabelSmoothing(args.label_smoothing)
 
     model_and_loss = ModelAndLoss(
-            args.dataset,
             (args.arch, args.model_config),
             loss,
             pretrained_weights=pretrained_weights,

@@ -188,8 +188,12 @@ def expand(num_classes, dtype, tensor):
 
 class PrefetchedWrapper(object):
     def prefetched_loader(loader, num_classes, fp16, one_hot):
-        mean = torch.tensor([0.485 * 255, 0.456 * 255, 0.406 * 255]).cuda().view(1,3,1,1)
-        std = torch.tensor([0.229 * 255, 0.224 * 255, 0.225 * 255]).cuda().view(1,3,1,1)
+        if num_classes == 10:   # Cifar10
+            mean = torch.tensor([0.491 * 255, 0.482 * 255, 0.447 * 255]).cuda().view(1, 3, 1, 1)
+            std = torch.tensor([0.247 * 255, 0.243 * 255, 0.262 * 255]).cuda().view(1, 3, 1, 1)
+        else:
+            mean = torch.tensor([0.485 * 255, 0.456 * 255, 0.406 * 255]).cuda().view(1,3,1,1)
+            std = torch.tensor([0.229 * 255, 0.224 * 255, 0.225 * 255]).cuda().view(1,3,1,1)
         if fp16:
             mean = mean.half()
             std = std.half()

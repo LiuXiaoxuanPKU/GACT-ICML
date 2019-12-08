@@ -3,7 +3,7 @@ import sys
 from image_classification.utils import *
 
 prefix = sys.argv[1]
-num_workers = 2
+num_workers = int(sys.argv[2])
 num_samples = 3
 
 

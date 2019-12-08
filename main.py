@@ -275,7 +275,7 @@ def main(args):
             args.lr, args.momentum, args.weight_decay,
             nesterov = args.nesterov,
             bn_weight_decay = args.bn_weight_decay,
-            state=optimizer_state,
+            # state=optimizer_state,
             static_loss_scale = args.static_loss_scale,
             dynamic_loss_scale = args.dynamic_loss_scale)
 

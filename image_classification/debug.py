@@ -47,7 +47,11 @@ def get_grad(m):
 
 
 def get_batch_grad(model_and_loss, optimizer, val_loader, ckpt_name):
-    m = model_and_loss.model.module
+    if hasattr(model_and_loss.model, 'module'):
+        m = model_and_loss.model.module
+    else:
+        m = model_and_loss.model
+
     m.set_debug(True)
     data_iter = enumerate(val_loader)
     optimizer.zero_grad()
@@ -63,13 +67,17 @@ def get_batch_grad(model_and_loss, optimizer, val_loader, ckpt_name):
             param.grad /= cnt
 
     grad = get_grad(m)
-    if torch.distributed.get_rank() == 0:
+    if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
         torch.save(grad, ckpt_name)
     return get_grad(m)
 
 
 def get_grad_std(model_and_loss, optimizer, val_loader, mean_grad, ckpt_name):
-    m = model_and_loss.model.module
+    if hasattr(model_and_loss.model, 'module'):
+        m = model_and_loss.model.module
+    else:
+        m = model_and_loss.model
+
     m.set_debug(True)
     data_iter = enumerate(val_loader)
     var_grad = None
@@ -80,7 +88,7 @@ def get_grad_std(model_and_loss, optimizer, val_loader, mean_grad, ckpt_name):
         loss.backward()
         torch.cuda.synchronize()
 
-        if torch.distributed.get_rank() == 0:
+        if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
             grad_dict = get_grad(m)
 
             e_grad = dict_sqr(dict_minus(grad_dict, mean_grad))
@@ -91,13 +99,17 @@ def get_grad_std(model_and_loss, optimizer, val_loader, mean_grad, ckpt_name):
 
         cnt += 1
 
-    if torch.distributed.get_rank() == 0:
+    if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
         std_grad = dict_sqrt(dict_mul(var_grad, 1.0 / cnt))
         torch.save(std_grad, ckpt_name)
 
 
 def get_gradient(model_and_loss, optimizer, input, target, prefix):
-    m = model_and_loss.model.module
+    if hasattr(model_and_loss.model, 'module'):
+        m = model_and_loss.model.module
+    else:
+        m = model_and_loss.model
+
     m.set_debug(True)
 
     loss, output = model_and_loss(input, target)
@@ -106,13 +118,18 @@ def get_gradient(model_and_loss, optimizer, input, target, prefix):
     loss.backward()
     torch.cuda.synchronize()
 
-    if torch.distributed.get_rank() == 0:
+    if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
         grad_dict = get_grad(m)
         ckpt_name = "{}_weight.grad".format(prefix)
         torch.save(grad_dict, ckpt_name)
 
     grad_dict = get_error_grad(m)
-    ckpt_name = "{}_{}_error.grad".format(prefix, torch.distributed.get_rank())
+    if not torch.distributed.is_initialized():
+        rank = 0
+    else:
+        rank = torch.distributed.get_rank()
+
+    ckpt_name = "{}_{}_error.grad".format(prefix, rank)
     torch.save(grad_dict, ckpt_name)
 
 

@@ -330,7 +330,6 @@ def train_loop(model_and_loss, optimizer, lr_scheduler, train_loader, val_loader
                should_backup_checkpoint, use_amp=False,
                batch_size_multiplier = 1,
                best_prec1 = 0, start_epoch = 0, prof = -1, skip_training = False, skip_validation = False, save_checkpoints = True, checkpoint_dir='./'):
-
     prec1 = -1
 
     epoch_iter = range(start_epoch, epochs)

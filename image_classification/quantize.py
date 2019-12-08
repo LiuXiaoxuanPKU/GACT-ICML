@@ -6,6 +6,19 @@ import torch.nn.functional as F
 from torch.autograd.function import InplaceFunction, Function
 import time
 
+
+class QuantizationConfig:
+    def __init__(self):
+        self.quantize_activation = True
+        self.quantize_weights = True
+        self.quantize_gradient = True
+        self.forward_num_bits = 8
+        self.backward_num_bits = 8
+        self.backward_persample = False
+
+
+config = QuantizationConfig()
+
 QParams = namedtuple('QParams', ['range', 'zero_point', 'num_bits'])
 
 _DEFAULT_FLATTEN = (1, -1)
@@ -15,9 +28,6 @@ _DEFAULT_FLATTEN_GRAD = (0, -1)
 def _deflatten_as(x, x_full):
     shape = list(x.shape) + [1] * (x_full.dim() - x.dim())
     return x.view(*shape)
-
-
-quan_grad = True
 
 
 def calculate_qparams(x, num_bits, flatten_dims=_DEFAULT_FLATTEN, reduce_dim=0,  reduce_type='mean', keepdim=False, true_zero=False):
@@ -39,9 +49,11 @@ def calculate_qparams(x, num_bits, flatten_dims=_DEFAULT_FLATTEN, reduce_dim=0, 
                 min_values = min_values.mean(reduce_dim, keepdim=keepdim)
                 max_values = max_values.mean(reduce_dim, keepdim=keepdim)
             else:
-                # min_values = min_values.min(reduce_dim, keepdim=keepdim)[0]
-                # max_values = max_values.max(reduce_dim, keepdim=keepdim)[0]
-                pass
+                if config.backward_persample:
+                    pass
+                else:
+                    min_values = min_values.min(reduce_dim, keepdim=keepdim)[0]
+                    max_values = max_values.max(reduce_dim, keepdim=keepdim)[0]
 
         # TODO: re-add true zero computation
         range_values = max_values - min_values
@@ -128,12 +140,12 @@ class UniformQuantizeGrad(InplaceFunction):
 
 
 def conv2d_biprec(input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1, num_bits_grad=None):
-    if quan_grad:
+    if config.quantize_gradient:
         out1 = F.conv2d(input.detach(), weight, bias,
                         stride, padding, dilation, groups)
         out2 = F.conv2d(input, weight.detach(), bias.detach() if bias is not None else None,
                         stride, padding, dilation, groups)
-        out2 = quantize_grad(out2, num_bits=num_bits_grad, flatten_dims=(1, -1))
+        out2 = quantize_grad(out2, num_bits=config.backward_num_bits, flatten_dims=(1, -1))
         return out1 + out2 - out1.detach()
     else:
         out = F.conv2d(input, weight, bias,
@@ -142,11 +154,11 @@ def conv2d_biprec(input, weight, bias=None, stride=1, padding=0, dilation=1, gro
 
 
 def linear_biprec(input, weight, bias=None, num_bits_grad=None):
-    if quan_grad:
+    if config.quantize_gradient:
         out1 = F.linear(input.detach(), weight, bias)
         out2 = F.linear(input, weight.detach(), bias.detach()
                         if bias is not None else None)
-        out2 = quantize_grad(out2, num_bits=num_bits_grad)
+        out2 = quantize_grad(out2, num_bits=config.backward_num_bits)
         return out1 + out2 - out1.detach()
     else:
         out = F.linear(input, weight, bias)
@@ -177,11 +189,12 @@ class QuantMeasure(nn.Module):
     def forward(self, input, qparams=None):
         if qparams is None:
             qparams = calculate_qparams(
-                input, num_bits=self.num_bits, flatten_dims=self.flatten_dims, reduce_dim=0)
+                input, num_bits=config.forward_num_bits, flatten_dims=self.flatten_dims, reduce_dim=0)
 
         q_input = quantize(input, qparams=qparams, dequantize=self.dequantize,
-                           stochastic=self.stochastic, inplace=self.inplace)
+                           stochastic=self.stochastic, inplace=self.inplace, num_bits=config.forward_num_bits)
         return q_input
+
 
 class QConv2d(nn.Conv2d):
     """docstring for QConv2d."""
@@ -198,16 +211,25 @@ class QConv2d(nn.Conv2d):
         self.biprecision = biprecision
 
     def forward(self, input):
-        qinput = self.quantize_input(input)
+        if config.quantize_activation:
+            qinput = self.quantize_input(input)
+        else:
+            qinput = input
 
-        weight_qparams = calculate_qparams(
-            self.weight, num_bits=self.num_bits_weight, flatten_dims=(1, -1), reduce_dim=None)
-        qweight = quantize(self.weight, qparams=weight_qparams)
+        if config.quantize_weights:
+            weight_qparams = calculate_qparams(
+                self.weight, num_bits=config.forward_num_bits, flatten_dims=(1, -1), reduce_dim=None)
+            qweight = quantize(self.weight, qparams=weight_qparams)
+        else:
+            qweight = self.weight
 
         if self.bias is not None:
-            qbias = quantize(
-                self.bias, num_bits=self.num_bits_weight + self.num_bits,
-                flatten_dims=(0, -1))
+            if config.quantize_weights:
+                qbias = quantize(
+                    self.bias, num_bits=config.forward_num_bits + self.num_bits,
+                    flatten_dims=(0, -1))
+            else:
+                qbias = self.bias
         else:
             qbias = None
         if not self.biprecision or self.num_bits_grad is None:
@@ -234,14 +256,25 @@ class QLinear(nn.Linear):
         self.quantize_input = QuantMeasure(self.num_bits)
 
     def forward(self, input):
-        qinput = self.quantize_input(input)
-        weight_qparams = calculate_qparams(
-            self.weight, num_bits=self.num_bits_weight, flatten_dims=(1, -1), reduce_dim=None)
-        qweight = quantize(self.weight, qparams=weight_qparams)
+        if config.quantize_activation:
+            qinput = self.quantize_input(input)
+        else:
+            qinput = input
+
+        if config.quantize_weights:
+            weight_qparams = calculate_qparams(
+                self.weight, num_bits=config.forward_num_bits, flatten_dims=(1, -1), reduce_dim=None)
+            qweight = quantize(self.weight, qparams=weight_qparams)
+        else:
+            qweight = self.weight
+
         if self.bias is not None:
-            qbias = quantize(
-                self.bias, num_bits=self.num_bits_weight + self.num_bits,
-                flatten_dims=(0, -1))
+            if config.quantize_weights:
+                qbias = quantize(
+                    self.bias, num_bits=config.forward_num_bits + self.num_bits,
+                    flatten_dims=(0, -1))
+            else:
+                qbias = self.bias
         else:
             qbias = None
 

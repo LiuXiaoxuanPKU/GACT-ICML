@@ -1,9 +1,54 @@
 import torch
-import image_classification.quantize
+from .quantize import config
 from .utils import *
 
 
-def get_batch_grad(model_and_loss, optimizer, val_loader):
+def get_error_grad(m):
+    grad_dict = {}
+
+    if hasattr(m, 'layer4'):
+        layers = [m.layer1, m.layer2, m.layer3, m.layer4]
+    else:
+        layers = [m.layer1, m.layer2, m.layer3]
+
+    for lid, layer in enumerate(layers):
+        for bid, block in enumerate(layer):
+            clayers = [block.conv1_in, block.conv2_in]
+            if hasattr(block, 'conv3'):
+                clayers.extend([block.conv3_in])
+
+            for cid, clayer in enumerate(clayers):
+                layer_name = 'conv_{}_{}_{}_error'.format(lid + 1, bid + 1, cid + 1)
+                grad_dict[layer_name] = clayer.grad.detach().cpu()
+
+    return grad_dict
+
+
+def get_grad(m):
+    grad_dict = {}
+
+    if hasattr(m, 'layer4'):
+        layers = [m.layer1, m.layer2, m.layer3, m.layer4]
+    else:
+        layers = [m.layer1, m.layer2, m.layer3]
+
+    for lid, layer in enumerate(layers):
+        for bid, block in enumerate(layer):
+            clayers = [block.conv1, block.conv2, block.conv3] if hasattr(block, 'conv3') \
+                else [block.conv1, block.conv2]
+
+            for cid, clayer in enumerate(clayers):
+                layer_name = 'conv_{}_{}_{}_weight'.format(lid + 1, bid + 1, cid + 1)
+                grad_dict[layer_name] = clayer.weight.detach().cpu()
+                layer_name = 'conv_{}_{}_{}_grad'.format(lid + 1, bid + 1, cid + 1)
+                grad_dict[layer_name] = clayer.weight.grad.detach().cpu()
+
+    return grad_dict
+
+
+def get_batch_grad(model_and_loss, optimizer, val_loader, ckpt_name):
+    m = model_and_loss.model.module
+    m.set_debug(True)
     data_iter = enumerate(val_loader)
     optimizer.zero_grad()
     cnt = 0
@@ -17,19 +62,15 @@ def get_batch_grad(model_and_loss, optimizer, val_loader):
         for param in param_group['params']:
             param.grad /= cnt
 
-    grad_dict = {}
-    for lid, layer in enumerate([m.layer1, m.layer2, m.layer3, m.layer4]):
-        for bid, block in enumerate(layer):
-            for cid, clayer in enumerate([block.conv1, block.conv2, block.conv3]):
-                layer_name = 'conv_{}_{}_{}_weight'.format(lid + 1, bid + 1, cid + 1)
-                grad_dict[layer_name] = clayer.weight.detach().cpu()
-                layer_name = 'conv_{}_{}_{}_grad'.format(lid + 1, bid + 1, cid + 1)
-                grad_dict[layer_name] = clayer.weight.grad.detach().cpu()
-
-    return grad_dict
+    grad = get_grad(m)
+    if torch.distributed.get_rank() == 0:
+        torch.save(grad, ckpt_name)
+    return get_grad(m)
 
 
 def get_grad_std(model_and_loss, optimizer, val_loader, mean_grad, ckpt_name):
+    m = model_and_loss.model.module
+    m.set_debug(True)
     data_iter = enumerate(val_loader)
     var_grad = None
     cnt = 0
@@ -40,16 +81,9 @@ def get_grad_std(model_and_loss, optimizer, val_loader, mean_grad, ckpt_name):
         torch.cuda.synchronize()
 
         if torch.distributed.get_rank() == 0:
-            grad_dict = {}
-            for lid, layer in enumerate([m.layer1, m.layer2, m.layer3, m.layer4]):
-                for bid, block in enumerate(layer):
-                    for cid, clayer in enumerate([block.conv1, block.conv2, block.conv3]):
-                        layer_name = 'conv_{}_{}_{}_weight'.format(lid + 1, bid + 1, cid + 1)
-                        grad_dict[layer_name] = clayer.weight.detach().cpu()
-                        layer_name = 'conv_{}_{}_{}_grad'.format(lid + 1, bid + 1, cid + 1)
-                        grad_dict[layer_name] = clayer.weight.grad.detach().cpu()
+            grad_dict = get_grad(m)
 
-            e_grad = dict_sqr(dict_minus(grad_dict - mean_grad))
+            e_grad = dict_sqr(dict_minus(grad_dict, mean_grad))
             if var_grad is None:
                 var_grad = e_grad
             else:
@@ -58,8 +92,8 @@ def get_grad_std(model_and_loss, optimizer, val_loader, mean_grad, ckpt_name):
         cnt += 1
 
     if torch.distributed.get_rank() == 0:
-        var_grad = dict_sqrt(dict_mul(var_grad, 1.0 / cnt))
-        torch.save(grad_dict, ckpt_name)
+        std_grad = dict_sqrt(dict_mul(var_grad, 1.0 / cnt))
+        torch.save(std_grad, ckpt_name)
 
 
 def get_gradient(model_and_loss, optimizer, input, target, prefix):
@@ -73,35 +107,22 @@ def get_gradient(model_and_loss, optimizer, input, target, prefix):
     torch.cuda.synchronize()
 
     if torch.distributed.get_rank() == 0:
-        grad_dict = {}
-        for lid, layer in enumerate([m.layer1, m.layer2, m.layer3, m.layer4]):
-            for bid, block in enumerate(layer):
-                for cid, clayer in enumerate([block.conv1, block.conv2, block.conv3]):
-                    layer_name = 'conv_{}_{}_{}_weight'.format(lid + 1, bid + 1, cid + 1)
-                    grad_dict[layer_name] = clayer.weight.detach().cpu()
-                    layer_name = 'conv_{}_{}_{}_grad'.format(lid+1, bid+1, cid+1)
-                    grad_dict[layer_name] = clayer.weight.grad.detach().cpu()
-
+        grad_dict = get_grad(m)
         ckpt_name = "{}_weight.grad".format(prefix)
         torch.save(grad_dict, ckpt_name)
 
-    grad_dict = {}
-    for lid, layer in enumerate([m.layer1, m.layer2, m.layer3, m.layer4]):
-        for bid, block in enumerate(layer):
-            for cid, clayer in enumerate([block.conv1_in, block.conv2_in, block.conv3_in]):
-                layer_name = 'conv_{}_{}_{}_error'.format(lid+1, bid+1, cid+1)
-                grad_dict[layer_name] = clayer.grad.detach().cpu()
-
+    grad_dict = get_error_grad(m)
     ckpt_name = "{}_{}_error.grad".format(prefix, torch.distributed.get_rank())
     torch.save(grad_dict, ckpt_name)
 
 
 def dump(model_and_loss, optimizer, val_loader, checkpoint_dir):
+    config.quantize_gradient = False
     print("Computing batch gradient...")
-    grad = get_batch_grad(model_and_loss, optimizer, val_loader)
+    grad = get_batch_grad(model_and_loss, optimizer, val_loader, checkpoint_dir + "/grad_mean.grad")
 
     print("Computing gradient std...")
-    get_grad_std(model_and_loss, optimizer, grad, checkpoint_dir + "/grad_std.grad")
+    get_grad_std(model_and_loss, optimizer, val_loader, grad, checkpoint_dir + "/grad_std.grad")
 
     print("Computing quantization noise...")
     data_iter = enumerate(val_loader)
@@ -111,10 +132,9 @@ def dump(model_and_loss, optimizer, val_loader, checkpoint_dir):
     input = input[:8]
     target = target[:8]
 
-    image_classification.quantize.quan_grad = False
     get_gradient(model_and_loss, optimizer, input, target, checkpoint_dir + "/exact")
 
-    image_classification.quantize.quan_grad = True
+    config.quantize_gradient = True
     for i in range(3):
         print(i)
         get_gradient(model_and_loss, optimizer, input, target, checkpoint_dir + "/sample_{}".format(i))

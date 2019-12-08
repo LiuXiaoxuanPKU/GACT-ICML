@@ -3,7 +3,7 @@ import sys
 from image_classification.utils import *
 
 prefix = sys.argv[1]
-num_workers = 8
+num_workers = 2
 num_samples = 3
 
 
@@ -23,6 +23,8 @@ def load_state(prefix):
     return weights, errors
 
 
+batch_gradient = torch.load(prefix + "/grad_mean.grad")
+sample_grad_std = torch.load(prefix + "/grad_std.grad")
 exact_weight, exact_errors = load_state(prefix + "/exact")
 
 weight, errors = load_state(prefix + "/sample_0")
@@ -49,9 +51,19 @@ std_errors = dict_sqrt(dict_mul(var_errors, 1.0 / num_samples))
 
 print("======== Weights =========")
 weight_names = list(bias_weight.keys())
+weight_names = [n.replace('_grad', '').replace('_weight', '') for n in weight_names]
+weight_names = list(set(weight_names))
 weight_names.sort()
 for k in weight_names:
-    print('{}, bias={}, std={}'.format(k, bias_weight[k].abs().mean(), std_weight[k].mean()))
+    grad_bias = bias_weight[k + '_grad']
+    grad_std = std_weight[k + '_grad']
+    grad_std_2 = sample_grad_std[k + '_grad']
+    grad_mean = batch_gradient[k + '_grad']
+
+    print('{}, batch grad mean={}, quant bias={}, quant std={}, sample std={}'.format(k, grad_mean.abs().mean(),
+                                                                             grad_bias.abs().mean(),
+                                                                             grad_std.abs().mean(),
+                                                                             grad_std_2.abs().mean()))
 
 print("======== Errors =========")
 error_names = list(bias_errors.keys())

@@ -16,6 +16,7 @@ import torch.utils.data
 import torch.utils.data.distributed
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
+from image_classification.quantize import config
 
 try:
     from apex.parallel import DistributedDataParallel as DDP
@@ -129,8 +130,22 @@ def add_parser_arguments(parser):
 
     parser.add_argument('--workspace', type=str, default='./')
 
+    parser.add_argument('--qa', type=bool, default=True, help='quantize activation')
+    parser.add_argument('--qw', type=bool, default=True, help='quantize weights')
+    parser.add_argument('--qg', type=bool, default=True, help='quantize gradients')
+    parser.add_argument('--fbits', type=int, default=8, help='forward number of bits')
+    parser.add_argument('--bbits', type=int, default=8, help='backward number of bits')
+    parser.add_argument('--persample', type=bool, default=False, help='per-sample quantization of gradients')
+
 
 def main(args):
+    config.quantize_activation = args.qa
+    config.quantize_weights = args.qw
+    config.quantize_gradient = args.qg
+    config.forward_num_bits = args.fbits
+    config.backward_num_bits = args.bbits
+    config.backward_persample = args.persample
+
     exp_start_time = time.time()
     global best_prec1
     best_prec1 = 0

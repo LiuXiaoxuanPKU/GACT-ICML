@@ -22,6 +22,7 @@ class PreActBlock(nn.Module):
         self.conv2 = builder.conv3x3(planes, planes)
         self.downsample = downsample
         self.stride = stride
+        self.debug = False
 
     def forward(self, x):
         residual = x
@@ -32,11 +33,28 @@ class PreActBlock(nn.Module):
         if self.downsample is not None:
             residual = self.downsample(out)
 
+        if self.debug:
+            out.retain_grad()
+            self.conv1_in = out
+
         out = self.conv1(out)
+
+        if self.debug:
+            out.retain_grad()
+            self.conv1_out = out
 
         out = self.bn2(out)
         out = self.relu(out)
+
+        if self.debug:
+            out.retain_grad()
+            self.conv2_in = out
+
         out = self.conv2(out)
+
+        if self.debug:
+            out.retain_grad()
+            self.conv2_out = out
 
         out += residual
 
@@ -58,6 +76,7 @@ class PreActBottleneck(nn.Module):
         self.conv3 = builder.conv1x1(planes, planes*4)
         self.downsample = downsample
         self.stride = stride
+        self.debug = False
 
     def forward(self, x):
         residual = x
@@ -68,15 +87,41 @@ class PreActBottleneck(nn.Module):
         if self.downsample is not None:
             residual = self.downsample(out)
 
+        if self.debug:
+            out.retain_grad()
+            self.conv1_in = out
+
         out = self.conv1(out)
+
+        if self.debug:
+            out.retain_grad()
+            self.conv1_out = out
 
         out = self.bn2(out)
         out = self.relu(out)
+
+        if self.debug:
+            out.retain_grad()
+            self.conv2_in = out
+
         out = self.conv2(out)
+
+        if self.debug:
+            out.retain_grad()
+            self.conv2_out = out
 
         out = self.bn3(out)
         out = self.relu(out)
+
+        if self.debug:
+            out.retain_grad()
+            self.conv3_in = out
+
         out = self.conv3(out)
+
+        if self.debug:
+            out.retain_grad()
+            self.conv3_out = out
 
         out += residual
 
@@ -125,3 +170,8 @@ class PreActResNet(nn.Module):
         x = self.fc(x)
 
         return x
+
+    def set_debug(self, debug):
+        for l in [self.layer1, self.layer2, self.layer3]:
+            for b in l:
+                b.debug = debug

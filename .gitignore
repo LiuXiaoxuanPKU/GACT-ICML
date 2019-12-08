@@ -1,3 +1,4 @@
 results
 *.log
 .idea
+__pycache__

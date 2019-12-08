@@ -61,8 +61,6 @@ class ResNetBuilder(object):
 
     def batchnorm(self, planes, last_bn=False):
         bn = nn.BatchNorm2d(planes)
-        if self.config['last_bn_0_init']:       # For preact-resnet
-            return bn
 
         gamma_init_val = 0 if last_bn and self.config['last_bn_0_init'] else 1
         nn.init.constant_(bn.weight, gamma_init_val)
@@ -258,15 +256,6 @@ resnet_configs = {
             'last_bn_0_init' : False,
             'activation' : lambda: nn.ReLU(inplace=True),
             'quantize_forward': True
-            },
-        'cifar' : {
-            'conv' : nn.Conv2d,
-            'linear' : nn.Linear,
-            'conv_init' : 'fan_in',
-            'nonlinearity' : 'cifar',       # For preact-resnet
-            'last_bn_0_init' : True,
-            'activation' : lambda: nn.ReLU(inplace=True),
-            'quantize_forward': False
             },
         }
 

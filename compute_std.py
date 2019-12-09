@@ -23,6 +23,10 @@ def load_state(prefix):
     return weights, errors
 
 
+def key(a):
+    return [int(i) for i in a.split('_')[1:4]]
+
+
 batch_gradient = torch.load(prefix + "/grad_mean.grad")
 sample_grad_std = torch.load(prefix + "/grad_std.grad")
 exact_weight, exact_errors = load_state(prefix + "/exact")
@@ -53,7 +57,7 @@ print("======== Weights =========")
 weight_names = list(bias_weight.keys())
 weight_names = [n.replace('_grad', '').replace('_weight', '') for n in weight_names]
 weight_names = list(set(weight_names))
-weight_names.sort()
+weight_names.sort(key=key)
 for k in weight_names:
     grad_bias = bias_weight[k + '_grad']
     grad_std = std_weight[k + '_grad']
@@ -67,6 +71,6 @@ for k in weight_names:
 
 print("======== Errors =========")
 error_names = list(bias_errors.keys())
-error_names.sort()
+error_names.sort(key=key)
 for k in error_names:
-    print('{}, bias={}, std={}'.format(k, bias_errors[k].abs().mean(), std_errors[k].mean()))
+    print('{}, exact={}, bias={}, std={}, rel_std={}'.format(k, exact_errors[k].abs().mean(), bias_errors[k].abs().mean(), std_errors[k].mean(), std_errors[k].mean()/exact_errors[k].abs().mean()))

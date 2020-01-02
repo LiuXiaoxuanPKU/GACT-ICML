@@ -4,7 +4,7 @@ from image_classification.utils import *
 
 prefix = sys.argv[1]
 num_workers = int(sys.argv[2])
-num_samples = 3
+num_samples = 10
 
 
 def load_state(prefix):
@@ -29,6 +29,7 @@ def key(a):
 
 batch_gradient = torch.load(prefix + "/grad_mean.grad")
 sample_grad_std = torch.load(prefix + "/grad_std.grad")
+quan_grad_std = torch.load(prefix + "/grad_std_quan.grad")
 exact_weight, exact_errors = load_state(prefix + "/exact")
 
 weight, errors = load_state(prefix + "/sample_0")
@@ -62,12 +63,14 @@ for k in weight_names:
     grad_bias = bias_weight[k + '_grad']
     grad_std = std_weight[k + '_grad']
     grad_std_2 = sample_grad_std[k + '_grad']
+    quan_std = quan_grad_std[k + '_grad']
     grad_mean = batch_gradient[k + '_grad']
 
-    print('{}, batch grad mean={}, quant bias={}, quant std={}, sample std={}'.format(k, grad_mean.abs().mean(),
+    print('{}, batch grad mean={}, quant bias={}, quant std={}, sample std={}, overall std={}'.format(k, grad_mean.abs().mean(),
                                                                              grad_bias.abs().mean(),
                                                                              grad_std.abs().mean(),
-                                                                             grad_std_2.abs().mean()))
+                                                                             grad_std_2.abs().mean(),
+                                                                             quan_std.abs().mean()))
 
 print("======== Errors =========")
 error_names = list(bias_errors.keys())

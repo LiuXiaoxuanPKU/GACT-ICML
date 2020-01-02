@@ -1,6 +1,9 @@
 import torch
 from .quantize import config
 from .utils import *
+import matplotlib
+matplotlib.use('Agg')
+from matplotlib import pyplot as plt
 
 
 def get_error_grad(m):
@@ -102,6 +105,7 @@ def get_grad_std(model_and_loss, optimizer, val_loader, mean_grad, ckpt_name):
     if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
         std_grad = dict_sqrt(dict_mul(var_grad, 1.0 / cnt))
         torch.save(std_grad, ckpt_name)
+        return std_grad
 
 
 def get_gradient(model_and_loss, optimizer, input, target, prefix):
@@ -146,12 +150,102 @@ def dump(model_and_loss, optimizer, val_loader, checkpoint_dir):
     for i, (input, target) in data_iter:
         break
 
-    input = input[:8]
-    target = target[:8]
+    input = input[:128]
+    target = target[:128]
 
     get_gradient(model_and_loss, optimizer, input, target, checkpoint_dir + "/exact")
 
     config.quantize_gradient = True
-    for i in range(3):
+    for i in range(10):
         print(i)
         get_gradient(model_and_loss, optimizer, input, target, checkpoint_dir + "/sample_{}".format(i))
+
+    print("Computing quantized gradient std...")
+    get_grad_std(model_and_loss, optimizer, val_loader, grad, checkpoint_dir + "/grad_std_quan.grad")
+
+
+def dump(model_and_loss, optimizer, val_loader, checkpoint_dir):
+    config.quantize_gradient = False
+    print("Computing batch gradient...")
+    grad = get_batch_grad(model_and_loss, optimizer, val_loader, checkpoint_dir + "/grad_mean.grad")
+
+    print("Computing gradient std...")
+    get_grad_std(model_and_loss, optimizer, val_loader, grad, checkpoint_dir + "/grad_std.grad")
+
+    print("Computing quantization noise...")
+    data_iter = enumerate(val_loader)
+    for i, (input, target) in data_iter:
+        break
+
+    input = input[:128]
+    target = target[:128]
+
+    get_gradient(model_and_loss, optimizer, input, target, checkpoint_dir + "/exact")
+
+    config.quantize_gradient = True
+    for i in range(10):
+        print(i)
+        get_gradient(model_and_loss, optimizer, input, target, checkpoint_dir + "/sample_{}".format(i))
+
+    print("Computing quantized gradient std...")
+    get_grad_std(model_and_loss, optimizer, val_loader, grad, checkpoint_dir + "/grad_std_quan.grad")
+
+
+def key(a):
+    return [int(i) for i in a.split('_')[1:4]]
+
+
+def fast_dump(model_and_loss, optimizer, val_loader, checkpoint_dir):
+    config.quantize_gradient = False
+    print("Computing batch gradient...")
+    grad = get_batch_grad(model_and_loss, optimizer, val_loader, checkpoint_dir + "/grad_mean.grad")
+
+    print("Computing gradient std...")
+    std_grad = get_grad_std(model_and_loss, optimizer, val_loader, grad, checkpoint_dir + "/grad_std.grad")
+
+    config.quantize_gradient = True
+    std_quan = get_grad_std(model_and_loss, optimizer, val_loader, grad, checkpoint_dir + "/grad_std_quan.grad")
+
+    if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
+        weight_names = list(grad.keys())
+        weight_names = [n.replace('_grad', '').replace('_weight', '') for n in weight_names]
+        weight_names = list(set(weight_names))
+        weight_names.sort(key=key)
+        for k in weight_names:
+            grad_mean = grad[k + '_grad']
+            sg = std_grad[k + '_grad']
+            sq = std_quan[k + '_grad']
+
+            print('{}, batch grad mean={}, sample std={}, overall std={}'.format(k, grad_mean.abs().mean(),
+                   sg.abs().mean(), sq.abs().mean()))
+
+
+def plot_bin_hist(model_and_loss, optimizer, val_loader):
+    config.grads = []
+    data_iter = enumerate(val_loader)
+    for i, (input, target) in data_iter:
+        break
+
+    input = input[:128]
+    target = target[:128]
+
+    if hasattr(model_and_loss.model, 'module'):
+        m = model_and_loss.model.module
+    else:
+        m = model_and_loss.model
+
+    loss, output = model_and_loss(input, target)
+
+    optimizer.zero_grad()
+    loss.backward()
+    torch.cuda.synchronize()
+
+    if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
+        num_grads = len(config.grads)
+        fig, ax = plt.subplots(num_grads, figsize=(5, 5*num_grads))
+        for i in range(num_grads):
+            g, min_val, max_val = config.grads[i]
+            ax[i].hist(g.ravel(), bins=2**config.backward_num_bits)
+            print(i, min_val, max_val)
+
+        fig.savefig('grad_hist.pdf')

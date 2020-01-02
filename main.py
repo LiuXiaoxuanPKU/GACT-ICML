@@ -133,6 +133,7 @@ def add_parser_arguments(parser):
     parser.add_argument('--qa', type=bool, default=True, help='quantize activation')
     parser.add_argument('--qw', type=bool, default=True, help='quantize weights')
     parser.add_argument('--qg', type=bool, default=True, help='quantize gradients')
+    parser.add_argument('--biased', type=bool, default=False, help='biased quantization')
     parser.add_argument('--fbits', type=int, default=8, help='forward number of bits')
     parser.add_argument('--bbits', type=int, default=8, help='backward number of bits')
     parser.add_argument('--persample', type=bool, default=False, help='per-sample quantization of gradients')
@@ -145,6 +146,7 @@ def main(args):
     config.forward_num_bits = args.fbits
     config.backward_num_bits = args.bbits
     config.backward_persample = args.persample
+    config.biased = args.biased
 
     exp_start_time = time.time()
     global best_prec1

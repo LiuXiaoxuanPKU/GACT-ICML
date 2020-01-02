@@ -6,4 +6,4 @@ mkdir results/
 # ./test results/resnet50 "-c quantize"
 ./train_cifar preact_resnet56 preact_resnet56
 ./train_cifar preact_resnet56 preact_resnet56 "-c quantize --persample=True"
-#:CUDA_VISIBLE_DEVICES=1,6 ./test_cifar 2 preact_resnet20 200 "-c quantize --persample=True"
+CUDA_VISIBLE_DEVICES=0,1 ./test_cifar 2 preact_resnet56 200 "-c quantize --persample=True"

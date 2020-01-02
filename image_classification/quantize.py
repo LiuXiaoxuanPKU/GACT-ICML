@@ -15,6 +15,8 @@ class QuantizationConfig:
         self.forward_num_bits = 8
         self.backward_num_bits = 8
         self.backward_persample = False
+        self.biased = False
+        self.grads = None
 
 
 config = QuantizationConfig()
@@ -87,6 +89,14 @@ class UniformQuantize(InplaceFunction):
         num_bits = qparams.num_bits
         qmin = -(2.**(num_bits - 1)) if signed else 0.
         qmax = qmin + 2.**num_bits - 1.
+
+        # For biased quantization
+        cmin = qmin
+        cmax = qmax
+        if config.biased:
+            cmin += 2.**(num_bits - 2)
+            cmax -= 2.**(num_bits - 2)
+
         scale = qparams.range / (qmax - qmin)
         with torch.no_grad():
             output.add_(qmin * scale - zero_point).div_(scale)
@@ -94,7 +104,7 @@ class UniformQuantize(InplaceFunction):
                 noise = output.new(output.shape).uniform_(-0.5, 0.5)
                 output.add_(noise)
             # quantize
-            output.clamp_(qmin, qmax).round_()
+            output.clamp_(cmin, cmax).round_()
 
             if dequantize:
                 output.mul_(scale).add_(
@@ -135,6 +145,15 @@ class UniformQuantizeGrad(InplaceFunction):
             grad_input = quantize(grad_output, num_bits=None,
                                   qparams=qparams, flatten_dims=ctx.flatten_dims, reduce_dim=ctx.reduce_dim,
                                   dequantize=True, signed=ctx.signed, stochastic=ctx.stochastic, inplace=False)
+
+            if config.grads is not None:
+                g = quantize(grad_output, num_bits=None,
+                              qparams=qparams, flatten_dims=ctx.flatten_dims, reduce_dim=ctx.reduce_dim,
+                              dequantize=False, signed=ctx.signed, stochastic=ctx.stochastic, inplace=False)
+                config.grads.append([g.detach().cpu().numpy(),
+                                     grad_output.min(),
+                                     grad_output.max()])
+
 
         return grad_input, None, None, None, None, None, None, None
 

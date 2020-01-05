@@ -156,9 +156,107 @@ class UniformQuantize(InplaceFunction):
         return grad_input, None, None, None, None, None, None, None, None
 
 
-class UniformQuantizeGrad(InplaceFunction):
+class Hadamard:
     Hs = {}
 
+    @staticmethod
+    def get_hadamard(n, inverse):
+        # if not (n in Hadamard.Hs):
+        #     order = math.floor(math.log2(n))
+        #     if 2 ** order != n:
+        #         raise RuntimeError("Batch size is not power of two " + str(n))
+        #
+        #     H = hadamard(order)
+        #     Hadamard.Hs[n] = torch.tensor(H, dtype=torch.float32).cuda()
+        #
+        # return Hadamard.Hs[n]
+        if not (n in Hadamard.Hs):
+            print('Generating transformation', n)
+            w = torch.randn(n, n).cuda()
+            q, _ = torch.qr(w)
+            Hadamard.Hs[n] = q
+
+        if inverse:
+            return Hadamard.Hs[n].transpose(0, 1)
+        else:
+            return Hadamard.Hs[n]
+
+    @staticmethod
+    def sample_hadamard(x, inverse):
+        n = x.shape[0]
+        x_shape = x.shape
+        H = Hadamard.get_hadamard(n, inverse)
+        x = H @ x.reshape(n, -1)
+        return x.reshape(*x_shape)
+
+    @staticmethod
+    def sample_channel_hadamard(x, inverse):
+        n, c, w, _ = x.shape
+        x = x.view(n * c, w * w)
+        H = Hadamard.get_hadamard(n * c, inverse)
+        x = H @ x
+        x = x.view(n, c, w, w)
+        return x
+
+    @staticmethod
+    def channel_hadamard(x, inverse):
+        n, c, w, _ = x.shape
+        x = x.transpose(1, 3)
+        x = x.reshape(n * w * w, c)
+        H = Hadamard.get_hadamard(c, inverse)
+        x = x @ H
+        x = x.reshape(n, w, w, c)
+        x = x.transpose(1, 3)
+        return x
+
+    @staticmethod
+    def width_hadamard(x, inverse):
+        n, c, w, _ = x.shape
+        x = x.reshape(n * c * w, w)
+        H = Hadamard.get_hadamard(w, inverse)
+        x = x @ H
+        x = x.reshape(n, c, w, w)
+        return x
+
+    @staticmethod
+    def height_hadamard(x, inverse):
+        n, c, w, _ = x.shape
+        x = x.transpose(2, 3)
+        x = x.reshape(n * c * w, w)
+        H = Hadamard.get_hadamard(w, inverse)
+        x = x @ H
+        x = x.reshape(n, c, w, w)
+        x = x.transpose(2, 3)
+        return x
+
+    @staticmethod
+    def apply_hadamard(x):
+        if not config.hadamard:
+            return x
+        if len(x.shape) == 2:
+            return Hadamard.sample_hadamard(x, False)
+
+        x = Hadamard.height_hadamard(x, False)
+        x = Hadamard.width_hadamard(x, False)
+        x = Hadamard.channel_hadamard(x, False)
+        x = Hadamard.sample_hadamard(x, False)
+        return x
+
+    @staticmethod
+    def apply_inverse_hadamard(x):
+        if not config.hadamard:
+            return x
+        if len(x.shape) == 2:
+            return Hadamard.sample_hadamard(x, True)
+
+        x = Hadamard.sample_hadamard(x, True)
+        x = Hadamard.channel_hadamard(x, True)
+        x = Hadamard.width_hadamard(x, True)
+        x = Hadamard.height_hadamard(x, True)
+        return x
+
+
+class UniformQuantizeGrad(InplaceFunction):
     @staticmethod
     def forward(ctx, input, num_bits=None, qparams=None, flatten_dims=_DEFAULT_FLATTEN_GRAD,
                 reduce_dim=0, dequantize=True, signed=False, stochastic=True):
@@ -173,85 +271,11 @@ class UniformQuantizeGrad(InplaceFunction):
         return input
 
     @staticmethod
-    def get_hadamard(n):
-        if not (n in UniformQuantizeGrad.Hs):
-            order = math.floor(math.log2(n))
-            if 2 ** order != n:
-                raise RuntimeError("Batch size is not power of two " + str(n))
-
-            H = hadamard(order)
-            UniformQuantizeGrad.Hs[n] = torch.tensor(H, dtype=torch.float32).cuda()
-
-        return UniformQuantizeGrad.Hs[n]
-
-    @staticmethod
-    def sample_hadamard(x):
-        n = x.shape[0]
-        x_shape = x.shape
-        H = UniformQuantizeGrad.get_hadamard(n)
-        x = H @ x.view(n, -1)
-        return x.view(*x_shape)
-
-    @staticmethod
-    def sample_channel_hadamard(x):
-        # Channel shuffle
-        n, c, w, _ = x.shape
-        x = x.view(n * c, w * w)
-        H = UniformQuantizeGrad.get_hadamard(n * c)
-        x = H @ x
-        x = x.view(n, c, w, w)
-        return x
-
-    @staticmethod
-    def width_hadamard(x):
-        n, c, w, _ = x.shape
-        x = x.reshape(n * c * w, w)
-        H = UniformQuantizeGrad.get_hadamard(w)
-        x = x @ H
-        x = x.reshape(n, c, w, w)
-        return x
-
-    @staticmethod
-    def height_hadamard(x):
-        n, c, w, _ = x.shape
-        x = x.transpose(2, 3)
-        x = x.reshape(n * c * w, w)
-        H = UniformQuantizeGrad.get_hadamard(w)
-        x = x @ H
-        x = x.reshape(n, c, w, w)
-        x = x.transpose(2, 3)
-        return x
-
-    @staticmethod
-    def apply_hadamard(x):
-        if not config.hadamard:
-            return x
-        if len(x.shape) == 2:
-            return UniformQuantizeGrad.sample_hadamard(x)
-
-        x = UniformQuantizeGrad.sample_channel_hadamard(x)
-        x = UniformQuantizeGrad.width_hadamard(x)
-        x = UniformQuantizeGrad.height_hadamard(x)
-        return x
-
-    @staticmethod
-    def apply_inverse_hadamard(x):
-        if not config.hadamard:
-            return x
-        if len(x.shape) == 2:
-            return UniformQuantizeGrad.sample_hadamard(x)
-
-        x = UniformQuantizeGrad.height_hadamard(x)
-        x = UniformQuantizeGrad.width_hadamard(x)
-        x = UniformQuantizeGrad.sample_channel_hadamard(x)
-        return x
-
-    @staticmethod
     def backward(ctx, grad_output):
         qparams = ctx.qparams
 
         with torch.no_grad():
-            grad_output = UniformQuantizeGrad.apply_hadamard(grad_output)
+            grad_output = Hadamard.apply_hadamard(grad_output)
 
             if qparams is None:
                 assert ctx.num_bits is not None, "either provide qparams of num_bits to quantize"
@@ -283,30 +307,9 @@ class UniformQuantizeGrad(InplaceFunction):
                 #                      grad_output.min(),
                 #                      grad_output.max()])
 
-            grad_input = UniformQuantizeGrad.apply_inverse_hadamard(grad_input)
+            grad_input = Hadamard.apply_inverse_hadamard(grad_input)
 
         return grad_input, None, None, None, None, None, None, None
-
-
-class HadamardGradient(InplaceFunction):
-
-    @staticmethod
-    def forward(ctx, input):
-        return input
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        if not config.hadamard:
-            return grad_input
-        else:
-            n = grad_output.shape[0]
-            order = math.floor(math.log2(n))
-            if 2**order != n:
-                raise RuntimeError("Batch size is not power of two")
-
-            H = hadamard(order)
-            grad_input = H @ grad_output
-            return grad_input
 
 
 def conv2d_biprec(input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1, num_bits_grad=None):

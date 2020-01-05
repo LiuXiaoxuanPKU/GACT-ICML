@@ -7,3 +7,4 @@ mkdir results/
 ./train_cifar preact_resnet56 preact_resnet56
 ./train_cifar preact_resnet56 preact_resnet56 "-c quantize --persample=True"
 CUDA_VISIBLE_DEVICES=0,1 ./test_cifar 2 preact_resnet56 200 "-c quantize --persample=True"
+./train_cifar preact_resnet56 preact_resnet56_5bit_persample_biased "-c quantize --persample=True --qa=False --qw=False --bbits=5 --biased=True" 29500

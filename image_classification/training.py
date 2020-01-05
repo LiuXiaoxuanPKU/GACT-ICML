@@ -326,7 +326,7 @@ def calc_ips(batch_size, time):
     tbs = world_size * batch_size
     return tbs/time
 
-def train_loop(model_and_loss, optimizer, lr_scheduler, train_loader, val_loader, epochs, fp16, logger,
+def train_loop(model_and_loss, optimizer, lr_scheduler, train_loader, val_loader, debug_loader, epochs, fp16, logger,
                should_backup_checkpoint, use_amp=False,
                batch_size_multiplier = 1,
                best_prec1 = 0, start_epoch = 0, prof = -1, skip_training = False, skip_validation = False, save_checkpoints = True, checkpoint_dir='./'):
@@ -363,6 +363,6 @@ def train_loop(model_and_loss, optimizer, lr_scheduler, train_loader, val_loader
             logger.end()
 
     if skip_training:
-        fast_dump(model_and_loss, optimizer, val_loader, checkpoint_dir)
+        fast_dump(model_and_loss, optimizer, debug_loader, checkpoint_dir)
         # dump(model_and_loss, optimizer, val_loader, checkpoint_dir)
         # plot_bin_hist(model_and_loss, optimizer, val_loader)

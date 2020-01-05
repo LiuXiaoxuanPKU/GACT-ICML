@@ -130,13 +130,24 @@ def add_parser_arguments(parser):
 
     parser.add_argument('--workspace', type=str, default='./')
 
-    parser.add_argument('--qa', type=bool, default=True, help='quantize activation')
-    parser.add_argument('--qw', type=bool, default=True, help='quantize weights')
-    parser.add_argument('--qg', type=bool, default=True, help='quantize gradients')
-    parser.add_argument('--biased', type=bool, default=False, help='biased quantization')
+    def str2bool(v):
+        if isinstance(v, bool):
+            return v
+        if v.lower() in ('yes', 'true', 't', 'y', '1'):
+            return True
+        elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+            return False
+        else:
+            raise argparse.ArgumentTypeError('Boolean value expected.')
+
+    parser.add_argument('--qa', type=str2bool, default=True, help='quantize activation')
+    parser.add_argument('--qw', type=str2bool, default=True, help='quantize weights')
+    parser.add_argument('--qg', type=str2bool, default=True, help='quantize gradients')
+    parser.add_argument('--biased', type=str2bool, default=False, help='biased quantization')
     parser.add_argument('--fbits', type=int, default=8, help='forward number of bits')
     parser.add_argument('--bbits', type=int, default=8, help='backward number of bits')
-    parser.add_argument('--persample', type=bool, default=False, help='per-sample quantization of gradients')
+    parser.add_argument('--persample', type=str2bool, default=False, help='per-sample quantization of gradients')
+    parser.add_argument('--hadamard', type=str2bool, default=False, help='apply Hadamard transformation on gradients')
 
 
 def main(args):
@@ -146,6 +157,7 @@ def main(args):
     config.forward_num_bits = args.fbits
     config.backward_num_bits = args.bbits
     config.backward_persample = args.persample
+    config.hadamard = args.hadamard
     config.biased = args.biased
 
     exp_start_time = time.time()
@@ -243,6 +255,7 @@ def main(args):
     if args.dataset == 'cifar10':
         get_train_loader = get_pytorch_train_loader_cifar10
         get_val_loader = get_pytorch_val_loader_cifar10
+        get_debug_loader = get_pytorch_debug_loader_cifar10
     elif args.data_backend == 'pytorch':
         get_train_loader = get_pytorch_train_loader
         get_val_loader = get_pytorch_val_loader
@@ -258,6 +271,7 @@ def main(args):
         train_loader = MixUpWrapper(args.mixup, 1000, train_loader)
 
     val_loader, val_loader_len = get_val_loader(args.data, args.batch_size, 1000, False, workers=args.workers, fp16=args.fp16)
+    debug_loader, debug_loader_len = get_debug_loader(args.data, args.batch_size, 1000, False, workers=args.workers, fp16=args.fp16)
 
     if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
         logger = log.Logger(
@@ -302,7 +316,7 @@ def main(args):
     train_loop(
         model_and_loss, optimizer,
         lr_policy,
-        train_loader, val_loader, args.epochs,
+        train_loader, val_loader, debug_loader, args.epochs,
         args.fp16, logger, should_backup_checkpoint(args), use_amp=args.amp,
         batch_size_multiplier = batch_size_multiplier,
         start_epoch = args.start_epoch, best_prec1 = best_prec1, prof=args.prof,

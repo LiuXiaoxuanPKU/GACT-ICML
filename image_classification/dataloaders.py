@@ -322,3 +322,25 @@ def get_pytorch_val_loader_cifar10(data_path, batch_size, num_classes, one_hot, 
             collate_fn=fast_collate)
 
     return PrefetchedWrapper(val_loader, num_classes, fp16, one_hot), len(val_loader)
+
+
+def get_pytorch_debug_loader_cifar10(data_path, batch_size, num_classes, one_hot, workers=5, _worker_init_fn=None, fp16=False):
+    val_dataset = datasets.CIFAR10(root=data_path, train=False, download=True)
+    n = val_dataset.data.shape[0]
+    n = n//batch_size * batch_size
+    val_dataset.data = val_dataset.data[:n]
+    val_dataset.targets = val_dataset.targets[:n]
+
+    if torch.distributed.is_initialized():
+        val_sampler = torch.utils.data.distributed.DistributedSampler(val_dataset)
+    else:
+        val_sampler = None
+
+    val_loader = torch.utils.data.DataLoader(
+            val_dataset,
+            sampler=val_sampler,
+            batch_size=batch_size, shuffle=False,
+            num_workers=workers, worker_init_fn=_worker_init_fn, pin_memory=True,
+            collate_fn=fast_collate)
+
+    return PrefetchedWrapper(val_loader, num_classes, fp16, one_hot), len(val_loader)

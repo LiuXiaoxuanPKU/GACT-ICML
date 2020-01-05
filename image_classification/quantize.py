@@ -5,6 +5,23 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd.function import InplaceFunction, Function
 import time
+import math
+import numpy as np
+
+
+def hadamard(order):
+    if order == 0:
+        return np.array([1.0])
+
+    result = np.zeros([2**order, 2**order])
+    n = 2**(order - 1)
+    sub_mat = hadamard(order - 1)
+    result[:n, :n] = sub_mat
+    result[:n, n:] = sub_mat
+    result[n:, :n] = sub_mat
+    result[n:, n:] = -sub_mat
+    result /= np.sqrt(2.0)
+    return result
 
 
 class QuantizationConfig:
@@ -17,6 +34,7 @@ class QuantizationConfig:
         self.backward_persample = False
         self.biased = False
         self.grads = None
+        self.hadamard = False
 
 
 config = QuantizationConfig()
@@ -87,15 +105,18 @@ class UniformQuantize(InplaceFunction):
 
         zero_point = qparams.zero_point
         num_bits = qparams.num_bits
-        qmin = -(2.**(num_bits - 1)) if signed else 0.
-        qmax = qmin + 2.**num_bits - 1.
+
+        cmin = -(2. ** (num_bits - 1)) if signed else 0.
+        cmax = cmin + 2. ** num_bits - 1.
 
         # For biased quantization
-        cmin = qmin
-        cmax = qmax
+        scale_factor = 0.2
+        delta = round(2. ** num_bits * scale_factor)
+        qmin = cmin
+        qmax = cmax
         if config.biased:
-            cmin += 2.**(num_bits - 2)
-            cmax -= 2.**(num_bits - 2)
+            qmin -= delta
+            qmax += delta
 
         scale = qparams.range / (qmax - qmin)
         with torch.no_grad():
@@ -119,6 +140,7 @@ class UniformQuantize(InplaceFunction):
 
 
 class UniformQuantizeGrad(InplaceFunction):
+    H = None
 
     @staticmethod
     def forward(ctx, input, num_bits=None, qparams=None, flatten_dims=_DEFAULT_FLATTEN_GRAD,
@@ -136,7 +158,29 @@ class UniformQuantizeGrad(InplaceFunction):
     @staticmethod
     def backward(ctx, grad_output):
         qparams = ctx.qparams
+
         with torch.no_grad():
+            if config.hadamard and UniformQuantizeGrad.H is None:
+                n = grad_output.shape[0]
+                order = math.floor(math.log2(n))
+                if 2**order != n:
+                    raise RuntimeError("Batch size is not power of two")
+
+                H = hadamard(order)
+                UniformQuantizeGrad.H = torch.tensor(H, dtype=torch.float32).cuda()
+
+            def apply_hadamard(x):
+                if config.hadamard:
+                    H = UniformQuantizeGrad.H
+                    x_shape = x.shape
+                    n = x.shape[0]
+                    x = H @ x.view(n, -1)
+                    return x.view(*x_shape)
+                else:
+                    return x
+
+            grad_output = apply_hadamard(grad_output)
+
             if qparams is None:
                 assert ctx.num_bits is not None, "either provide qparams of num_bits to quantize"
                 qparams = calculate_qparams(
@@ -146,16 +190,41 @@ class UniformQuantizeGrad(InplaceFunction):
                                   qparams=qparams, flatten_dims=ctx.flatten_dims, reduce_dim=ctx.reduce_dim,
                                   dequantize=True, signed=ctx.signed, stochastic=ctx.stochastic, inplace=False)
 
+            grad_input = apply_hadamard(grad_input)
+
             if config.grads is not None:
-                g = quantize(grad_output, num_bits=None,
-                              qparams=qparams, flatten_dims=ctx.flatten_dims, reduce_dim=ctx.reduce_dim,
-                              dequantize=False, signed=ctx.signed, stochastic=ctx.stochastic, inplace=False)
-                config.grads.append([g.detach().cpu().numpy(),
+                # g = quantize(grad_output, num_bits=None,
+                #               qparams=qparams, flatten_dims=ctx.flatten_dims, reduce_dim=ctx.reduce_dim,
+                #               dequantize=False, signed=ctx.signed, stochastic=ctx.stochastic, inplace=False)
+                # config.grads.append([g.detach().cpu().numpy(),
+                #                      grad_output.min(),
+                #                      grad_output.max()])
+                config.grads.append([grad_input.detach().cpu().numpy(),
                                      grad_output.min(),
                                      grad_output.max()])
 
-
         return grad_input, None, None, None, None, None, None, None
+
+
+class HadamardGradient(InplaceFunction):
+
+    @staticmethod
+    def forward(ctx, input):
+        return input
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        if not config.hadamard:
+            return grad_input
+        else:
+            n = grad_output.shape[0]
+            order = math.floor(math.log2(n))
+            if 2**order != n:
+                raise RuntimeError("Batch size is not power of two")
+
+            H = hadamard(order)
+            grad_input = H @ grad_output
+            return grad_input
 
 
 def conv2d_biprec(input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1, num_bits_grad=None):

@@ -4,6 +4,7 @@ from .utils import *
 import matplotlib
 matplotlib.use('Agg')
 from matplotlib import pyplot as plt
+import pickle
 
 
 def get_error_grad(m):
@@ -75,7 +76,7 @@ def get_batch_grad(model_and_loss, optimizer, val_loader, ckpt_name):
     return get_grad(m)
 
 
-def get_grad_std(model_and_loss, optimizer, val_loader, mean_grad, ckpt_name):
+def get_grad_bias_std(model_and_loss, optimizer, val_loader, mean_grad, ckpt_name, num_epochs=1):
     if hasattr(model_and_loss.model, 'module'):
         m = model_and_loss.model.module
     else:
@@ -84,28 +85,78 @@ def get_grad_std(model_and_loss, optimizer, val_loader, mean_grad, ckpt_name):
     m.set_debug(True)
     data_iter = enumerate(val_loader)
     var_grad = None
+    empirical_mean_grad = None
     cnt = 0
     for i, (input, target) in data_iter:
+        for e in range(num_epochs):
+            optimizer.zero_grad()
+            loss, output = model_and_loss(input, target)
+            loss.backward()
+            torch.cuda.synchronize()
+
+            if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
+                grad_dict = get_grad(m)
+
+                e_grad = dict_sqr(dict_minus(grad_dict, mean_grad))
+                if var_grad is None:
+                    var_grad = e_grad
+                else:
+                    var_grad = dict_add(var_grad, e_grad)
+
+                if empirical_mean_grad is None:
+                    empirical_mean_grad = grad_dict
+                else:
+                    empirical_mean_grad = dict_add(empirical_mean_grad, grad_dict)
+
+            cnt += 1
+
+    if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
+        std_grad = dict_sqrt(dict_mul(var_grad, 1.0 / cnt))
+        bias_grad = dict_minus(dict_mul(empirical_mean_grad, 1.0/cnt), mean_grad)
+        torch.save(std_grad, ckpt_name)
+        return bias_grad, std_grad
+
+
+def debug_bias(model_and_loss, optimizer, val_loader):
+    if hasattr(model_and_loss.model, 'module'):
+        m = model_and_loss.model.module
+    else:
+        m = model_and_loss.model
+
+    m.set_debug(True)
+    data_iter = enumerate(val_loader)
+    var_grad = None
+    empirical_mean_grad = None
+    cnt = 0
+    for i, (input, target) in data_iter:
+        break
+
+    config.quantize_gradient = False
+    optimizer.zero_grad()
+    loss, output = model_and_loss(input, target)
+    loss.backward()
+    torch.cuda.synchronize()
+
+    exact_grad = get_grad(m)
+    empirical_mean_grad = None
+    config.quantize_gradient = True
+    for e in range(100):
         optimizer.zero_grad()
         loss, output = model_and_loss(input, target)
         loss.backward()
         torch.cuda.synchronize()
 
+        cnt += 1
         if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
             grad_dict = get_grad(m)
 
-            e_grad = dict_sqr(dict_minus(grad_dict, mean_grad))
-            if var_grad is None:
-                var_grad = e_grad
+            if empirical_mean_grad is None:
+                empirical_mean_grad = grad_dict
             else:
-                var_grad = dict_add(var_grad, e_grad)
+                empirical_mean_grad = dict_add(empirical_mean_grad, grad_dict)
 
-        cnt += 1
-
-    if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
-        std_grad = dict_sqrt(dict_mul(var_grad, 1.0 / cnt))
-        torch.save(std_grad, ckpt_name)
-        return std_grad
+            bias_grad = dict_minus(dict_mul(empirical_mean_grad, 1.0/cnt), exact_grad)
+            print(e, bias_grad['conv_1_1_1_grad'].abs().mean())
 
 
 def get_gradient(model_and_loss, optimizer, input, target, prefix):
@@ -164,49 +215,27 @@ def dump(model_and_loss, optimizer, val_loader, checkpoint_dir):
     get_grad_std(model_and_loss, optimizer, val_loader, grad, checkpoint_dir + "/grad_std_quan.grad")
 
 
-def dump(model_and_loss, optimizer, val_loader, checkpoint_dir):
-    config.quantize_gradient = False
-    print("Computing batch gradient...")
-    grad = get_batch_grad(model_and_loss, optimizer, val_loader, checkpoint_dir + "/grad_mean.grad")
-
-    print("Computing gradient std...")
-    get_grad_std(model_and_loss, optimizer, val_loader, grad, checkpoint_dir + "/grad_std.grad")
-
-    print("Computing quantization noise...")
-    data_iter = enumerate(val_loader)
-    for i, (input, target) in data_iter:
-        break
-
-    input = input[:128]
-    target = target[:128]
-
-    get_gradient(model_and_loss, optimizer, input, target, checkpoint_dir + "/exact")
-
-    config.quantize_gradient = True
-    for i in range(10):
-        print(i)
-        get_gradient(model_and_loss, optimizer, input, target, checkpoint_dir + "/sample_{}".format(i))
-
-    print("Computing quantized gradient std...")
-    get_grad_std(model_and_loss, optimizer, val_loader, grad, checkpoint_dir + "/grad_std_quan.grad")
-
-
 def key(a):
     return [int(i) for i in a.split('_')[1:4]]
 
 
 def fast_dump(model_and_loss, optimizer, val_loader, checkpoint_dir):
+    # debug_bias(model_and_loss, optimizer, val_loader)
+    # exit(0)
+
     config.quantize_gradient = False
     print("Computing batch gradient...")
     grad = get_batch_grad(model_and_loss, optimizer, val_loader, checkpoint_dir + "/grad_mean.grad")
 
     print("Computing gradient std...")
-    std_grad = get_grad_std(model_and_loss, optimizer, val_loader, grad, checkpoint_dir + "/grad_std.grad")
+    g_outputs = get_grad_bias_std(model_and_loss, optimizer, val_loader, grad, checkpoint_dir + "/grad_std.grad", num_epochs=1)
 
     config.quantize_gradient = True
-    std_quan = get_grad_std(model_and_loss, optimizer, val_loader, grad, checkpoint_dir + "/grad_std_quan.grad")
+    q_outputs = get_grad_bias_std(model_and_loss, optimizer, val_loader, grad, checkpoint_dir + "/grad_std_quan.grad", num_epochs=1)
 
     if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
+        bias_grad, std_grad = g_outputs
+        bias_quan, std_quan = q_outputs
         weight_names = list(grad.keys())
         weight_names = [n.replace('_grad', '').replace('_weight', '') for n in weight_names]
         weight_names = list(set(weight_names))
@@ -214,10 +243,12 @@ def fast_dump(model_and_loss, optimizer, val_loader, checkpoint_dir):
         for k in weight_names:
             grad_mean = grad[k + '_grad']
             sg = std_grad[k + '_grad']
+            bg = bias_grad[k + '_grad']
             sq = std_quan[k + '_grad']
+            bq = bias_quan[k + '_grad']
 
-            print('{}, batch grad mean={}, sample std={}, overall std={}'.format(k, grad_mean.abs().mean(),
-                   sg.abs().mean(), sq.abs().mean()))
+            print('{}, batch grad mean={}, sample std={}, sample bias={}, overall std={}, overall bias={}'.format(
+                k, grad_mean.abs().mean(), sg.mean(), bg.abs().mean(), sq.mean(), bq.abs().mean()))
 
 
 def plot_bin_hist(model_and_loss, optimizer, val_loader):
@@ -246,6 +277,9 @@ def plot_bin_hist(model_and_loss, optimizer, val_loader):
         for i in range(num_grads):
             g, min_val, max_val = config.grads[i]
             ax[i].hist(g.ravel(), bins=2**config.backward_num_bits)
-            print(i, min_val, max_val)
+            ax[i].set_title(str(i))
+            print(i, g.shape, min_val, max_val)
 
         fig.savefig('grad_hist.pdf')
+
+        np.savez('errors.pkl', *config.grads)

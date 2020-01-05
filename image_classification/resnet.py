@@ -2,7 +2,7 @@ import math
 import torch
 import torch.nn as nn
 import numpy as np
-from .quantize import QConv2d, QLinear
+from .quantize import QConv2d, QLinear, HadamardGradient
 from .preact_resnet import PreActBlock, PreActBottleneck, PreActResNet
 
 __all__ = ['ResNet', 'build_resnet', 'resnet_versions', 'resnet_configs']

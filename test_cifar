@@ -17,3 +17,5 @@ os.system(cmd)
 #cmd = 'python compute_std.py results/{} {}'.format(model, num_nodes)
 #print(cmd)
 #os.system(cmd)
+
+# os.system("python compute_error_std.py")

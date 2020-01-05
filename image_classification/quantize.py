@@ -56,24 +56,41 @@ def calculate_qparams(x, num_bits, flatten_dims=_DEFAULT_FLATTEN, reduce_dim=0, 
 
     start.record()
     with torch.no_grad():
-        x_flat = x.flatten(*flatten_dims)
-        if x_flat.dim() == 1:
-            min_values = _deflatten_as(x_flat.min(), x)
-            max_values = _deflatten_as(x_flat.max(), x)
+        if reduce_type == 'extreme':
+            if config.backward_persample:
+                if len(x.shape) == 2:
+                    min_values = x.min(-1, keepdim=True)[0]
+                    max_values = x.max(-1, keepdim=True)[0]
+                else:
+                    x_flat = x.flatten(start_dim=1)
+                    min_values = _deflatten_as(x_flat.min(-1, keepdim=True)[0], x) - 1e-8
+                    max_values = _deflatten_as(x_flat.max(-1, keepdim=True)[0], x) + 1e-8
+            else:
+                min_values = x.min()
+                max_values = x.max()
         else:
-            min_values = _deflatten_as(x_flat.min(-1)[0], x)
-            max_values = _deflatten_as(x_flat.max(-1)[0], x)
+            x_flat = x.flatten(*flatten_dims)
+            if x_flat.dim() == 1:
+                min_values = _deflatten_as(x_flat.min(), x)
+                max_values = _deflatten_as(x_flat.max(), x)
+            else:
+                min_values = _deflatten_as(x_flat.min(-1)[0], x)
+                max_values = _deflatten_as(x_flat.max(-1)[0], x)
 
-        if reduce_dim is not None:
-            if reduce_type == 'mean':
+            if reduce_dim is not None:
                 min_values = min_values.mean(reduce_dim, keepdim=keepdim)
                 max_values = max_values.mean(reduce_dim, keepdim=keepdim)
-            else:
-                if config.backward_persample:
-                    pass
-                else:
-                    min_values = min_values.min(reduce_dim, keepdim=keepdim)[0]
-                    max_values = max_values.max(reduce_dim, keepdim=keepdim)[0]
+
+        # if reduce_dim is not None:
+        #     if reduce_type == 'mean':
+        #         min_values = min_values.mean(reduce_dim, keepdim=keepdim)
+        #         max_values = max_values.mean(reduce_dim, keepdim=keepdim)
+        #     else:
+        #         if config.backward_persample:
+        #             pass
+        #         else:
+        #             min_values = min_values.min(reduce_dim, keepdim=keepdim)[0]
+        #             max_values = max_values.max(reduce_dim, keepdim=keepdim)[0]
 
         # TODO: re-add true zero computation
         range_values = max_values - min_values
@@ -140,7 +157,7 @@ class UniformQuantize(InplaceFunction):
 
 
 class UniformQuantizeGrad(InplaceFunction):
-    H = None
+    Hs = {}
 
     @staticmethod
     def forward(ctx, input, num_bits=None, qparams=None, flatten_dims=_DEFAULT_FLATTEN_GRAD,
@@ -156,30 +173,85 @@ class UniformQuantizeGrad(InplaceFunction):
         return input
 
     @staticmethod
+    def get_hadamard(n):
+        if not (n in UniformQuantizeGrad.Hs):
+            order = math.floor(math.log2(n))
+            if 2 ** order != n:
+                raise RuntimeError("Batch size is not power of two " + str(n))
+
+            H = hadamard(order)
+            UniformQuantizeGrad.Hs[n] = torch.tensor(H, dtype=torch.float32).cuda()
+
+        return UniformQuantizeGrad.Hs[n]
+
+    @staticmethod
+    def sample_hadamard(x):
+        n = x.shape[0]
+        x_shape = x.shape
+        H = UniformQuantizeGrad.get_hadamard(n)
+        x = H @ x.view(n, -1)
+        return x.view(*x_shape)
+
+    @staticmethod
+    def sample_channel_hadamard(x):
+        # Channel shuffle
+        n, c, w, _ = x.shape
+        x = x.view(n * c, w * w)
+        H = UniformQuantizeGrad.get_hadamard(n * c)
+        x = H @ x
+        x = x.view(n, c, w, w)
+        return x
+
+    @staticmethod
+    def width_hadamard(x):
+        n, c, w, _ = x.shape
+        x = x.reshape(n * c * w, w)
+        H = UniformQuantizeGrad.get_hadamard(w)
+        x = x @ H
+        x = x.reshape(n, c, w, w)
+        return x
+
+    @staticmethod
+    def height_hadamard(x):
+        n, c, w, _ = x.shape
+        x = x.transpose(2, 3)
+        x = x.reshape(n * c * w, w)
+        H = UniformQuantizeGrad.get_hadamard(w)
+        x = x @ H
+        x = x.reshape(n, c, w, w)
+        x = x.transpose(2, 3)
+        return x
+
+    @staticmethod
+    def apply_hadamard(x):
+        if not config.hadamard:
+            return x
+        if len(x.shape) == 2:
+            return UniformQuantizeGrad.sample_hadamard(x)
+
+        x = UniformQuantizeGrad.sample_channel_hadamard(x)
+        x = UniformQuantizeGrad.width_hadamard(x)
+        x = UniformQuantizeGrad.height_hadamard(x)
+        return x
+
+    @staticmethod
+    def apply_inverse_hadamard(x):
+        if not config.hadamard:
+            return x
+        if len(x.shape) == 2:
+            return UniformQuantizeGrad.sample_hadamard(x)
+
+        x = UniformQuantizeGrad.height_hadamard(x)
+        x = UniformQuantizeGrad.width_hadamard(x)
+        x = UniformQuantizeGrad.sample_channel_hadamard(x)
+        return x
+
+    @staticmethod
     def backward(ctx, grad_output):
         qparams = ctx.qparams
 
         with torch.no_grad():
-            if config.hadamard and UniformQuantizeGrad.H is None:
-                n = grad_output.shape[0]
-                order = math.floor(math.log2(n))
-                if 2**order != n:
-                    raise RuntimeError("Batch size is not power of two")
-
-                H = hadamard(order)
-                UniformQuantizeGrad.H = torch.tensor(H, dtype=torch.float32).cuda()
-
-            def apply_hadamard(x):
-                if config.hadamard:
-                    H = UniformQuantizeGrad.H
-                    x_shape = x.shape
-                    n = x.shape[0]
-                    x = H @ x.view(n, -1)
-                    return x.view(*x_shape)
-                else:
-                    return x
-
-            grad_output = apply_hadamard(grad_output)
+            grad_output = UniformQuantizeGrad.apply_hadamard(grad_output)
 
             if qparams is None:
                 assert ctx.num_bits is not None, "either provide qparams of num_bits to quantize"
@@ -190,8 +262,6 @@ class UniformQuantizeGrad(InplaceFunction):
                                   qparams=qparams, flatten_dims=ctx.flatten_dims, reduce_dim=ctx.reduce_dim,
                                   dequantize=True, signed=ctx.signed, stochastic=ctx.stochastic, inplace=False)
 
-            grad_input = apply_hadamard(grad_input)
-
             if config.grads is not None:
                 # g = quantize(grad_output, num_bits=None,
                 #               qparams=qparams, flatten_dims=ctx.flatten_dims, reduce_dim=ctx.reduce_dim,
@@ -199,9 +269,21 @@ class UniformQuantizeGrad(InplaceFunction):
                 # config.grads.append([g.detach().cpu().numpy(),
                 #                      grad_output.min(),
                 #                      grad_output.max()])
-                config.grads.append([grad_input.detach().cpu().numpy(),
+                config.grads.append([grad_output.detach().cpu().numpy(),
                                      grad_output.min(),
                                      grad_output.max()])
+                # grad_output = apply_hadamard(grad_output)
+                # qparams = calculate_qparams(
+                #     grad_output, num_bits=ctx.num_bits, flatten_dims=ctx.flatten_dims, reduce_dim=ctx.reduce_dim,
+                #     reduce_type='extreme')
+                # g = quantize(grad_output, num_bits=None,
+                #              qparams=qparams, flatten_dims=ctx.flatten_dims, reduce_dim=ctx.reduce_dim,
+                #              dequantize=True, signed=ctx.signed, stochastic=ctx.stochastic, inplace=False)
+                # config.grads.append([g.detach().cpu().numpy(),
+                #                      grad_output.min(),
+                #                      grad_output.max()])
+
+            grad_input = UniformQuantizeGrad.apply_inverse_hadamard(grad_input)
 
         return grad_input, None, None, None, None, None, None, None
 

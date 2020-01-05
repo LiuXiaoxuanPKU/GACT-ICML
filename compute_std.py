@@ -41,6 +41,7 @@ var_weight = dict_sqr(d_weight)
 var_errors = dict_sqr(d_errors)
 
 for i in range(1, num_samples):
+    print(i)
     weight, errors = load_state(prefix + "/sample_{}".format(i))
     d_weight = dict_minus(weight, exact_weight)
     d_errors = dict_minus(errors, exact_errors)

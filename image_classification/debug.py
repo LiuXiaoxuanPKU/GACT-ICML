@@ -193,8 +193,8 @@ def dump(model_and_loss, optimizer, val_loader, checkpoint_dir):
     print("Computing batch gradient...")
     grad = get_batch_grad(model_and_loss, optimizer, val_loader, checkpoint_dir + "/grad_mean.grad")
 
-    print("Computing gradient std...")
-    get_grad_std(model_and_loss, optimizer, val_loader, grad, checkpoint_dir + "/grad_std.grad")
+    # print("Computing gradient std...")
+    # get_grad_std(model_and_loss, optimizer, val_loader, grad, checkpoint_dir + "/grad_std.grad")
 
     print("Computing quantization noise...")
     data_iter = enumerate(val_loader)
@@ -211,8 +211,8 @@ def dump(model_and_loss, optimizer, val_loader, checkpoint_dir):
         print(i)
         get_gradient(model_and_loss, optimizer, input, target, checkpoint_dir + "/sample_{}".format(i))
 
-    print("Computing quantized gradient std...")
-    get_grad_std(model_and_loss, optimizer, val_loader, grad, checkpoint_dir + "/grad_std_quan.grad")
+    # print("Computing quantized gradient std...")
+    # get_grad_std(model_and_loss, optimizer, val_loader, grad, checkpoint_dir + "/grad_std_quan.grad")
 
 
 def key(a):
@@ -283,3 +283,28 @@ def plot_bin_hist(model_and_loss, optimizer, val_loader):
         fig.savefig('grad_hist.pdf')
 
         np.savez('errors.pkl', *config.grads)
+
+
+def write_errors(model_and_loss, optimizer, val_loader):
+    data_iter = enumerate(val_loader)
+    for i, (input, target) in data_iter:
+        break
+
+    input = input[:128]
+    target = target[:128]
+
+    if hasattr(model_and_loss.model, 'module'):
+        m = model_and_loss.model.module
+    else:
+        m = model_and_loss.model
+
+    for iter in range(10):
+        print(iter)
+        config.grads = []
+        loss, output = model_and_loss(input, target)
+        optimizer.zero_grad()
+        loss.backward()
+        torch.cuda.synchronize()
+
+        if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
+            np.savez('errors_{}.pkl'.format(iter), *config.grads)

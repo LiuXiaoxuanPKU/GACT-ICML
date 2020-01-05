@@ -2,3 +2,5 @@ results
 *.log
 .idea
 __pycache__
+*.pdf
+*.npz

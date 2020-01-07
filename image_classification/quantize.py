@@ -239,7 +239,7 @@ class Hadamard:
         x = Hadamard.height_hadamard(x, False)
         x = Hadamard.width_hadamard(x, False)
         x = Hadamard.channel_hadamard(x, False)
-        x = Hadamard.sample_hadamard(x, False)
+        # x = Hadamard.sample_hadamard(x, False)
         return x
 
     @staticmethod
@@ -249,7 +249,7 @@ class Hadamard:
         if len(x.shape) == 2:
             return Hadamard.sample_hadamard(x, True)
 
-        x = Hadamard.sample_hadamard(x, True)
+        # x = Hadamard.sample_hadamard(x, True)
         x = Hadamard.channel_hadamard(x, True)
         x = Hadamard.width_hadamard(x, True)
         x = Hadamard.height_hadamard(x, True)

@@ -34,6 +34,7 @@ class QuantizationConfig:
         self.backward_persample = False
         self.biased = False
         self.grads = None
+        self.acts = None
         self.hadamard = False
 
 
@@ -384,6 +385,9 @@ class QConv2d(nn.Conv2d):
         self.biprecision = biprecision
 
     def forward(self, input):
+        if config.acts is not None:
+            config.acts.append(input.detach().cpu().numpy())
+
         if config.quantize_activation:
             qinput = self.quantize_input(input)
         else:

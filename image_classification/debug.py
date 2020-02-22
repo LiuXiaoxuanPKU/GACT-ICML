@@ -253,6 +253,7 @@ def fast_dump(model_and_loss, optimizer, val_loader, checkpoint_dir):
 
 def plot_bin_hist(model_and_loss, optimizer, val_loader):
     config.grads = []
+    config.acts = []
     data_iter = enumerate(val_loader)
     for i, (input, target) in data_iter:
         break
@@ -283,6 +284,7 @@ def plot_bin_hist(model_and_loss, optimizer, val_loader):
         fig.savefig('grad_hist.pdf')
 
         np.savez('errors.pkl', *config.grads)
+        np.savez('acts.pkl', *config.acts)
 
 
 def write_errors(model_and_loss, optimizer, val_loader):

@@ -23,6 +23,7 @@ def init(max_bs):
         Qs.append([H, Hmax])
 
 
+# TODO make this CUDA
 def get_transform(x):
     N = x.shape[0]
     x = x.view(N, -1)
@@ -84,4 +85,6 @@ def get_transform(x):
 
     T = T[inv_indices]
     T = T[:, inv_indices]
-    return T
+    return T.cuda()
+
+

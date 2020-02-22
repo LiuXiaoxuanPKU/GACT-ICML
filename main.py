@@ -17,6 +17,7 @@ import torch.utils.data.distributed
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 from image_classification.quantize import config
+from image_classification.preconditioner import init
 
 try:
     from apex.parallel import DistributedDataParallel as DDP
@@ -159,6 +160,7 @@ def main(args):
     config.backward_persample = args.persample
     config.hadamard = args.hadamard
     config.biased = args.biased
+    init(args.batch_size)
 
     exp_start_time = time.time()
     global best_prec1

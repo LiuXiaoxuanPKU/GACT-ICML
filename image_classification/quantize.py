@@ -7,6 +7,7 @@ from torch.autograd.function import InplaceFunction, Function
 import time
 import math
 import numpy as np
+from image_classification.preconditioner import get_transform
 
 
 def hadamard(order):
@@ -276,7 +277,12 @@ class UniformQuantizeGrad(InplaceFunction):
         qparams = ctx.qparams
 
         with torch.no_grad():
-            grad_output = Hadamard.apply_hadamard(grad_output)
+            # grad_output = Hadamard.apply_hadamard(grad_output)
+            if config.hadamard:
+                grad_shape = grad_output.shape
+                N = grad_shape[0]
+                T = get_transform(grad_output.view(N, -1))
+                grad_output = (T @ grad_output.view(N, -1)).view(*grad_shape)
 
             if qparams is None:
                 assert ctx.num_bits is not None, "either provide qparams of num_bits to quantize"
@@ -308,7 +314,9 @@ class UniformQuantizeGrad(InplaceFunction):
                 #                      grad_output.min(),
                 #                      grad_output.max()])
 
-            grad_input = Hadamard.apply_inverse_hadamard(grad_input)
+            # grad_input = Hadamard.apply_inverse_hadamard(grad_input)
+            if config.hadamard:
+                grad_input = (T.inverse() @ grad_input.view(N, -1)).view(*grad_shape)
 
         return grad_input, None, None, None, None, None, None, None
 

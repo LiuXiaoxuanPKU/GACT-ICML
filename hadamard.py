@@ -2,10 +2,12 @@ import numpy as np
 import matplotlib
 import math
 import torch
+import time
 matplotlib.use('Agg')
 from matplotlib import pyplot as plt
 from image_classification.quantize import config, Hadamard
 from fwht import FWHT
+from image_classification.preconditioner import init, get_transform
 
 
 config.hadamard = True
@@ -273,225 +275,141 @@ S_T3 *= (1.0 / S_T3).norm()
 T3 = U_T3 @ torch.diag(S_T3)
 T3_per_std = calc_real_std(T3, x, True)
 
-mvec = x.abs().max(1)[0]
-# mvec = x.max(1)[0] - x.min(1)[0]
-rank = (-mvec).argsort()
-values = mvec[rank]
-x = x[rank]
-N = mvec.shape[0]
-
-Qs = [[], [torch.eye(1), 1.0, 1.0]]
-for i in range(2, N+1):
-    e1 = torch.zeros(i)
-    e1[0] = 1
-    ones = torch.ones(i) / math.sqrt(i)
-    H = householder(e1, ones)
-    H1 = 1 / math.sqrt(i)
-    Hmax = H.abs().max()
-    Qs.append([H, H1, Hmax])
-
-G = [[i] for i in range(N)]
-
-
-##################################################
-# N = 16
-# x_part = torch.cat([x[:1], x[113:]], 0)
-# lambda_1 = x_part[0].abs().max()
-# lambda_2 = x_part[1:].abs().max()
-# s = torch.tensor([lambda_1**(-1/3) * N**(1/6), lambda_2**(-1/3) * N**(1/3)])
-# s *= (1 / s).norm()
-# U = Qs[N][0]
-# S = torch.ones(N) * s[1]
-# S[0] = s[0]
-# S *= (1 / S).norm()
-# T = U @ torch.diag(S)
-
-
-def compute_obj(G):
-    weight = values.clone()
-    for i in range(N):
-        if G[i]:
-            sz = len(G[i])
-            for cnt, k in enumerate(G[i]):
-                if cnt == 0:
-                    weight[k] *= Qs[sz][1]
-                else:
-                    weight[k] *= Qs[sz][2]
-
-    s = torch.pow(weight, -1/3)
-    s *= (1 / s).norm()
-    return (weight * s).sum(), s
-
-
-def compute_obj2(G):
-    weight = values.clone()
-    all_s = torch.zeros_like(weight)
-    group_objs = []
-    for i in range(N):
-        if G[i]:
-            sz = len(G[i])
-            if sz == 1:
-                all_s[i] = 1
-                group_objs.append(weight[i])
-            else:
-                w = torch.tensor([weight[i] / math.sqrt(sz), weight[G[i][1]] * Qs[sz][2]])
-                s = torch.tensor([w[0]**(-1/3), (w[1]/(N-1))**(-1/3)])
-                s *= (1 / s).norm()
-                for k in G[i]:
-                    all_s[k] = s[1]
-                all_s[i] = s[0]
-                group_objs.append((w*s).sum())
-
-    return torch.tensor(group_objs).norm(), all_s
-
-
-
-# last_obj, _ = compute_obj2(G)
-# for i in range(N-1, 0, -1):
-#     print(i)
-#     if len(G[i]) > 1:
-#         break
-#     G[i] = []
-#     best_obj = 1e10
-#     best_j = -1
-#     for j in range(i):
-#         G[j].append(i)
-#         obj, _ = compute_obj2(G)
-#         if obj < best_obj:
-#             best_obj = obj
-#             best_j = j
-#         G[j].pop()
-#
-#     if best_obj < last_obj:
-#         print('Adding {} to {}, new obj = {}'.format(i, best_j, best_obj))
-#         last_obj = best_obj
-#         G[best_j].append(i)
-#         print(G)
-#     else:
-#         G[i] = [i]
-#         break
-
-num_zeros = 0
-total_values = values.sum()
-while True:
-    num_zeros += 1
-    total_values -= values[N - num_zeros]
-    num = num_zeros * values[N - num_zeros - 1] / total_values
-    if num >= 1:
-        break
-
-num_nonzeros = N - num_zeros
-nums = (num_zeros * values / total_values)[:num_nonzeros]
-nums = torch.floor(torch.cumsum(nums, 0) + 1e-7).int()
-G = [[] for i in range(N)]
-cnt = num_nonzeros
-for i in range(num_nonzeros):
-    G[i] = [i]
-    for j in range(cnt, num_nonzeros + nums[i]):
-        G[i].append(j)
-    cnt = num_nonzeros + nums[i]
-
-T = torch.zeros(N, N)
-_, s = compute_obj2(G)
-for g in G:
-    if g:
-        sz = len(g)
-        q = Qs[sz][0]
-        for i in range(sz):
-            for j in range(sz):
-                T[g[i], g[j]] = q[i, j]
-
-T = T @ torch.diag(s)
+init(128)
+t = time.time()
+T = get_transform(x)
+print('Get optimal transform in {} seconds'.format(time.time() - t))
 T_per_std = calc_real_std(T, x, True)
 
-
 # mvec = x.abs().max(1)[0]
+# # mvec = x.max(1)[0] - x.min(1)[0]
 # rank = (-mvec).argsort()
 # values = mvec[rank]
 # x = x[rank]
 # N = mvec.shape[0]
-# num_max = 15
-# num_zero = N - num_max
-# zeros = values[num_max:]
-# prop = values[:num_max]
-# prop = torch.cumsum(prop, 0)
-# prop *= num_zero / prop[-1]
-# prop = torch.floor(prop).int()
-# T = torch.zeros(N, N)
-# zero_start = 0
-# for i_max in range(num_max):
-#     i_zero = zero_start
-#     next_zero_start = prop[i_max]
-#     m = values[i_max] / zeros[i_zero]
-#     n = next_zero_start - zero_start + 1
 #
-#     e1 = torch.zeros(n)
+# Qs = [[], [torch.eye(1), 1.0, 1.0]]
+# for i in range(2, N+1):
+#     e1 = torch.zeros(i)
 #     e1[0] = 1
-#     one_vec = torch.ones(n) / math.sqrt(n)
-#     u = householder(e1, one_vec)
-#     s = torch.ones(n)
-#     s[0] = m ** (-1.0 / 3)
-#     t = u @ torch.diag(s)
-#     indices = [i_max]
-#     for i in range(zero_start, next_zero_start):
-#         indices.append(num_max + i)
+#     ones = torch.ones(i) / math.sqrt(i)
+#     H = householder(e1, ones)
+#     H1 = 1 / math.sqrt(i)
+#     Hmax = H.abs().max()
+#     Qs.append([H, H1, Hmax])
 #
-#     for r in range(n):
-#         for c in range(n):
-#             T[indices[r], indices[c]] = t[r, c]
-#
-#     zero_start = next_zero_start
-
-#
-# N = 16
-# x = torch.rand(N, 1000) * 2 - 1
-# x[0] *= 1000
-# mvec = torch.ones(N) * 1
-# mvec[0] = 1000
-#
-# e1 = torch.zeros(N)
-# e1[0] = 1
-# one_vec = torch.ones(N) / math.sqrt(N)
-# U_T3 = householder(e1, one_vec)
-#
-# S_T3 = torch.pow(mvec, -1.0 / 3)
-# T3 = U_T3 @ torch.diag(S_T3)
-#
-# T3_per_std = calc_real_std(T3, x, True)
+# G = [[i] for i in range(N)]
 #
 #
-# def mymat(N):
-#     T = torch.zeros(N, N)
+# ##################################################
+# # N = 16
+# # x_part = torch.cat([x[:1], x[113:]], 0)
+# # lambda_1 = x_part[0].abs().max()
+# # lambda_2 = x_part[1:].abs().max()
+# # s = torch.tensor([lambda_1**(-1/3) * N**(1/6), lambda_2**(-1/3) * N**(1/3)])
+# # s *= (1 / s).norm()
+# # U = Qs[N][0]
+# # S = torch.ones(N) * s[1]
+# # S[0] = s[0]
+# # S *= (1 / S).norm()
+# # T = U @ torch.diag(S)
+#
+#
+# def compute_obj(G):
+#     weight = values.clone()
 #     for i in range(N):
-#         T[i, 0] = 1.0 / N
-#     for i in range(N-1):
-#         T[i+1, i+1] = 10
-#         T[i, i+1] = -10
+#         if G[i]:
+#             sz = len(G[i])
+#             for cnt, k in enumerate(G[i]):
+#                 if cnt == 0:
+#                     weight[k] *= Qs[sz][1]
+#                 else:
+#                     weight[k] *= Qs[sz][2]
 #
-#     return T
-
-# for i in range(len(acts)):
-#     a0 = acts[i]
-#     a0 = a0.cpu().numpy()
-#     a0 = np.reshape(a0, [128, -1])
-#     x = torch.tensor(a0) #[perm]
-#     I_per_std = calc_real_std(I, x, True)
-#     P_per_std = calc_real_std(P, x, True)
-#     O_per_std = calc_real_std(O, x, True)
-#     print(i, I_per_std.norm(), P_per_std.norm(), O_per_std.norm())
-
-
-# def sqrt_mat(m):
-#     q, s, _ = torch.svd(m)
-#     return q @ torch.diag(torch.sqrt(s)) @ q.transpose(0, 1)
+#     s = torch.pow(weight, -1/3)
+#     s *= (1 / s).norm()
+#     return (weight * s).sum(), s
 #
-# xxt = x @ x.transpose(0, 1)
-# q, s, _ = torch.svd(xxt)
-# sqrt_xxt = q @ torch.diag(torch.sqrt(s)) @ q.transpose(0, 1)
-# utu = q @ torch.diag(1.0 / torch.sqrt(s)) @ q.transpose(0, 1)
 #
-# u0 = torch.cholesky(utu, upper=True)
-
-# p = (1.0 / torch.diag(torch.sqrt(s))) @ q.transpose(0, 1)
-# u0 = torch.cholesky(p, upper=True)
-
+# def compute_obj2(G):
+#     weight = values.clone()
+#     all_s = torch.zeros_like(weight)
+#     group_objs = []
+#     for i in range(N):
+#         if G[i]:
+#             sz = len(G[i])
+#             if sz == 1:
+#                 all_s[i] = 1
+#                 group_objs.append(weight[i])
+#             else:
+#                 w = torch.tensor([weight[i] / math.sqrt(sz), weight[G[i][1]] * Qs[sz][2]])
+#                 s = torch.tensor([w[0]**(-1/3), (w[1]/(N-1))**(-1/3)])
+#                 s *= (1 / s).norm()
+#                 for k in G[i]:
+#                     all_s[k] = s[1]
+#                 all_s[i] = s[0]
+#                 group_objs.append((w*s).sum())
+#
+#     return torch.tensor(group_objs).norm(), all_s
+#
+#
+#
+# # last_obj, _ = compute_obj2(G)
+# # for i in range(N-1, 0, -1):
+# #     print(i)
+# #     if len(G[i]) > 1:
+# #         break
+# #     G[i] = []
+# #     best_obj = 1e10
+# #     best_j = -1
+# #     for j in range(i):
+# #         G[j].append(i)
+# #         obj, _ = compute_obj2(G)
+# #         if obj < best_obj:
+# #             best_obj = obj
+# #             best_j = j
+# #         G[j].pop()
+# #
+# #     if best_obj < last_obj:
+# #         print('Adding {} to {}, new obj = {}'.format(i, best_j, best_obj))
+# #         last_obj = best_obj
+# #         G[best_j].append(i)
+# #         print(G)
+# #     else:
+# #         G[i] = [i]
+# #         break
+#
+# num_zeros = 0
+# total_values = values.sum()
+# while True:
+#     num_zeros += 1
+#     total_values -= values[N - num_zeros]
+#     num = num_zeros * values[N - num_zeros - 1] / total_values
+#     if num >= 1:
+#         break
+#
+# num_nonzeros = N - num_zeros
+# nums = (num_zeros * values / total_values)[:num_nonzeros]
+# nums = torch.floor(torch.cumsum(nums, 0) + 1e-7).int()
+# G = [[] for i in range(N)]
+# cnt = num_nonzeros
+# for i in range(num_nonzeros):
+#     G[i] = [i]
+#     for j in range(cnt, num_nonzeros + nums[i]):
+#         G[i].append(j)
+#     cnt = num_nonzeros + nums[i]
+#
+# T = torch.zeros(N, N)
+# _, s = compute_obj2(G)
+# for g in G:
+#     if g:
+#         sz = len(g)
+#         q = Qs[sz][0]
+#         for i in range(sz):
+#             for j in range(sz):
+#                 T[g[i], g[j]] = q[i, j]
+#
+# T = T @ torch.diag(s)
+# T_per_std = calc_real_std(T, x, True)
+#
+#

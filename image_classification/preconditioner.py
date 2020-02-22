@@ -24,7 +24,6 @@ def init(max_bs):
 
 
 def get_transform(x):
-    t = time.time()
     N = x.shape[0]
     x = x.view(N, -1)
 
@@ -45,7 +44,7 @@ def get_transform(x):
 
     num_nonzeros = N - num_zeros
     nums = (num_zeros * values / total_values)[:num_nonzeros]
-    nums = torch.floor(torch.cumsum(nums, 0) + 1e-7).int()
+    nums = torch.round(torch.cumsum(nums, 0)).int()
 
     # Construct the matrix
     T = torch.zeros(N, N)
@@ -54,8 +53,6 @@ def get_transform(x):
     cnt = num_nonzeros
     indices = []
     index_cnt = 0
-    print(time.time() - t)
-    t = time.time()
 
     for i in range(num_nonzeros):
         # [i] + [cnt ~ num_nonzeros + nums[i]]
@@ -75,8 +72,10 @@ def get_transform(x):
             indices.append(j)
         cnt = num_nonzeros + nums[i]
 
-    print(time.time() - t)
-    t = time.time()
+    # print(nums)
+    # print(indices)
+    # print(num_nonzeros)
+    assert len(indices) == N
 
     T = T @ torch.diag(all_s)
     indices = rank[indices]
@@ -85,6 +84,4 @@ def get_transform(x):
 
     T = T[inv_indices]
     T = T[:, inv_indices]
-
-    print(time.time() - t)
     return T

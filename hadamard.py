@@ -281,6 +281,19 @@ T = get_transform(x)
 print('Get optimal transform in {} seconds'.format(time.time() - t))
 T_per_std = calc_real_std(T, x, True)
 
+for i in range(len(acts)):
+    x = acts[i].cpu().view(128, -1)
+
+    t = time.time()
+    T = get_transform(x)
+    t = time.time() - t
+
+    naive = calc_real_std(torch.eye(128), x, False)
+    ps = calc_real_std(torch.eye(128), x, True)
+    hh = calc_real_std(T, x, True)
+    print('Layer {}, naive={:.6f} diagonal={:.6f} householder={:.6f}, in {:.4f} seconds'.format(i, naive.norm(), ps.norm(), hh.norm(), t))
+
+
 # mvec = x.abs().max(1)[0]
 # # mvec = x.max(1)[0] - x.min(1)[0]
 # rank = (-mvec).argsort()

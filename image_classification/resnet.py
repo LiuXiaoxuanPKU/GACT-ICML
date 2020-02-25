@@ -2,7 +2,7 @@ import math
 import torch
 import torch.nn as nn
 import numpy as np
-from .quantize import QConv2d, QLinear
+from .quantize import QConv2d, QLinear, QBatchNorm2D
 from .preact_resnet import PreActBlock, PreActBottleneck, PreActResNet
 
 __all__ = ['ResNet', 'build_resnet', 'resnet_versions', 'resnet_configs']
@@ -60,7 +60,8 @@ class ResNetBuilder(object):
         return c
 
     def batchnorm(self, planes, last_bn=False):
-        bn = nn.BatchNorm2d(planes)
+        # bn = nn.BatchNorm2d(planes)
+        bn = self.config['bn'](planes)
 
         gamma_init_val = 0 if last_bn and self.config['last_bn_0_init'] else 1
         nn.init.constant_(bn.weight, gamma_init_val)
@@ -233,6 +234,7 @@ resnet_configs = {
         'classic' : {
             'conv' : nn.Conv2d,
             'linear' : nn.Linear,
+            'bn' : nn.BatchNorm2d,
             'conv_init' : 'fan_out',
             'nonlinearity' : 'relu',
             'last_bn_0_init' : False,
@@ -242,6 +244,7 @@ resnet_configs = {
         'fanin' : {
             'conv' : nn.Conv2d,
             'linear' : nn.Linear,
+            'bn' : nn.BatchNorm2d,
             'conv_init' : 'fan_in',
             'nonlinearity' : 'relu',
             'last_bn_0_init' : False,
@@ -251,6 +254,17 @@ resnet_configs = {
         'quantize' : {
             'conv' : QConv2d,
             'linear' : QLinear,
+            'bn' : QBatchNorm2D,
+            'conv_init' : 'fan_in',
+            'nonlinearity' : 'relu',
+            'last_bn_0_init' : False,
+            'activation' : lambda: nn.ReLU(inplace=True),
+            'quantize_forward': True
+            },
+        'qlinear' : {
+            'conv' : QConv2d,
+            'linear' : QLinear,
+            'bn' : nn.BatchNorm2d,
             'conv_init' : 'fan_in',
             'nonlinearity' : 'relu',
             'last_bn_0_init' : False,

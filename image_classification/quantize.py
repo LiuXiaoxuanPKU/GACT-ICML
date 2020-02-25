@@ -359,7 +359,7 @@ def quantize_grad(x, num_bits=None, qparams=None, flatten_dims=_DEFAULT_FLATTEN_
 class QuantMeasure(nn.Module):
     """docstring for QuantMeasure."""
 
-    def __init__(self, num_bits=8, shape_measure=(1,), flatten_dims=_DEFAULT_FLATTEN,
+    def __init__(self, shape_measure=(1,), flatten_dims=_DEFAULT_FLATTEN,
                  inplace=False, dequantize=True, stochastic=False, momentum=0.1, measure=False):
         super(QuantMeasure, self).__init__()
         self.flatten_dims = flatten_dims
@@ -367,7 +367,6 @@ class QuantMeasure(nn.Module):
         self.dequantize = dequantize
         self.stochastic = stochastic
         self.inplace = inplace
-        self.num_bits = num_bits
 
     def forward(self, input, qparams=None):
         if qparams is None:
@@ -389,8 +388,7 @@ class QConv2d(nn.Conv2d):
         self.num_bits = num_bits
         self.num_bits_weight = num_bits_weight or num_bits
         self.num_bits_grad = num_bits_grad
-        self.quantize_input = QuantMeasure(
-            self.num_bits, shape_measure=(1, 1, 1, 1), flatten_dims=(1, -1))
+        self.quantize_input = QuantMeasure(shape_measure=(1, 1, 1, 1), flatten_dims=(1, -1))
 
     def forward(self, input):
         if config.acts is not None:
@@ -437,7 +435,7 @@ class QLinear(nn.Linear):
         self.num_bits = num_bits
         self.num_bits_weight = num_bits_weight or num_bits
         self.num_bits_grad = num_bits_grad
-        self.quantize_input = QuantMeasure(self.num_bits)
+        self.quantize_input = QuantMeasure()
 
     def forward(self, input):
         if config.quantize_activation:
@@ -469,6 +467,25 @@ class QLinear(nn.Linear):
                     output, num_bits=config.backward_num_bits)
         else:
             output = linear_biprec(qinput, qweight, qbias, self.num_bits_grad)
+        return output
+
+
+class QBatchNorm2D(nn.BatchNorm2d):
+    def __init__(self, num_features):
+        super(QBatchNorm2D, self).__init__(num_features)
+        self.quantize_input = QuantMeasure()
+
+    def forward(self, input):
+        if config.quantize_activation:
+            qinput = self.quantize_input(input)
+        else:
+            qinput = input
+
+        output = super(QBatchNorm2D, self).forward(qinput)
+
+        if config.quantize_gradient:
+            output = quantize_grad(output, num_bits=config.backward_num_bits)
+
         return output
 
 

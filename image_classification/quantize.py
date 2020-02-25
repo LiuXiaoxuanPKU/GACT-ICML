@@ -37,6 +37,7 @@ class QuantizationConfig:
         self.grads = None
         self.acts = None
         self.hadamard = False
+        self.biprecision = True
 
 
 config = QuantizationConfig()
@@ -382,7 +383,7 @@ class QConv2d(nn.Conv2d):
     """docstring for QConv2d."""
 
     def __init__(self, in_channels, out_channels, kernel_size,
-                 stride=1, padding=0, dilation=1, groups=1, bias=True, num_bits=8, num_bits_weight=8, num_bits_grad=8, biprecision=True):
+                 stride=1, padding=0, dilation=1, groups=1, bias=True, num_bits=8, num_bits_weight=8, num_bits_grad=8):
         super(QConv2d, self).__init__(in_channels, out_channels, kernel_size,
                                       stride, padding, dilation, groups, bias)
         self.num_bits = num_bits
@@ -390,7 +391,6 @@ class QConv2d(nn.Conv2d):
         self.num_bits_grad = num_bits_grad
         self.quantize_input = QuantMeasure(
             self.num_bits, shape_measure=(1, 1, 1, 1), flatten_dims=(1, -1))
-        self.biprecision = biprecision
 
     def forward(self, input):
         if config.acts is not None:
@@ -417,12 +417,12 @@ class QConv2d(nn.Conv2d):
                 qbias = self.bias
         else:
             qbias = None
-        if not self.biprecision or self.num_bits_grad is None:
+        if not config.biprecision or self.num_bits_grad is None:
             output = F.conv2d(qinput, qweight, qbias, self.stride,
                               self.padding, self.dilation, self.groups)
-            if self.num_bits_grad is not None:
+            if config.quantize_gradient and self.num_bits_grad is not None:
                 output = quantize_grad(
-                    output, num_bits=self.num_bits_grad, flatten_dims=(1, -1))
+                    output, num_bits=config.backward_num_bits, flatten_dims=(1, -1))
         else:
             output = conv2d_biprec(qinput, qweight, qbias, self.stride,
                                    self.padding, self.dilation, self.groups, num_bits_grad=self.num_bits_grad)
@@ -432,12 +432,11 @@ class QConv2d(nn.Conv2d):
 class QLinear(nn.Linear):
     """docstring for QConv2d."""
 
-    def __init__(self, in_features, out_features, bias=True, num_bits=8, num_bits_weight=8, num_bits_grad=8, biprecision=True):
+    def __init__(self, in_features, out_features, bias=True, num_bits=8, num_bits_weight=8, num_bits_grad=8):
         super(QLinear, self).__init__(in_features, out_features, bias)
         self.num_bits = num_bits
         self.num_bits_weight = num_bits_weight or num_bits
         self.num_bits_grad = num_bits_grad
-        self.biprecision = biprecision
         self.quantize_input = QuantMeasure(self.num_bits)
 
     def forward(self, input):
@@ -463,11 +462,11 @@ class QLinear(nn.Linear):
         else:
             qbias = None
 
-        if not self.biprecision or self.num_bits_grad is None:
+        if not config.biprecision or self.num_bits_grad is None:
             output = F.linear(qinput, qweight, qbias)
-            if self.num_bits_grad is not None:
+            if config.quantize_gradient and self.num_bits_grad is not None:
                 output = quantize_grad(
-                    output, num_bits=self.num_bits_grad)
+                    output, num_bits=config.backward_num_bits)
         else:
             output = linear_biprec(qinput, qweight, qbias, self.num_bits_grad)
         return output

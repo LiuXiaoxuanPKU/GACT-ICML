@@ -207,7 +207,7 @@ def train(train_loader, model_and_loss, optimizer, lr_scheduler, fp16, logger, e
         logger.register_metric('train.top5', log.AverageMeter(), log_level = 0)
         logger.register_metric('train.loss', log.AverageMeter(), log_level = 0)
         logger.register_metric('train.compute_ips', log.AverageMeter(), log_level=1)
-        logger.register_metric('train.total_ips', log.AverageMeter(), log_level=1)
+        logger.register_metric('train.total_ips', log.AverageMeter(), log_level=0)
         logger.register_metric('train.data_time', log.AverageMeter(), log_level=1)
         logger.register_metric('train.compute_time', log.AverageMeter(), log_level=1)
 

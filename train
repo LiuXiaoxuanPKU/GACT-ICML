@@ -1,2 +1,2 @@
 mkdir results/$1
-python ./multiproc.py --nproc_per_node 8 ./main.py --arch $1 --gather-checkpoints --workspace results/$1 --batch-size 32 --lr 0.256 --warmup 2 ~/data/imagenet
+python ./multiproc.py --nproc_per_node 4 ./main.py --arch $1 --gather-checkpoints --workspace results/$1 --batch-size 32 --lr 0.256 --warmup 2 $2 ~/data/imagenet

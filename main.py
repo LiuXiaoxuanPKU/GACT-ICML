@@ -263,6 +263,7 @@ def main(args):
     elif args.data_backend == 'pytorch':
         get_train_loader = get_pytorch_train_loader
         get_val_loader = get_pytorch_val_loader
+        get_debug_loader = get_pytorch_val_loader
     elif args.data_backend == 'dali-gpu':
         get_train_loader = get_dali_train_loader(dali_cpu=False)
         get_val_loader = get_dali_val_loader()

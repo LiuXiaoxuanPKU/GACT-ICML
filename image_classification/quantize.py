@@ -9,6 +9,7 @@ import math
 import numpy as np
 from image_classification.preconditioner import get_transform
 
+import pytorch_minimax
 
 def hadamard(order):
     if order == 0:
@@ -66,8 +67,12 @@ def calculate_qparams(x, num_bits, flatten_dims=_DEFAULT_FLATTEN, reduce_dim=0, 
                     max_values = x.max(-1, keepdim=True)[0]
                 else:
                     x_flat = x.flatten(start_dim=1)
+                    '''
                     min_values = _deflatten_as(x_flat.min(-1, keepdim=True)[0], x) - 1e-8
                     max_values = _deflatten_as(x_flat.max(-1, keepdim=True)[0], x) + 1e-8
+                    '''
+                    min_values = _deflatten_as(pytorch_minimax.min(x_flat).unsqueeze(1), x) - 1e-8
+                    max_values = _deflatten_as(pytorch_minimax.max(x_flat).unsqueeze(1), x) - 1e-8
             else:
                 min_values = x.min()
                 max_values = x.max()

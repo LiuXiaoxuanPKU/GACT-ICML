@@ -1,6 +1,7 @@
 import torch
 import math
 import time
+import pytorch_minimax
 
 
 def householder(src, tar):
@@ -87,4 +88,94 @@ def get_transform(x):
     T = T[:, inv_indices]
     return T.cuda()
 
+
+class Preconditioner:
+    def __init__(self, x, num_bits, left=True):
+        self.left = left
+        self.x_shape = x.shape
+        self.num_bins = 2 ** num_bits - 1
+
+        self.x = self.flatten(x)
+        self.Tx = self.transform(self.x)
+
+    def flatten(self, x):
+        if left:
+            self.x_shape2 = x_shape
+            return x.view(x.shape[0], -1)
+        else:
+            # NCHW -> CNHW
+            x = x.transpose(0, 1)
+            self.x_shape2 = x.shape
+            return x.reshape(x.shape[0], -1)
+
+    def deflatten(self, Tx):
+        x = x.view(**self.x_shape2)
+        if left:
+            return x
+        else:
+            return x.transpose(0, 1)
+
+    def forward(self):
+        return self.Tx
+
+    def inverse(self, Tx):
+        x = self.inverse_transform(Tx)
+        return self.deflatten(x)
+
+
+class ScalarPreconditioner(Preconditioner):
+    # y = (x - z) * scale
+    # x = y / scale + z
+    def __init__(self, x, num_bits, left=True):
+        super(ScalarPreconditioner, self).__init__(x, num_bits, left)
+
+    def transform(self, x):
+        mn = x.min() - 1e-8
+        mx = x.max() + 1e-8
+
+        self.zero_point = mn
+        self.scale = self.num_bins * (mx - mn)
+
+        return (x - self.zero_point) * self.scale
+
+    def inverse(self, x):
+        return x / self.scale + self.zero_point
+
+
+class ForwardPreconditioner(Preconditioner):
+    # Y = D (Y - z 1^\top)
+    # X = D^-1 Y + z 1^\top
+    def __init__(self, x, left=True):
+        super(ForwardPreconditioner, self).__init__(x, num_bits, left)
+
+    def transform(self, x):
+        mn = pytorch_minimax.min(x).mean() - 1e-8
+        mx = pytorch_minimax.max(x).mean() + 1e-8
+
+        self.zero_point = mn
+        self.scale = self.num_bins * (mx - mn)
+
+        return (x - self.zero_point) * self.scale
+
+    def inverse(self, x):
+        return x / self.scale + self.zero_point
+
+
+class DiagonalPreconditioner(Preconditioner):
+    # Y = D (Y - z 1^\top)
+    # X = D^-1 Y + z 1^\top
+    def __init__(self, x, left=True):
+        super(DiagonalPreconditioner, self).__init__(x, num_bits, left)
+
+    def transform(self, x):
+        mn = pytorch_minimax.min(x).unsqueeze(1) - 1e-8
+        mx = pytorch_minimax.max(x).unsqueeze(1) + 1e-8
+
+        self.zero_point = mn
+        self.scale = self.num_bins * (mx - mn)
+
+        return (x - self.zero_point) * self.scale
+
+    def inverse(self, x):
+        return x / self.scale + self.zero_point
 

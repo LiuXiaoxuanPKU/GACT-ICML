@@ -27,67 +27,6 @@ def hadamard(order):
     return result
 
 
-def calc_range(e):
-    e = np.reshape(e, [64, -1])
-    e_min = np.min(e, 1, keepdims=True)
-    e_max = np.max(e, 1, keepdims=True)
-    return e_min, e_max - e_min
-
-
-def normalize_per_sample(e):
-    e = np.reshape(e, [64, -1])
-    e_min, e_range = calc_range(e)
-    e = (e - e_min) / e_range
-    return e.ravel()
-
-
-def process(e0, file_name):
-    n, c, w, _ = e0.shape
-    print('N = {}, C = {}, W = {}'.format(n, c, w))
-    e1 = Hadamard.sample_channel_hadamard(e0, False)
-    e2 = Hadamard.width_hadamard(e1, False)
-    e3 = Hadamard.height_hadamard(e2, False)
-    H = Hadamard.get_hadamard(w * w * c, False)
-    e_star = torch.reshape(e3, [-1, w * w * c]) @ H
-    e4 = Hadamard.height_hadamard(e3, True)
-    e5 = Hadamard.width_hadamard(e4, True)
-    e6 = Hadamard.sample_channel_hadamard(e5, True)
-    print('Error: {}'.format((e0 - e6).abs().mean()))
-    print('Mean: {}'.format(e0.abs().mean()))
-    es = [e0, e1, e2, e3, e_star]
-
-    print('FWHT...')
-    e_np = e0.cpu().numpy().ravel()
-    e_wh = FWHT(e_np)
-    e_wh = np.reshape(e_wh, [n, c, w, w])
-    print('FWHT finished')
-
-    # vmin = e1.min()
-    # vmax = e1.max()
-    # fig, ax = plt.subplots(n, 7, figsize=(35, 5 * n))
-    # for i in range(n):
-    #     for a, e in zip(ax[i], es):
-    #         a.imshow(np.reshape(e[i].cpu(), [c, w * w]), vmin=vmin, vmax=vmax, aspect='auto')
-    #         a.set_title(str(i) + ' ' + str(e[i].max() - e[i].min()))
-    #
-    #     ax[i, -2].hist(es[0][i].cpu().numpy().ravel(), bins=50)
-    #     ax[i, -1].hist(es[-1][i].cpu().numpy().ravel(), bins=50)
-    #
-    #     best_e = torch.ones_like(es[3][0]) * torch.norm(es[3][i]) / np.sqrt(c * w * w)
-    #     print(torch.norm(es[3][i]), torch.norm(best_e))
-    #     print(es[0][i].max() - es[0][i].min(), es[3][i].max() - es[3][i].min(), es[4][i].max() - es[4][i].min(),
-    #           e_wh[i].max() - e_wh[i].min(), best_e.max())
-    #
-    # fig.savefig(file_name)
-
-
-# acts = np.load('acts.pkl.npz', allow_pickle=True)
-# n = len(acts)
-# acts = [torch.tensor(acts['arr_{}'.format(i)], dtype=torch.float32).cuda() for i in range(n)]
-# a0 = acts[-3]
-# process(a0, 'amap.jpg')
-
-
 acts = np.load('errors.pkl.npz', allow_pickle=True)
 n = len(acts)
 acts = [torch.tensor(acts['arr_{}'.format(i)][0], dtype=torch.float32).cuda() for i in range(n)]
@@ -277,7 +216,7 @@ T3_per_std = calc_real_std(T3, x, True)
 
 init(128)
 t = time.time()
-T = get_transform(x)
+T = get_transform(x).cpu()
 print('Get optimal transform in {} seconds'.format(time.time() - t))
 T_per_std = calc_real_std(T, x, True)
 
@@ -285,144 +224,10 @@ for i in range(len(acts)):
     x = acts[i].cpu().view(128, -1)
 
     t = time.time()
-    T = get_transform(x)
+    T = get_transform(x).cpu()
     t = time.time() - t
 
     naive = calc_real_std(torch.eye(128), x, False)
     ps = calc_real_std(torch.eye(128), x, True)
     hh = calc_real_std(T, x, True)
     print('Layer {}, naive={:.6f} diagonal={:.6f} householder={:.6f}, in {:.4f} seconds'.format(i, naive.norm(), ps.norm(), hh.norm(), t))
-
-
-# mvec = x.abs().max(1)[0]
-# # mvec = x.max(1)[0] - x.min(1)[0]
-# rank = (-mvec).argsort()
-# values = mvec[rank]
-# x = x[rank]
-# N = mvec.shape[0]
-#
-# Qs = [[], [torch.eye(1), 1.0, 1.0]]
-# for i in range(2, N+1):
-#     e1 = torch.zeros(i)
-#     e1[0] = 1
-#     ones = torch.ones(i) / math.sqrt(i)
-#     H = householder(e1, ones)
-#     H1 = 1 / math.sqrt(i)
-#     Hmax = H.abs().max()
-#     Qs.append([H, H1, Hmax])
-#
-# G = [[i] for i in range(N)]
-#
-#
-# ##################################################
-# # N = 16
-# # x_part = torch.cat([x[:1], x[113:]], 0)
-# # lambda_1 = x_part[0].abs().max()
-# # lambda_2 = x_part[1:].abs().max()
-# # s = torch.tensor([lambda_1**(-1/3) * N**(1/6), lambda_2**(-1/3) * N**(1/3)])
-# # s *= (1 / s).norm()
-# # U = Qs[N][0]
-# # S = torch.ones(N) * s[1]
-# # S[0] = s[0]
-# # S *= (1 / S).norm()
-# # T = U @ torch.diag(S)
-#
-#
-# def compute_obj(G):
-#     weight = values.clone()
-#     for i in range(N):
-#         if G[i]:
-#             sz = len(G[i])
-#             for cnt, k in enumerate(G[i]):
-#                 if cnt == 0:
-#                     weight[k] *= Qs[sz][1]
-#                 else:
-#                     weight[k] *= Qs[sz][2]
-#
-#     s = torch.pow(weight, -1/3)
-#     s *= (1 / s).norm()
-#     return (weight * s).sum(), s
-#
-#
-# def compute_obj2(G):
-#     weight = values.clone()
-#     all_s = torch.zeros_like(weight)
-#     group_objs = []
-#     for i in range(N):
-#         if G[i]:
-#             sz = len(G[i])
-#             if sz == 1:
-#                 all_s[i] = 1
-#                 group_objs.append(weight[i])
-#             else:
-#                 w = torch.tensor([weight[i] / math.sqrt(sz), weight[G[i][1]] * Qs[sz][2]])
-#                 s = torch.tensor([w[0]**(-1/3), (w[1]/(N-1))**(-1/3)])
-#                 s *= (1 / s).norm()
-#                 for k in G[i]:
-#                     all_s[k] = s[1]
-#                 all_s[i] = s[0]
-#                 group_objs.append((w*s).sum())
-#
-#     return torch.tensor(group_objs).norm(), all_s
-#
-#
-#
-# # last_obj, _ = compute_obj2(G)
-# # for i in range(N-1, 0, -1):
-# #     print(i)
-# #     if len(G[i]) > 1:
-# #         break
-# #     G[i] = []
-# #     best_obj = 1e10
-# #     best_j = -1
-# #     for j in range(i):
-# #         G[j].append(i)
-# #         obj, _ = compute_obj2(G)
-# #         if obj < best_obj:
-# #             best_obj = obj
-# #             best_j = j
-# #         G[j].pop()
-# #
-# #     if best_obj < last_obj:
-# #         print('Adding {} to {}, new obj = {}'.format(i, best_j, best_obj))
-# #         last_obj = best_obj
-# #         G[best_j].append(i)
-# #         print(G)
-# #     else:
-# #         G[i] = [i]
-# #         break
-#
-# num_zeros = 0
-# total_values = values.sum()
-# while True:
-#     num_zeros += 1
-#     total_values -= values[N - num_zeros]
-#     num = num_zeros * values[N - num_zeros - 1] / total_values
-#     if num >= 1:
-#         break
-#
-# num_nonzeros = N - num_zeros
-# nums = (num_zeros * values / total_values)[:num_nonzeros]
-# nums = torch.floor(torch.cumsum(nums, 0) + 1e-7).int()
-# G = [[] for i in range(N)]
-# cnt = num_nonzeros
-# for i in range(num_nonzeros):
-#     G[i] = [i]
-#     for j in range(cnt, num_nonzeros + nums[i]):
-#         G[i].append(j)
-#     cnt = num_nonzeros + nums[i]
-#
-# T = torch.zeros(N, N)
-# _, s = compute_obj2(G)
-# for g in G:
-#     if g:
-#         sz = len(g)
-#         q = Qs[sz][0]
-#         for i in range(sz):
-#             for j in range(sz):
-#                 T[g[i], g[j]] = q[i, j]
-#
-# T = T @ torch.diag(s)
-# T_per_std = calc_real_std(T, x, True)
-#
-#

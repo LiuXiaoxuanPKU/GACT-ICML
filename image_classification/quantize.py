@@ -72,7 +72,7 @@ def calculate_qparams(x, num_bits, flatten_dims=_DEFAULT_FLATTEN, reduce_dim=0, 
                     max_values = _deflatten_as(x_flat.max(-1, keepdim=True)[0], x) + 1e-8
                     '''
                     min_values = _deflatten_as(pytorch_minimax.min(x_flat).unsqueeze(1), x) - 1e-8
-                    max_values = _deflatten_as(pytorch_minimax.max(x_flat).unsqueeze(1), x) - 1e-8
+                    max_values = _deflatten_as(pytorch_minimax.max(x_flat).unsqueeze(1), x) + 1e-8
             else:
                 min_values = x.min()
                 max_values = x.max()
@@ -82,8 +82,10 @@ def calculate_qparams(x, num_bits, flatten_dims=_DEFAULT_FLATTEN, reduce_dim=0, 
                 min_values = _deflatten_as(x_flat.min(), x)
                 max_values = _deflatten_as(x_flat.max(), x)
             else:
-                min_values = _deflatten_as(x_flat.min(-1)[0], x)
-                max_values = _deflatten_as(x_flat.max(-1)[0], x)
+                # min_values = _deflatten_as(x_flat.min(-1)[0], x)
+                # max_values = _deflatten_as(x_flat.max(-1)[0], x)
+                min_values = _deflatten_as(pytorch_minimax.min(x_flat).unsqueeze(1), x) - 1e-8
+                max_values = _deflatten_as(pytorch_minimax.max(x_flat).unsqueeze(1), x) + 1e-8
 
             if reduce_dim is not None:
                 min_values = min_values.mean(reduce_dim, keepdim=keepdim)

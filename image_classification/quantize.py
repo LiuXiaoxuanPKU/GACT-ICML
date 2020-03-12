@@ -9,6 +9,7 @@ import math
 import numpy as np
 from image_classification.preconditioner import get_transform
 
+# TODO quantize shortcut connection
 
 def hadamard(order):
     if order == 0:
@@ -470,7 +471,7 @@ class QLinear(nn.Linear):
         return output
 
 
-class QBatchNorm2D(nn.BatchNorm2d):
+class QBatchNorm2D(nn.BatchNorm2d):         # TODO buggy simulation of nonlinear operations
     def __init__(self, num_features):
         super(QBatchNorm2D, self).__init__(num_features)
         self.quantize_input = QuantMeasure()

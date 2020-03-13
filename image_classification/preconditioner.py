@@ -140,8 +140,7 @@ class BlockwiseHouseholderPreconditioner(Preconditioner):
         N = x.shape[0]
         x = x.view(N, -1)
 
-        # mvec = x.abs().max(1)[0]
-        mvec = x.max(1)[0] - x.min(1)[0]
+        mvec = pytorch_minimax.max(x) - pytorch_minimax.min(x)
         rank = (-mvec).argsort()
         values = mvec[rank]
 
@@ -160,8 +159,8 @@ class BlockwiseHouseholderPreconditioner(Preconditioner):
         nums = torch.round(torch.cumsum(nums, 0)).int()
 
         # Construct the matrix
-        T = torch.zeros(N, N)
-        all_s = torch.zeros(N)
+        T = torch.zeros(N, N).cuda()
+        all_s = torch.zeros(N).cuda()
 
         cnt = num_nonzeros
         indices = []
@@ -192,9 +191,9 @@ class BlockwiseHouseholderPreconditioner(Preconditioner):
 
         T = T @ torch.diag(all_s)
         indices = rank[indices]
-        inv_indices = torch.zeros(N, dtype=torch.int64)
-        inv_indices[indices] = torch.arange(N)
+        inv_indices = torch.zeros(N, dtype=torch.int64).cuda()
+        inv_indices[indices] = torch.arange(N).cuda()
 
         T = T[inv_indices]
         T = T[:, inv_indices]
-        return T.cuda()
+        return T

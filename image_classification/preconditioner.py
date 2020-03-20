@@ -2,6 +2,7 @@ import torch
 import math
 import time
 import pytorch_minimax
+from quantizers import get_transform
 
 
 def householder(src, tar):
@@ -12,6 +13,8 @@ def householder(src, tar):
 
 
 Qs = [[], [torch.ones(1), 1.0]]
+Qqs = [torch.tensor(1.0), torch.ones(1)]
+Qmax = [1.0, 1.0]
 
 
 def init(max_bs):
@@ -22,6 +25,8 @@ def init(max_bs):
         H = householder(e1, ones)
         Hmax = H.abs().max()
         Qs.append([H, Hmax])
+        Qqs.append(H)
+        Qmax.append(Hmax)
 
 
 class Preconditioner:
@@ -113,6 +118,9 @@ class DiagonalPreconditioner(Preconditioner):
         return x / self.scale + self.zero_point
 
 
+total_time = 0
+
+
 class BlockwiseHouseholderPreconditioner(Preconditioner):
     # Y = D (Y - z 1^\top)
     # X = D^-1 Y + z 1^\top
@@ -120,7 +128,17 @@ class BlockwiseHouseholderPreconditioner(Preconditioner):
         super(BlockwiseHouseholderPreconditioner, self).__init__(x, num_bits, left)
 
     def transform(self, x):
-        self.T = self.get_transform(x)
+        # self.T = self.get_transform(x)
+        with torch.no_grad():
+            mvec = pytorch_minimax.max(x) - pytorch_minimax.min(x) + 1e-8
+        self.T = get_transform(mvec.cpu(), Qqs, Qmax).cuda()
+        # print(self.T)
+        # print(torch.diag(self.T))
+        # print(self.T.svd()[1])
+        # print(self.T.sum(1))
+        # print(self.T.sum(0))
+        # exit(0)
+
         x = self.T @ x
         with torch.no_grad():
             mn = pytorch_minimax.min(x).unsqueeze(1) - 1e-8
@@ -129,6 +147,7 @@ class BlockwiseHouseholderPreconditioner(Preconditioner):
         self.zero_point = mn
         self.scale = self.num_bins / (mx - mn)
 
+        # print('fin')
         return (x - self.zero_point) * self.scale
 
     def inverse_transform(self, x):
@@ -137,6 +156,8 @@ class BlockwiseHouseholderPreconditioner(Preconditioner):
 
     @staticmethod
     def get_transform(x):
+        global total_time
+
         N = x.shape[0]
         x = x.view(N, -1)
 
@@ -184,6 +205,7 @@ class BlockwiseHouseholderPreconditioner(Preconditioner):
                 indices.append(j)
             cnt = num_nonzeros + nums[i]
 
+        t = time.time()
         # print(nums)
         # print(indices)
         # print(num_nonzeros)
@@ -196,4 +218,7 @@ class BlockwiseHouseholderPreconditioner(Preconditioner):
 
         T = T[inv_indices]
         T = T[:, inv_indices]
+        total_time += time.time() - t
+        print(total_time)
+
         return T

@@ -7,7 +7,8 @@ matplotlib.use('Agg')
 from matplotlib import pyplot as plt
 from image_classification.quantize import config
 from fwht import FWHT
-from image_classification.preconditioner import init, BlockwiseHouseholderPreconditioner, ScalarPreconditioner, DiagonalPreconditioner
+from image_classification.preconditioner import init, BlockwiseHouseholderPreconditioner, ScalarPreconditioner, DiagonalPreconditioner, total_time, Qqs, Qmax
+from quantizers import get_transform
 
 
 config.hadamard = True
@@ -79,7 +80,9 @@ def calc_real_std(Preconditioner, x):
     for i in range(100):
         qx = quantize(x, Preconditioner, stochastic=True)
         xs.append(qx)
+        #print(i, qx)
     x_std = torch.stack(xs, 0).std(0)
+    #print(x_std)
     return x_std
 
 
@@ -114,6 +117,11 @@ for step in range(0):
 
 
 init(128)
+
+# x = acts[10].cpu().view(128, -1)
+# mvec = x.max(1)[0] - x.min(1)[0]
+# T = get_transform(mvec, Qqs, Qmax)
+# exit(0)
 for i in range(len(acts)):
     x = acts[i].cpu().view(128, -1)
 
@@ -125,3 +133,4 @@ for i in range(len(acts)):
     t = time.time() - t
 
     print('Layer {}, naive={:.6f} diagonal={:.6f} householder={:.6f}, in {:.4f} seconds'.format(i, naive.norm(), ps.norm(), hh.norm(), t))
+    print(total_time)

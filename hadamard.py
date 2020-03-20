@@ -126,11 +126,15 @@ for i in range(len(acts)):
     x = acts[i].cpu().view(128, -1)
 
     naive = calc_real_std(lambda x: ScalarPreconditioner(x, 4), x)
+
+    t = time.time()
     ps = calc_real_std(lambda x: DiagonalPreconditioner(x.cuda(), 4), x)
+    t0 = time.time() - t
 
     t = time.time()
     hh = calc_real_std(lambda x: BlockwiseHouseholderPreconditioner(x.cuda(), 4), x)
     t = time.time() - t
 
-    print('Layer {}, naive={:.6f} diagonal={:.6f} householder={:.6f}, in {:.4f} seconds'.format(i, naive.norm(), ps.norm(), hh.norm(), t))
+    print('Layer {}, naive={:.6f} diagonal={:.6f} householder={:.6f}, in {:.4f} seconds (baseline {:.4f} seconds)'
+          .format(i, naive.norm(), ps.norm(), hh.norm(), t, t0))
     print(total_time)

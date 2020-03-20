@@ -9,7 +9,7 @@ struct KeyValue {
     float v;
 };
 
-torch::Tensor get_transform(torch::Tensor mvec,
+std::vector<torch::Tensor> get_transform(torch::Tensor mvec,
                             std::vector<torch::Tensor> Q,
                             std::vector<float> Qmax) {
     TORCH_CHECK(!mvec.type().is_cuda(), "mvec must be a CPU tensor!");
@@ -46,7 +46,7 @@ torch::Tensor get_transform(torch::Tensor mvec,
     TORCH_CHECK(nums[num_nonzeros - 1] == num_zeros, "Number mismatch");
 
     auto T = torch::zeros({N, N}, mvec.options());
-    std::vector<float> all_s(N);
+    std::vector<float> all_s(N), all_s2(N), all_s2_inv(N);
 
     auto *T_data = T.data_ptr<float>();
     std::vector<int> indices;
@@ -88,17 +88,26 @@ torch::Tensor get_transform(torch::Tensor mvec,
 
     TORCH_CHECK(indices.size() == N, "Indices is not N")
 
-    for (int r = 0; r < N; r++)
-        for (int c = 0; c < N; c++)
-            T_data[r * N + c] *= all_s[c];
-
     auto T2 = torch::zeros({N, N}, mvec.options());
     auto *T2_data = T2.data_ptr<float>();
-    for (int r = 0; r < N; r++)
+    auto T2_inv = torch::zeros({N, N}, mvec.options());
+    auto *T2_inv_data = T2_inv.data_ptr<float>();
+
+    for (int r = 0; r < N; r++) {
         for (int c = 0; c < N; c++)
             T2_data[indices[r] * N + indices[c]] = T_data[r * N + c];
+        all_s2[indices[r]] = all_s[r];
+        all_s2_inv[indices[r]] = 1.0 / all_s[r];
+    }
+    std::copy(T2_data, T2_data + N * N, T2_inv_data);
 
-    return T2;
+    for (int r = 0; r < N; r++)
+        for (int c = 0; c < N; c++) {
+            T2_data[r * N + c] *= all_s2[c];
+            T2_inv_data[r * N + c] *= all_s2_inv[c];
+        }
+
+    return {T2, T2_inv};
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {

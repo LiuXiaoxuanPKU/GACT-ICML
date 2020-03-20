@@ -147,9 +147,10 @@ def add_parser_arguments(parser):
     parser.add_argument('--biased', type=str2bool, default=False, help='biased quantization')
     parser.add_argument('--fbits', type=int, default=8, help='forward number of bits')
     parser.add_argument('--bbits', type=int, default=8, help='backward number of bits')
+    parser.add_argument('--bwbits', type=int, default=8, help='backward weight number of bits')
     parser.add_argument('--persample', type=str2bool, default=False, help='per-sample quantization of gradients')
     parser.add_argument('--hadamard', type=str2bool, default=False, help='apply Hadamard transformation on gradients')
-    parser.add_argument('--biprecision', type=str2bool, default=False, help='Gradient bifurcation')
+    parser.add_argument('--biprecision', type=str2bool, default=True, help='Gradient bifurcation')
 
 
 def main(args):

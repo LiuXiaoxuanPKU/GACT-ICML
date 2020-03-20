@@ -131,13 +131,10 @@ class BlockwiseHouseholderPreconditioner(Preconditioner):
         # self.T = self.get_transform(x)
         with torch.no_grad():
             mvec = pytorch_minimax.max(x) - pytorch_minimax.min(x) + 1e-8
-        self.T = get_transform(mvec.cpu(), Qqs, Qmax).cuda()
-        # print(self.T)
-        # print(torch.diag(self.T))
-        # print(self.T.svd()[1])
-        # print(self.T.sum(1))
-        # print(self.T.sum(0))
-        # exit(0)
+        self.T, self.T_inv = get_transform(mvec.cpu(), Qqs, Qmax)
+        self.T = self.T.cuda()
+        self.T_inv = self.T_inv.cuda()
+        # self.T = torch.eye(x.shape[0]).cuda()
 
         x = self.T @ x
         with torch.no_grad():
@@ -152,7 +149,9 @@ class BlockwiseHouseholderPreconditioner(Preconditioner):
 
     def inverse_transform(self, x):
         x = x / self.scale + self.zero_point
-        return self.T.inverse() @ x
+        return self.T_inv @ x
+        # return self.T.inverse() @ x
+        # return self.T @ x
 
     @staticmethod
     def get_transform(x):

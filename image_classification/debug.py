@@ -251,6 +251,43 @@ def fast_dump(model_and_loss, optimizer, val_loader, checkpoint_dir):
                 k, grad_mean.abs().mean(), sg.mean(), bg.abs().mean(), sq.mean(), bq.abs().mean()))
 
 
+def fast_dump_2(model_and_loss, optimizer, val_loader, checkpoint_dir):
+    config.quantize_gradient = False
+    print("Computing batch gradient...")
+    grad = get_batch_grad(model_and_loss, optimizer, val_loader, checkpoint_dir + "/grad_mean.grad")
+
+    print("Computing gradient std...")
+    g_outputs = get_grad_bias_std(model_and_loss, optimizer, val_loader, grad, checkpoint_dir + "/grad_std.grad", num_epochs=1)
+
+    config.quantize_gradient = True
+    q_outputs = get_grad_bias_std(model_and_loss, optimizer, val_loader, grad, checkpoint_dir + "/grad_std_quan.grad", num_epochs=1)
+
+    if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
+        bias_grad, std_grad = g_outputs
+        bias_quan, std_quan = q_outputs
+        weight_names = list(grad.keys())
+        weight_names = [n.replace('_grad', '').replace('_weight', '') for n in weight_names]
+        weight_names = list(set(weight_names))
+        weight_names.sort(key=key)
+
+        sample_var = 0.0
+        overall_var = 0.0
+        for k in weight_names:
+            grad_mean = grad[k + '_grad']
+            sg = std_grad[k + '_grad']
+            sq = std_quan[k + '_grad']
+
+            print('{}, batch grad norm={}, sample var={}, quantization var={}, overall var={}'.format(
+                k, grad_mean.norm()**2, sg.norm()**2, sq.norm()**2-sg.norm()**2, sq.norm()**2))
+
+            sample_var += sg.norm()**2
+            overall_var += sq.norm()**2
+
+        print('SampleVar = {}, QuantVar = {}, OverallVar = {}'.format(
+            sample_var, overall_var - sample_var, overall_var))
+
+
+
 def plot_bin_hist(model_and_loss, optimizer, val_loader):
     config.grads = []
     config.acts = []

@@ -243,12 +243,15 @@ class QBatchNorm2D(nn.BatchNorm2d):
         else:
             qinput = input
 
-        if config.quantize_weights:
-            qweight = quantize(self.weight, config.bias_preconditioner())
-            qbias = quantize(self.bias, config.bias_preconditioner())
-        else:
-            qweight = self.weight
-            qbias = self.bias
+        # if config.quantize_weights:
+        #     qweight = quantize(self.weight, config.bias_preconditioner())
+        #     qbias = quantize(self.bias, config.bias_preconditioner())
+        # else:
+        #     qweight = self.weight
+        #     qbias = self.bias
+
+        qweight = self.weight
+        qbias = self.bias
 
         # exponential_average_factor is set to self.momentum
         # (when it is available) only so that if gets updated

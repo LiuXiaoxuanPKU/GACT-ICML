@@ -145,7 +145,9 @@ def add_parser_arguments(parser):
     parser.add_argument('--qw', type=str2bool, default=True, help='quantize weights')
     parser.add_argument('--qg', type=str2bool, default=True, help='quantize gradients')
     parser.add_argument('--biased', type=str2bool, default=False, help='biased quantization')
-    parser.add_argument('--fbits', type=int, default=8, help='forward number of bits')
+    parser.add_argument('--abits', type=int, default=8, help='activation number of bits')
+    parser.add_argument('--wbits', type=int, default=8, help='weight number of bits')
+    parser.add_argument('--biasbits', type=int, default=8, help='bias number of bits')
     parser.add_argument('--bbits', type=int, default=8, help='backward number of bits')
     parser.add_argument('--bwbits', type=int, default=8, help='backward weight number of bits')
     parser.add_argument('--persample', type=str2bool, default=False, help='per-sample quantization of gradients')
@@ -157,7 +159,9 @@ def main(args):
     config.quantize_activation = args.qa
     config.quantize_weights = args.qw
     config.quantize_gradient = args.qg
-    config.forward_num_bits = args.fbits
+    config.activation_num_bits = args.abits
+    config.weight_num_bits = args.wbits
+    config.bias_num_bits = args.biasbits
     config.backward_num_bits = args.bbits
     config.backward_persample = args.persample
     config.hadamard = args.hadamard

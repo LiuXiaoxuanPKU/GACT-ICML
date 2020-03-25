@@ -94,17 +94,18 @@ std::vector<torch::Tensor> get_transform(torch::Tensor mvec,
     auto *T2_inv_data = T2_inv.data_ptr<float>();
 
     for (int r = 0; r < N; r++) {
-        for (int c = 0; c < N; c++)
+        for (int c = 0; c < N; c++) {
             T2_data[indices[r] * N + indices[c]] = T_data[r * N + c];
+            T2_inv_data[indices[c] * N + indices[r]] = T_data[r * N + c];
+        }
         all_s2[indices[r]] = all_s[r];
         all_s2_inv[indices[r]] = 1.0 / all_s[r];
     }
-    std::copy(T2_data, T2_data + N * N, T2_inv_data);
 
     for (int r = 0; r < N; r++)
         for (int c = 0; c < N; c++) {
             T2_data[r * N + c] *= all_s2[c];
-            T2_inv_data[r * N + c] *= all_s2_inv[c];
+            T2_inv_data[r * N + c] *= all_s2_inv[r];
         }
 
     return {T2, T2_inv};

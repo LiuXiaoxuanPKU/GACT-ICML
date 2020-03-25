@@ -4,7 +4,7 @@ from matplotlib import pyplot as plt
 
 fig, ax = plt.subplots()
 xs = range(4, 9)
-for alg, prefix in [('naive', '{}.log'), ('persample', '{}_persample.log'), ('householder', '{}_householder.log')]:
+for alg, prefix in [('naive', '{}.log'), ('persample', '{}_persample.log'), ('householder', '{}_householderlog')]:
     sample_vars = []
     quant_vars = []
     for x in xs:

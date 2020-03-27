@@ -9,20 +9,24 @@ for i in range(0, 4):
 
 
 tasks = [
-    ('32', '-c quantize --qa=False --qg=False --qw=False'),
-    ('a8w8', '-c quantize --qa=True --qw=True --qg=False --abits=8 --wbits=8'),
-    ('a7w7', '-c quantize --qa=True --qw=True --qg=False --abits=7 --wbits=7'),
-    ('a6w6', '-c quantize --qa=True --qw=True --qg=False --abits=6 --wbits=6'),
-    ('a5w5', '-c quantize --qa=True --qw=True --qg=False --abits=5 --wbits=5'),
-    ('a4w4', '-c quantize --qa=True --qw=True --qg=False --abits=4 --wbits=4'),
-    ('a7w8', '-c quantize --qa=True --qw=True --qg=False --abits=7 --wbits=8'),
-    ('a6w8', '-c quantize --qa=True --qw=True --qg=False --abits=6 --wbits=8'),
-    ('a5w8', '-c quantize --qa=True --qw=True --qg=False --abits=5 --wbits=8'),
-    ('a4w8', '-c quantize --qa=True --qw=True --qg=False --abits=4 --wbits=8'),
-    ('a8w7', '-c quantize --qa=True --qw=True --qg=False --abits=8 --wbits=7'),
-    ('a8w6', '-c quantize --qa=True --qw=True --qg=False --abits=8 --wbits=6'),
-    ('a8w5', '-c quantize --qa=True --qw=True --qg=False --abits=8 --wbits=5'),
-    ('a8w4', '-c quantize --qa=True --qw=True --qg=False --abits=8 --wbits=4'),
+    # ('32', '-c quantize --qa=False --qg=False --qw=False'),
+    # ('a8w8', '-c quantize --qa=True --qw=True --qg=False --abits=8 --wbits=8'),
+    # ('a7w7', '-c quantize --qa=True --qw=True --qg=False --abits=7 --wbits=7'),
+    # ('a6w6', '-c quantize --qa=True --qw=True --qg=False --abits=6 --wbits=6'),
+    # ('a5w5', '-c quantize --qa=True --qw=True --qg=False --abits=5 --wbits=5'),
+    # ('a4w4', '-c quantize --qa=True --qw=True --qg=False --abits=4 --wbits=4'),
+    # ('a7w8', '-c quantize --qa=True --qw=True --qg=False --abits=7 --wbits=8'),
+    # ('a6w8', '-c quantize --qa=True --qw=True --qg=False --abits=6 --wbits=8'),
+    # ('a5w8', '-c quantize --qa=True --qw=True --qg=False --abits=5 --wbits=8'),
+    # ('a4w8', '-c quantize --qa=True --qw=True --qg=False --abits=4 --wbits=8'),
+    # ('a8w7', '-c quantize --qa=True --qw=True --qg=False --abits=8 --wbits=7'),
+    # ('a8w6', '-c quantize --qa=True --qw=True --qg=False --abits=8 --wbits=6'),
+    # ('a8w5', '-c quantize --qa=True --qw=True --qg=False --abits=8 --wbits=5'),
+    # ('a8w4', '-c quantize --qa=True --qw=True --qg=False --abits=8 --wbits=4'),
+    ('a6w6g4_h', '-c quantize --qa=True --qw=True --qg=True --abits=6 --wbits=6 --bbits=4 --persample=True --hadamard=True'),
+    ('a5w5g4_h', '-c quantize --qa=True --qw=True --qg=True --abits=5 --wbits=5 --bbits=4 --persample=True --hadamard=True'),
+    ('a4w4g4_h', '-c quantize --qa=True --qw=True --qg=True --abits=5 --wbits=5 --bbits=4 --persample=True --hadamard=True'),
+    ('a8w4g4_h', '-c quantize --qa=True --qw=True --qg=True --abits=5 --wbits=5 --bbits=4 --persample=True --hadamard=True'),
 ]
 
 

@@ -4,7 +4,7 @@ from .utils import *
 import matplotlib
 matplotlib.use('Agg')
 from matplotlib import pyplot as plt
-import pickle
+from tqdm import tqdm
 
 
 def get_error_grad(m):
@@ -347,3 +347,78 @@ def write_errors(model_and_loss, optimizer, val_loader):
 
         if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
             np.savez('errors_{}.pkl'.format(iter), *config.grads)
+
+
+def variance_profile(model_and_loss, optimizer, val_loader):
+    num_batches = 10
+    num_samples = 10
+
+    if hasattr(model_and_loss.model, 'module'):
+        m = model_and_loss.model.module
+    else:
+        m = model_and_loss.model
+
+    # Get top 10 batches
+    m.set_debug(True)
+    m.set_name()
+
+    data_iter = enumerate(val_loader)
+    inputs = []
+    targets = []
+    batch_grad = None
+    quant_var = None
+
+    def bp(input, target):
+        optimizer.zero_grad()
+        loss, output = model_and_loss(input, target)
+        loss.backward()
+        torch.cuda.synchronize()
+        grad = {layer.layer_name : layer.weight.grad.detach().cpu() for layer in m.linear_layers}
+        return grad
+
+    for i, (input, target) in tqdm(data_iter):
+        if i == num_batches:
+            break
+
+        inputs.append(input.clone())
+        targets.append(target.clone())
+
+        # Deterministic
+        config.quantize_gradient = False
+        mean_grad = bp(input, target)
+        batch_grad = dict_add(batch_grad, mean_grad)
+
+        # Stochastic: compute variance by taking expectation of conditional variance
+        config.quantize_gradient = True
+        for j in range(num_samples):
+            grad = bp(input, target)
+            quant_var = dict_add(quant_var, dict_sqr(dict_minus(grad, mean_grad)))
+
+    batch_grad = dict_mul(batch_grad, 1.0 / num_batches)
+    quant_var = dict_mul(quant_var, 1.0 / num_batches / num_samples)
+
+    # Deterministic: compute variance directly
+    total_var = None
+    sample_var = None
+    for i, input, target in tqdm(zip(range(num_batches), inputs, targets)):
+        config.quantize_gradient = False
+        grad = bp(input, target)
+        sample_var = dict_add(sample_var, dict_sqr(dict_minus(grad, batch_grad)))
+
+        config.quantize_gradient = True
+        # for j in range(num_samples):
+        grad = bp(input, target)
+        total_var = dict_add(total_var, dict_sqr(dict_minus(grad, batch_grad)))
+
+    sample_var = dict_mul(sample_var, 1.0 / num_batches)
+    total_var = dict_mul(total_var, 1.0 / num_batches)
+
+    if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
+        weight_names = [layer.layer_name for layer in m.linear_layers]
+        for k in weight_names:
+            qv = quant_var[k]
+            sv = sample_var[k]
+            tv = total_var[k]
+
+            print('{}, sample var = {}, quant var = {}, overall var = {}'.format(
+                k, sv.sum(), qv.sum(), tv.sum()))

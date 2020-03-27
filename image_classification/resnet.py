@@ -227,6 +227,7 @@ class ResNet(nn.Module):
             for b in l:
                 b.debug = debug
 
+
 # ResNet }}}
 
 

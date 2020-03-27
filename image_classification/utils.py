@@ -63,6 +63,8 @@ def reduce_tensor(tensor):
 
 
 def dict_add(x, y):
+    if x is None:
+        return y
     return {k: x[k] + y[k] for k in x}
 
 

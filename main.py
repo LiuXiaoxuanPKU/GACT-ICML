@@ -163,6 +163,7 @@ def main(args):
     config.weight_num_bits = args.wbits
     config.bias_num_bits = args.biasbits
     config.backward_num_bits = args.bbits
+    config.bweight_num_bits = args.bwbits
     config.backward_persample = args.persample
     config.hadamard = args.hadamard
     config.biased = args.biased

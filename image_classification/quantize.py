@@ -43,7 +43,10 @@ class QuantizationConfig:
             return lambda x: ScalarPreconditioner(x, self.backward_num_bits)
 
     def weight_gradient_preconditioner(self):
-        return lambda x: DiagonalPreconditioner(x, self.bweight_num_bits, left=False)
+        if self.backward_persample:
+            return lambda x: DiagonalPreconditioner(x, self.bweight_num_bits, left=False)
+        else:
+            return lambda x: ScalarPreconditioner(x, self.bweight_num_bits)
 
 
 config = QuantizationConfig()
@@ -187,11 +190,9 @@ class QConv2d(nn.Conv2d):
             qweight = self.weight
             qbias = self.bias
 
-        if not config.biprecision:
+        if hasattr(self, 'exact'):
             output = F.conv2d(qinput, qweight, qbias, self.stride,
                               self.padding, self.dilation, self.groups)
-            if config.quantize_gradient:
-                output = quantize_grad(output, config.activation_gradient_preconditioner())
         else:
             output = conv2d_biprec(qinput, qweight, qbias, self.stride,
                                    self.padding, self.dilation, self.groups)
@@ -221,10 +222,8 @@ class QLinear(nn.Linear):
             qweight = self.weight
             qbias = self.bias
 
-        if not config.biprecision:
+        if hasattr(self, 'exact'):
             output = F.linear(qinput, qweight, qbias)
-            if config.quantize_gradient:
-                output = quantize_grad(output, config.activation_gradient_preconditioner())
         else:
             output = linear_biprec(qinput, qweight, qbias)
 

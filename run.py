@@ -23,10 +23,10 @@ tasks = [
     # ('a8w6', '-c quantize --qa=True --qw=True --qg=False --abits=8 --wbits=6'),
     # ('a8w5', '-c quantize --qa=True --qw=True --qg=False --abits=8 --wbits=5'),
     # ('a8w4', '-c quantize --qa=True --qw=True --qg=False --abits=8 --wbits=4'),
-    ('a6w6g4_h', '-c quantize --qa=True --qw=True --qg=True --abits=6 --wbits=6 --bbits=4 --persample=True --hadamard=True'),
-    ('a5w5g4_h', '-c quantize --qa=True --qw=True --qg=True --abits=5 --wbits=5 --bbits=4 --persample=True --hadamard=True'),
-    ('a4w4g4_h', '-c quantize --qa=True --qw=True --qg=True --abits=5 --wbits=5 --bbits=4 --persample=True --hadamard=True'),
-    ('a8w4g4_h', '-c quantize --qa=True --qw=True --qg=True --abits=5 --wbits=5 --bbits=4 --persample=True --hadamard=True'),
+    # ('a6w6g4_h', '-c quantize --qa=True --qw=True --qg=True --abits=6 --wbits=6 --bbits=4 --persample=True --hadamard=True'),
+    # ('a5w5g4_h', '-c quantize --qa=True --qw=True --qg=True --abits=5 --wbits=5 --bbits=4 --persample=True --hadamard=True'),
+    ('a4w4g4_h', '-c quantize --qa=True --qw=True --qg=True --abits=4 --wbits=4 --bbits=4 --persample=True --hadamard=True'),
+    ('a8w4g4_h', '-c quantize --qa=True --qw=True --qg=True --abits=8 --wbits=4 --bbits=4 --persample=True --hadamard=True'),
 ]
 
 

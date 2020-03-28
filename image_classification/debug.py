@@ -5,6 +5,9 @@ import matplotlib
 matplotlib.use('Agg')
 from matplotlib import pyplot as plt
 from tqdm import tqdm
+import numpy as np
+import pickle
+from matplotlib.colors import LogNorm
 
 
 def get_error_grad(m):
@@ -349,10 +352,7 @@ def write_errors(model_and_loss, optimizer, val_loader):
             np.savez('errors_{}.pkl'.format(iter), *config.grads)
 
 
-def variance_profile(model_and_loss, optimizer, val_loader):
-    num_batches = 10
-    num_samples = 10
-
+def variance_profile(model_and_loss, optimizer, val_loader, prefix='.', num_batches=10000):
     if hasattr(model_and_loss.model, 'module'):
         m = model_and_loss.model.module
     else:
@@ -361,6 +361,7 @@ def variance_profile(model_and_loss, optimizer, val_loader):
     # Get top 10 batches
     m.set_debug(True)
     m.set_name()
+    weight_names = [layer.layer_name for layer in m.linear_layers]
 
     data_iter = enumerate(val_loader)
     inputs = []
@@ -376,9 +377,9 @@ def variance_profile(model_and_loss, optimizer, val_loader):
         grad = {layer.layer_name : layer.weight.grad.detach().cpu() for layer in m.linear_layers}
         return grad
 
+    cnt = 0
     for i, (input, target) in tqdm(data_iter):
-        if i == num_batches:
-            break
+        cnt += 1
 
         inputs.append(input.clone())
         targets.append(target.clone())
@@ -388,37 +389,128 @@ def variance_profile(model_and_loss, optimizer, val_loader):
         mean_grad = bp(input, target)
         batch_grad = dict_add(batch_grad, mean_grad)
 
-        # Stochastic: compute variance by taking expectation of conditional variance
-        config.quantize_gradient = True
-        for j in range(num_samples):
-            grad = bp(input, target)
-            quant_var = dict_add(quant_var, dict_sqr(dict_minus(grad, mean_grad)))
+        if cnt == num_batches:
+            break
 
+    num_batches = cnt
     batch_grad = dict_mul(batch_grad, 1.0 / num_batches)
-    quant_var = dict_mul(quant_var, 1.0 / num_batches / num_samples)
 
-    # Deterministic: compute variance directly
-    total_var = None
-    sample_var = None
-    for i, input, target in tqdm(zip(range(num_batches), inputs, targets)):
+    def get_variance():
+        total_var = None
+        for i, input, target in tqdm(zip(range(num_batches), inputs, targets)):
+            grad = bp(input, target)
+            total_var = dict_add(total_var, dict_sqr(dict_minus(grad, batch_grad)))
+
+        grads = [total_var[k].sum() / num_batches for k in weight_names]
+        print(grads)
+        return grads
+
+    config.quantize_gradient = True
+    grads = [get_variance()]
+    for layer in tqdm(m.linear_layers):
+        layer.exact = True
+        grads.append(get_variance())
+
+    grads = np.array(grads)
+
+    for i in range(grads.shape[0]-1):
+        grads[i] -= grads[i+1]
+
+    np.save(prefix + '/error_profile.npy', grads)
+    with open(prefix + '/layer_names.pkl', 'wb') as f:
+        pickle.dump(weight_names, f)
+
+    grads = np.maximum(grads, 0)
+    # grads = np.minimum(grads, 1)
+    for i in range(grads.shape[0]):
+        for j in range(grads.shape[1]):
+            if j > i:
+                grads[i, j] = 0
+
+    fig, ax = plt.subplots(figsize=(20, 20))
+    im = ax.imshow(grads, cmap='Blues', norm=LogNorm(vmin=0.01, vmax=10.0))
+    ax.set_xticks(np.arange(len(weight_names)))
+    ax.set_yticks(np.arange(len(weight_names)))
+    ax.set_xticklabels(weight_names)
+    ax.set_yticklabels(weight_names)
+    ax.tick_params(top=True, bottom=False,
+                   labeltop=True, labelbottom=False)
+    plt.setp(ax.get_xticklabels(), rotation=-30, ha="right",
+             rotation_mode="anchor")
+    cbar = ax.figure.colorbar(im, ax=ax)
+
+    for i in range(grads.shape[0]):
+        for j in range(grads.shape[1]):
+            text = ax.text(j, i, int(grads[i, j] * 10),
+                           ha="center", va="center")
+
+    fig.savefig('variance_profile.pdf')
+
+
+def get_var(model_and_loss, optimizer, val_loader, num_batches=10000):
+    if hasattr(model_and_loss.model, 'module'):
+        m = model_and_loss.model.module
+    else:
+        m = model_and_loss.model
+
+    # Get top 10 batches
+    m.set_debug(True)
+    m.set_name()
+    weight_names = [layer.layer_name for layer in m.linear_layers]
+
+    data_iter = enumerate(val_loader)
+    inputs = []
+    targets = []
+    batch_grad = None
+    quant_var = None
+
+    def bp(input, target):
+        optimizer.zero_grad()
+        loss, output = model_and_loss(input, target)
+        loss.backward()
+        torch.cuda.synchronize()
+        grad = {layer.layer_name : layer.weight.grad.detach().cpu() for layer in m.linear_layers}
+        return grad
+
+    cnt = 0
+    for i, (input, target) in tqdm(data_iter):
+        cnt += 1
+
+        inputs.append(input.clone())
+        targets.append(target.clone())
+
+        # Deterministic
         config.quantize_gradient = False
-        grad = bp(input, target)
-        sample_var = dict_add(sample_var, dict_sqr(dict_minus(grad, batch_grad)))
+        mean_grad = bp(input, target)
+        batch_grad = dict_add(batch_grad, mean_grad)
 
-        config.quantize_gradient = True
-        # for j in range(num_samples):
-        grad = bp(input, target)
-        total_var = dict_add(total_var, dict_sqr(dict_minus(grad, batch_grad)))
+        if cnt == num_batches:
+            break
 
-    sample_var = dict_mul(sample_var, 1.0 / num_batches)
-    total_var = dict_mul(total_var, 1.0 / num_batches)
+    num_batches = cnt
+    batch_grad = dict_mul(batch_grad, 1.0 / num_batches)
 
-    if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
-        weight_names = [layer.layer_name for layer in m.linear_layers]
-        for k in weight_names:
-            qv = quant_var[k]
-            sv = sample_var[k]
-            tv = total_var[k]
+    def get_variance():
+        total_var = None
+        for i, input, target in tqdm(zip(range(num_batches), inputs, targets)):
+            grad = bp(input, target)
+            total_var = dict_add(total_var, dict_sqr(dict_minus(grad, batch_grad)))
 
-            print('{}, sample var = {}, quant var = {}, overall var = {}'.format(
-                k, sv.sum(), qv.sum(), tv.sum()))
+        grads = [total_var[k].sum() / num_batches for k in weight_names]
+        return grads
+
+    config.quantize_gradient = True
+    q_grads = get_variance()
+    config.quantize_gradient = False
+    s_grads = get_variance()
+
+    all_qg = 0
+    all_sg = 0
+    for i, k in enumerate(weight_names):
+        qg = q_grads[i].sum()
+        sg = s_grads[i].sum()
+        all_qg += qg
+        all_sg += sg
+        print('{}, overall var = {}, quant var = {}, sample var = {}'.format(k, qg, qg-sg, sg))
+
+    print('Overall Var = {}, Quant Var = {}, Sample Var = {}'.format(all_qg, all_qg - all_sg, all_sg))

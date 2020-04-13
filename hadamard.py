@@ -37,29 +37,13 @@ a0 = acts[10]
 # Regular
 a0 = a0.cpu().numpy()
 a0 = np.reshape(a0, [128, -1])
-# a0 = np.random.randn(128, 128).astype(np.float32)
 x = torch.tensor(a0)
-
-# Center it
-# x_max = x.max(1, keepdim=True)[0]
-# x_min = x.min(1, keepdim=True)[0]
-# x -= (x_max + x_min) / 2
-
-# x = torch.randn_like(x) * 1e-8
-# x[0, 0] = 1
 
 U_T = torch.tensor(hadamard(7), dtype=torch.float32)
 weight = x.max(1)[0] - x.min(1)[0]
 S_T = torch.pow(weight, -1.0 / 3)
 S_T = torch.nn.Parameter(S_T)
-
-
-# u = torch.nn.Parameter(torch.tensor(np.diag(1.0 / a0.max(1))) + 1.0 * torch.randn(128, 128))
 u = torch.nn.Parameter(torch.qr(torch.randn(128, 128))[0])
-
-# s = torch.nn.Parameter(torch.ones(128))
-# a = torch.nn.Parameter(torch.randn(128, 2) / 10)
-# b = torch.nn.Parameter(torch.randn(2, 128) / 10)
 
 from image_classification.quantize import quantize, config
 
@@ -80,9 +64,8 @@ def calc_real_std(Preconditioner, x):
     for i in range(100):
         qx = quantize(x, Preconditioner, stochastic=True)
         xs.append(qx)
-        #print(i, qx)
+
     x_std = torch.stack(xs, 0).std(0)
-    #print(x_std)
     return x_std
 
 
@@ -99,29 +82,33 @@ loss = get_loss(u, x, True)
 print(loss)
 
 opt = torch.optim.Adam([S_T], lr=1e-2)
-# opt = torch.optim.Adam([s, a, b], lr=1e-1)
 for step in range(0):
     opt.zero_grad()
-    # q, _ = torch.qr(u)
-    # loss = get_loss(q, x, True)
-    # loss = get_loss(u, x, False)
     u = U_T @ torch.diag(S_T)
     loss = get_loss(u, x, False)
-    # loss = get_loss(u, torch.eye(128), True)
-    # loss = get_loss(torch.diag(s) + a @ b, x, True)
     loss.backward()
     opt.step()
-    # with torch.no_grad():
-    #     u *= u.inverse().norm()
     print(step, loss)
 
 
 init(128)
 
-# x = acts[10].cpu().view(128, -1)
-# mvec = x.max(1)[0] - x.min(1)[0]
-# T = get_transform(mvec, Qqs, Qmax)
-# exit(0)
+
+x = acts[10].cpu().view(128, -1)
+mvec = x.abs().max(1)[0]
+T1 = torch.diag(1.0 / mvec)
+print((T1@x).abs().max())
+print(T1.inverse().norm()**2)
+N = 128
+
+s = math.sqrt(N) * mvec**(-1./3) / (2 * (mvec**(2./3)).sum())
+H = torch.tensor(hadamard(7), dtype=torch.float32)
+T = H @ torch.diag(s)
+print((T@x).abs().max(), (s*mvec).sum()*2/math.sqrt(N))
+print(T.inverse().norm()**2, (s**-2).sum(), 4/N*(mvec**(2/3)).sum()**3)
+
+exit(0)
+
 for i in range(len(acts)):
     x = acts[i].cpu().view(128, -1)
 
@@ -137,4 +124,3 @@ for i in range(len(acts)):
 
     print('Layer {}, naive={:.6f} diagonal={:.6f} householder={:.6f}, in {:.4f} seconds (baseline {:.4f} seconds)'
           .format(i, naive.norm(), ps.norm(), hh.norm(), t, t0))
-    print(total_time)

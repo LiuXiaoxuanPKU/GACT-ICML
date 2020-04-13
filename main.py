@@ -147,7 +147,7 @@ def add_parser_arguments(parser):
     parser.add_argument('--biased', type=str2bool, default=False, help='biased quantization')
     parser.add_argument('--abits', type=int, default=8, help='activation number of bits')
     parser.add_argument('--wbits', type=int, default=8, help='weight number of bits')
-    parser.add_argument('--biasbits', type=int, default=8, help='bias number of bits')
+    parser.add_argument('--biasbits', type=int, default=16, help='bias number of bits')
     parser.add_argument('--bbits', type=int, default=8, help='backward number of bits')
     parser.add_argument('--bwbits', type=int, default=8, help='backward weight number of bits')
     parser.add_argument('--persample', type=str2bool, default=False, help='per-sample quantization of gradients')

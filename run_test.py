@@ -1,22 +1,40 @@
 from multiprocessing import Pool, Queue
-import time
 import os
 
-q = Queue()
+host_queue = Queue()
+for i in range(2, 4):
+    host_queue.put(i)
 
-def f(epoch):
-    worker_id, port = q.get()
-    os.system('CUDA_VISIBLE_DEVICES={device} ./test_cifar 2 preact_resnet56 {epoch} "-c quantize --bbits 6 --qa=False --persample=True --qw=False" {port} 2>&1 | tee {epoch}.log'
-              .format(device=worker_id, epoch=epoch, port=port))
-    q.put([worker_id, port])
+
+tasks = []
+
+for bbits in range(4, 9):
+    for epoch in [0, 100, 200]:
+        tasks.append(['g{}_e{}'.format(bbits, epoch), epoch,
+                      '-c quantize --qa=True --qw=True --qg=True --abits=8 --wbits=8 --bbits={}'.format(bbits)])
+        tasks.append(['g{}_e{}_p'.format(bbits, epoch), epoch,
+                      '-c quantize --qa=True --qw=True --qg=True --abits=8 --wbits=8 --bbits={} --persample=True'.format(bbits)])
+        tasks.append(['g{}_e{}_h'.format(bbits, epoch), epoch,
+                      '-c quantize --qa=True --qw=True --qg=True --abits=8 --wbits=8 --bbits={} --persample=True --hadamard=True'.format(bbits)])
+
+
+def launch(task):
+    tid, epoch, params = task
+    host_id = host_queue.get()
+
+    work_dir = 'results/a8w8'
+    cmd = 'CUDA_VISIBLE_DEVICES={hid} python ./multiproc.py --master_port {hport} \
+    --nproc_per_node 1 ./main.py --dataset cifar10 --arch preact_resnet56 --workspace {work_dir} \
+    --resume {work_dir}/checkpoint-{epoch}.pth.tar --evaluate  \
+    --batch-size 128 --lr 0.1 --momentum 0.9 --label-smoothing 0  --warmup 0 --weight-decay 1e-4 --epochs {epoch_plus_one} \
+    {params} ~/data/cifar10 | tee {tid}.log'.format(hid=host_id, work_dir=work_dir, hport=29500+host_id,
+                                                    params=params, epoch_plus_one=epoch+1, epoch=epoch, tid=tid)
+    print(cmd)
+    os.system(cmd)
+
+    host_queue.put(host_id)
+
 
 if __name__ == '__main__':
-    q.put(["0,1", 29501])
-    q.put(["2,3", 29502])
-    #q.put(["4-5", 29503])
-    #q.put(["6-7", 29504])
-    pool = Pool(processes=2)              # start 4 worker processes
-
-    # print "[0, 1, 4,..., 81]"
-    pool.map(f, range(1, 201, 4))
-
+    with Pool(2) as p:
+        p.map(launch, tasks)

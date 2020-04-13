@@ -25,23 +25,29 @@ def plot_curve(file_name, ax0, ax1, style, lab):
     train_loss = data['train.loss']
     val_top1 = data['val.top1']
     ep = ep[:len(val_top1)]
+    if lab.find('4x') != -1:
+        ep = np.array(ep) / 4
     ax0.plot(ep, ma(train_loss), style, alpha=0.5, label=lab)
     ax1.plot(ep, ma(val_top1), style, alpha=0.5, label=lab)
 
 
 fig, ax = plt.subplots(2, figsize=(10, 20))
-plot_curve('results/preact_resnet56_0/raport.json', ax[0], ax[1], 'k-', 'exact')
-plot_curve('results/preact_resnet56_f32b6bw8_hadamard/raport.json', ax[0], ax[1], 'r-', '32_6_H')
-plot_curve('results/preact_resnet56_f32b5bw8_hadamard/raport.json', ax[0], ax[1], 'g-', '32_5_H')
-plot_curve('results/preact_resnet56_f32b4bw8_hadamard/raport.json', ax[0], ax[1], 'b-', '32_4_H')
-plot_curve('results/preact_resnet56_f32b6bw8_persample/raport.json', ax[0], ax[1], 'r--', '32_6_P')
-plot_curve('results/preact_resnet56_f32b5bw8_persample/raport.json', ax[0], ax[1], 'g--', '32_5_P')
-plot_curve('results/preact_resnet56_f32b4bw8_persample/raport.json', ax[0], ax[1], 'b--', '32_4_P')
-plot_curve('results/preact_resnet56_f32b7bw8/raport.json', ax[0], ax[1], 'k.', '32_7')
-plot_curve('results/preact_resnet56_f32b6bw8/raport.json', ax[0], ax[1], 'r.', '32_6')
-plot_curve('results/preact_resnet56_f32b5bw8/raport.json', ax[0], ax[1], 'g.', '32_5')
-plot_curve('results/preact_resnet56_f6b6bw8_hadamard/raport.json', ax[0], ax[1], 'r:', '6_6_H')
-plot_curve('results/preact_resnet56_f5b5bw8_hadamard/raport.json', ax[0], ax[1], 'g:', '5_5_H')
+plot_curve('results/20200325_9a367/32/raport.json', ax[0], ax[1], 'k:', 'exact')
+# plot_curve('results/20200325_9a367/a6w6g4_h/raport.json', ax[0], ax[1], 'r-', 'a6w6g4')
+# plot_curve('results/20200325_9a367/a5w5g4_h/raport.json', ax[0], ax[1], 'g-', 'a5w5g4')
+# plot_curve('results/20200325_9a367/a4w4g4_h/raport.json', ax[0], ax[1], 'b-', 'a4w4g4')
+plot_curve('results/20200325_9a367/a8w4g4_h/raport.json', ax[0], ax[1], 'c-', 'a8w4g4_h')
+# plot_curve('results/20200325_9a367/a6w6/raport.json', ax[0], ax[1], 'r:', 'a6w6')
+# plot_curve('results/20200325_9a367/a5w5/raport.json', ax[0], ax[1], 'g:', 'a5w5')
+# plot_curve('results/20200325_9a367/a4w4/raport.json', ax[0], ax[1], 'b:', 'a4w4')
+plot_curve('results/20200325_9a367/a8w4/raport.json', ax[0], ax[1], 'c:', 'a8w4')
+plot_curve('results/20200325_9a367/a8w4g9/raport.json', ax[0], ax[1], 'm-', 'a8w4g9')
+plot_curve('results/20200325_9a367/a8w4g8/raport.json', ax[0], ax[1], 'y-', 'a8w4g8')
+plot_curve('results/20200325_9a367/a8w4g7/raport.json', ax[0], ax[1], 'r-', 'a8w4g7')
+plot_curve('results/20200325_9a367/a8w4g7_4x/raport.json', ax[0], ax[1], 'r--', 'a8w4g7_4x')
+plot_curve('results/20200325_9a367/a8w4g6/raport.json', ax[0], ax[1], 'g-', 'a8w4g6')
+plot_curve('results/20200325_9a367/a8w4g6_4x/raport.json', ax[0], ax[1], 'g--', 'a8w4g6_4x')
+plot_curve('results/20200325_9a367/a8w4g5/raport.json', ax[0], ax[1], 'b-', 'a8w4g5')
 ax[0].set_yscale('log')
 
 ax[0].legend()

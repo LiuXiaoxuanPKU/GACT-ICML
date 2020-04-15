@@ -1,0 +1,16 @@
+NNODES=$1
+NODE_RANK=$2
+MASTER_ADDR=$3
+NPROC_PER_NODE=$4
+ARCH=$5
+ARGS=$6
+
+MULTIPLIER=$((NNODES * NPROC_PER_NODE / 4))
+BATCH_SIZE=$((MULTIPLIER * 64))
+LR=$(python -c "print($MULTIPLIER * 0.256)")
+WARMUP=$((MULTIPLIER * 1))
+
+mkdir /store/results/$ARCH
+python ./multiproc.py --nnodes $NNODES --node_rank $NODE_RANK --master_addr $MASTER_ADDR --nproc_per_node $NPROC_PER_NODE ./main.py --arch $ARCH --gather-checkpoints --workspace /store/results/$ARCH --batch-size $BATCH_SIZE --lr $LR --warmup $WARMUP $ARGS /store/ILSVRC2012/
+
+# python ./multiproc.py --nproc_per_node 4 ./main.py --arch $1 --gather-checkpoints --workspace /store/results/$1 --batch-size 64 --lr 0.256 --warmup 1 $2 /store/ILSVRC2012/

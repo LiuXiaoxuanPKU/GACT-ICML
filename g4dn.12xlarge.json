@@ -1,0 +1,8 @@
+{
+  "ImageId": "ami-09535edbc7da8542e",
+  "KeyName": "yu",
+  "InstanceType": "g4dn.12xlarge",
+  "Placement": {
+    "AvailabilityZone": "us-east-2b"
+  }
+}

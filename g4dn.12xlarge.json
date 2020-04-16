@@ -1,5 +1,5 @@
 {
-  "ImageId": "ami-09535edbc7da8542e",
+  "ImageId": "ami-02c02d9051f0615d2",
   "KeyName": "yu",
   "InstanceType": "g4dn.12xlarge",
   "Placement": {

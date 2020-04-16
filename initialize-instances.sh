@@ -13,9 +13,11 @@ for IP in ${IPS[*]:1}; do
 done
 
 RANK=0
+NPROC_PER_NODE=4
 ARCH=resnet18
 ARGS="-c quantize --qa=True --qw=True --qg=True --persample=True --hadamard=True"
 for IP in ${IPS[*]}; do
-  $SSH ubuntu@$IP "tmux new-session -d 'cd RN50v1.5; bash -ix train ${#IPS[*]} $RANK $MASTER $ARCH \"$ARGS\"'"
+# $SSH ubuntu@$IP "cd RN50v1.5; bash -i dist-train ${#IPS[*]} $RANK $MASTER $NPROC_PER_NODE $ARCH \"$ARGS\""
+  $SSH ubuntu@$IP "tmux new-session -d 'cd RN50v1.5; bash -ix dist-train ${#IPS[*]} $RANK $MASTER $NPROC_PER_NODE $ARCH \"$ARGS\"'"
   RANK=$((RANK + 1))
 done

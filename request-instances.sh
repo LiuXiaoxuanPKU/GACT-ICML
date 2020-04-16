@@ -1,5 +1,5 @@
 SPOT_PRICE=1.18
-INSTANCE_COUNT=4
+INSTANCE_COUNT=2
 LAUNCH_SPECIFICATION=file://g4dn.12xlarge.json
 
 SPOT_INSTANCE_REQUEST_IDS=$(aws ec2 request-spot-instances --spot-price $SPOT_PRICE --instance-count $INSTANCE_COUNT --type "one-time" --launch-specification $LAUNCH_SPECIFICATION --query SpotInstanceRequests[*].SpotInstanceRequestId)
@@ -24,6 +24,6 @@ for SPOT_INSTANCE_REQUEST_ID in ${SPOT_INSTANCE_REQUEST_IDS[*]}; do
 done
 cp public_ip_addresses.tmp IPs-$(date | tr :' ' -)
 
-VOLUME_ID=vol-05f43b1ec6f46b873
+VOLUME_ID=vol-0ad21df487cf5926c
 DEVICE=/dev/sdf
 aws ec2 attach-volume --region us-east-2 --volume-id $VOLUME_ID --instance-id ${INSTANCE_IDS[0]} --device $DEVICE

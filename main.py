@@ -324,6 +324,7 @@ def main(args):
 
     model_and_loss.load_model_state(model_state)
 
+    print('start epoch ', args.start_epoch)
     train_loop(
         model_and_loss, optimizer,
         lr_policy,

@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd.function import InplaceFunction
-from image_classification.preconditioner import ScalarPreconditioner, ForwardPreconditioner, DiagonalPreconditioner, BlockwiseHouseholderPreconditioner
+from image_classification.preconditioner import ScalarPreconditioner, ForwardPreconditioner, DiagonalPreconditioner, BlockwiseHouseholderPreconditioner, ScalarPreconditionerAct
 
 
 class QuantizationConfig:
@@ -24,7 +24,9 @@ class QuantizationConfig:
         self.biprecision = True
 
     def activation_preconditioner(self):
-        return lambda x: ForwardPreconditioner(x, self.activation_num_bits)
+        # return lambda x: ForwardPreconditioner(x, self.activation_num_bits)
+        return lambda x: ScalarPreconditionerAct(x, self.activation_num_bits)
+        # return lambda x: ScalarPreconditioner(x, 16)
 
     def weight_preconditioner(self):
         return lambda x: ScalarPreconditioner(x, self.weight_num_bits)
@@ -70,6 +72,9 @@ class UniformQuantize(InplaceFunction):
         else:
             output = input.clone()
 
+        # if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
+        #     print('---')
+        #     print(input.view(-1)[:10], input.min(), input.max())
         with torch.no_grad():
             preconditioner = Preconditioner(output)
             output = preconditioner.forward()
@@ -82,6 +87,8 @@ class UniformQuantize(InplaceFunction):
 
             output = preconditioner.inverse(output)
 
+        # if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
+        #     print(output.view(-1)[:10])
         return output
 
     @staticmethod

@@ -237,6 +237,7 @@ class ResNet(nn.Module):
         return x
 
     def set_debug(self, debug):
+        self.debug = True
         for l in [self.layer1, self.layer2, self.layer3, self.layer4]:
             for b in l:
                 b.debug = debug

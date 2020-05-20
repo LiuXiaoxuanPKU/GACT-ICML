@@ -336,6 +336,7 @@ def train_loop(model_and_loss, optimizer, lr_scheduler, train_loader, val_loader
     if logger is not None:
         epoch_iter = logger.epoch_generator_wrapper(epoch_iter)
     for epoch in epoch_iter:
+        print('Epoch ', epoch)
         if not skip_training:
             train(train_loader, model_and_loss, optimizer, lr_scheduler, fp16, logger, epoch, use_amp = use_amp, prof = prof, register_metrics=epoch==start_epoch, batch_size_multiplier=batch_size_multiplier)
 

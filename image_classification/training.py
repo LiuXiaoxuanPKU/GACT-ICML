@@ -7,7 +7,7 @@ from torch.autograd import Variable
 from . import logger as log
 from . import resnet as models
 from . import utils
-from .debug import dump, fast_dump, plot_bin_hist, write_errors, fast_dump_2, variance_profile, get_var
+from .debug import dump, fast_dump, plot_bin_hist, write_errors, fast_dump_2, variance_profile, get_var, plot_weight_hist
 
 try:
     from apex.parallel import DistributedDataParallel as DDP
@@ -368,4 +368,5 @@ def train_loop(model_and_loss, optimizer, lr_scheduler, train_loader, val_loader
         # plot_bin_hist(model_and_loss, optimizer, debug_loader)
         # write_errors(model_and_loss, optimizer, debug_loader)
         # variance_profile(model_and_loss, optimizer, debug_loader)
-        get_var(model_and_loss, optimizer, train_loader)
+        # get_var(model_and_loss, optimizer, train_loader)
+        plot_weight_hist(model_and_loss, optimizer, train_loader)

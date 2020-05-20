@@ -141,8 +141,22 @@ class Bottleneck(nn.Module):
             self.conv1_in = x
 
         out = self.conv1(x)
+
+        if self.debug:
+            x.retain_grad()
+            self.conv1_out = out
+
         out = self.bn1(out)
+
+        if self.debug:
+            x.retain_grad()
+            self.conv1_bn_out = out
+
         out = self.relu(out)
+
+        if self.debug:
+            x.retain_grad()
+            self.conv1_relu_out = out
 
         if self.debug:
             out.retain_grad()

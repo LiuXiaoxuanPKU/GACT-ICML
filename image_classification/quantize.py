@@ -186,9 +186,14 @@ class QConv2d(nn.Conv2d):
                 qbias = quantize(self.bias, config.bias_preconditioner())
             else:
                 qbias = None
+            qbias = self.bias
         else:
             qweight = self.weight
             qbias = self.bias
+
+        self.qweight = qweight
+
+        self.iact = qinput
 
         if hasattr(self, 'exact'):
             output = F.conv2d(qinput, qweight, qbias, self.stride,
@@ -196,6 +201,8 @@ class QConv2d(nn.Conv2d):
         else:
             output = conv2d_biprec(qinput, qweight, qbias, self.stride,
                                    self.padding, self.dilation, self.groups)
+        self.act = output
+
         return output
 
 

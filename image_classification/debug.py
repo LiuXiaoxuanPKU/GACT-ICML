@@ -327,6 +327,96 @@ def plot_bin_hist(model_and_loss, optimizer, val_loader):
         np.savez('acts.pkl', *config.acts)
 
 
+def plot_weight_hist(model_and_loss, optimizer, val_loader):
+    config.grads = []
+    config.acts = []
+    data_iter = enumerate(val_loader)
+    for i, (input, target) in data_iter:
+        break
+
+    input = input[:32]
+    target = target[:32]
+
+    if hasattr(model_and_loss.model, 'module'):
+        m = model_and_loss.model.module
+    else:
+        m = model_and_loss.model
+
+    m.set_debug(True)
+    loss, output = model_and_loss(input, target)
+
+    if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
+        weights = []
+        exact_weights = []
+        acts = []
+        names = []
+        ins = []
+
+        if hasattr(m, 'layer4'):
+            layers = [m.layer1, m.layer2, m.layer3, m.layer4]
+        else:
+            layers = [m.layer1, m.layer2, m.layer3]
+
+        print(m.layer1[0].conv1_out[0,10])
+        print(m.layer1[0].conv1_bn_out[0,10])
+        print(m.layer1[0].conv1_relu_out[0,10])
+        print(m.layer1[0].conv2_in[0, 10])
+        print(m.layer1[0].bn1.running_mean, m.layer1[0].bn1.running_var)
+
+        for lid, layer in enumerate(layers):
+            for bid, block in enumerate(layer):
+                clayers = [block.conv1, block.conv2, block.conv3] if hasattr(block, 'conv3') \
+                    else [block.conv1, block.conv2]
+
+                for cid, clayer in enumerate(clayers):
+                    layer_name = 'conv_{}_{}_{}'.format(lid + 1, bid + 1, cid + 1)
+                    names.append(layer_name)
+                    exact_weights.append(clayer.weight.detach().cpu().numpy())
+                    weights.append(clayer.qweight.detach().cpu().numpy())
+                    acts.append(clayer.act.detach().cpu().numpy())
+                    ins.append(clayer.iact.detach().cpu().numpy())
+
+        num_weights = len(weights)
+        fig, ax = plt.subplots(num_weights, figsize=(5, 5*num_weights))
+        for i in range(num_weights):
+            weight = weights[i]
+            ax[i].hist(weight.ravel(), bins=2**config.backward_num_bits)
+            ax[i].set_title(names[i])
+            print(i, weight.min(), weight.max())
+
+        fig.savefig('weight_hist.pdf')
+        np.savez('acts.pkl', *acts)
+        np.savez('exact_weights.pkl', *exact_weights)
+        np.savez('weights.pkl', *weights)
+        np.savez('iacts.pkl', *ins)
+        with open('layer_names.pkl', 'wb') as f:
+            pickle.dump(names, f)
+
+    config.quantize_weights = False
+    loss, output = model_and_loss(input, target)
+    if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
+        acts = []
+        ins = []
+
+        if hasattr(m, 'layer4'):
+            layers = [m.layer1, m.layer2, m.layer3, m.layer4]
+        else:
+            layers = [m.layer1, m.layer2, m.layer3]
+
+        for lid, layer in enumerate(layers):
+            for bid, block in enumerate(layer):
+                clayers = [block.conv1, block.conv2, block.conv3] if hasattr(block, 'conv3') \
+                    else [block.conv1, block.conv2]
+
+                for cid, clayer in enumerate(clayers):
+                    layer_name = 'conv_{}_{}_{}'.format(lid + 1, bid + 1, cid + 1)
+                    acts.append(clayer.act.detach().cpu().numpy())
+                    ins.append(clayer.iact.detach().cpu().numpy())
+
+        np.savez('exact_acts.pkl', *acts)
+        np.savez('exact_iacts.pkl', *ins)
+
+
 def write_errors(model_and_loss, optimizer, val_loader):
     data_iter = enumerate(val_loader)
     for i, (input, target) in data_iter:

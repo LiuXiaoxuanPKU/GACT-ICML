@@ -20,7 +20,7 @@ ARCH=resnet18
 ID=resnet18_a8w8g7_p
 # ARGS="-c quantize --qa=True --qw=True --qg=True --persample=True --hadamard=True"
 ARGS="-c quantize --qa=True --qw=True --qg=True --persample=True --hadamard=False --bbits=7"
-# ARGS="-c quantize --qa=False --qw=False --qg=False"
+#ARGS="-c quantize --qa=False --qw=False --qg=False"
 for IP in ${IPS[*]}; do
   $SCP dist-train ubuntu@$IP:RN50v1.5/
 #  $SCP image_classification/quantize.py ubuntu@$IP:RN50v1.5/image_classification/

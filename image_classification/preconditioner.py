@@ -68,6 +68,11 @@ class ScalarPreconditioner(Preconditioner):
         self.zero_point = mn
         self.scale = self.num_bins / (mx - mn)
 
+        qzero = -self.zero_point * self.scale
+        iqzero = torch.floor(qzero)
+        mx = (iqzero - self.num_bins) * mn / iqzero
+        self.scale = self.num_bins / (mx - mn)
+
         return (x - self.zero_point) * self.scale
 
     def inverse_transform(self, x):

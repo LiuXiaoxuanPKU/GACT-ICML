@@ -2,14 +2,14 @@ from multiprocessing import Pool, Queue
 import os
 
 host_queue = Queue()
-for i in range(2, 4):
+for i in range(0, 8):
     host_queue.put(i)
 
 
 tasks = []
 
 for bbits in range(4, 9):
-    for epoch in [0, 100, 200]:
+    for epoch in [100]: #[0, 100, 200]:
         tasks.append(['g{}_e{}'.format(bbits, epoch), epoch,
                       '-c quantize --qa=True --qw=True --qg=True --abits=8 --wbits=8 --bbits={}'.format(bbits)])
         tasks.append(['g{}_e{}_p'.format(bbits, epoch), epoch,
@@ -22,7 +22,7 @@ def launch(task):
     tid, epoch, params = task
     host_id = host_queue.get()
 
-    work_dir = 'results/a8w8'
+    work_dir = 'results/preact_resnet56'
     cmd = 'CUDA_VISIBLE_DEVICES={hid} python ./multiproc.py --master_port {hport} \
     --nproc_per_node 1 ./main.py --dataset cifar10 --arch preact_resnet56 --workspace {work_dir} \
     --resume {work_dir}/checkpoint-{epoch}.pth.tar --evaluate  \
@@ -36,5 +36,5 @@ def launch(task):
 
 
 if __name__ == '__main__':
-    with Pool(2) as p:
+    with Pool(8) as p:
         p.map(launch, tasks)

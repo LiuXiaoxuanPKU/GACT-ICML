@@ -109,12 +109,10 @@ class UniformQuantizeGrad(InplaceFunction):
     @staticmethod
     def backward(ctx, grad_output):
         with torch.no_grad():
-            grad_input = quantize(grad_output, ctx.Preconditioner, stochastic=ctx.stochastic, inplace=False)
-
             if config.grads is not None:
-                config.grads.append([grad_output.detach().cpu().numpy(),
-                                     grad_output.min(),
-                                     grad_output.max()])
+                config.grads.append(grad_output.detach())
+
+            grad_input = quantize(grad_output, ctx.Preconditioner, stochastic=ctx.stochastic, inplace=False)
 
         return grad_input, None, None
 

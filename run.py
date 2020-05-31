@@ -1,35 +1,35 @@
 from multiprocessing import Pool, Queue
 import os
 
-prefix='results/20200417_073e2/'
+prefix='/data/chenjianfei/results/20200527/'
 
 host_queue = Queue()
-for i in range(0, 4):
-    host_queue.put(['g24', i])
 for i in range(0, 8):
-    if i != 1 and i != 6:
-        host_queue.put(['g32', i])
+    host_queue.put(['Gserver6', i])
+for i in range(0, 8):
+    host_queue.put(['Gserver3', i])
 
 tasks = []
-for seed in range(5):
-    tasks.append(('32_seed{}'.format(seed), '-c quantize --qa=False --qg=False --qw=False --seed {}'.format(seed)))
-    for bbits in range(4, 9):
-        tasks.append(('a8w4g{}_seed{}'.format(bbits, seed), '-c quantize --qa=True --qw=True --qg=True --abits=8 --wbits=4 --bbits={} --seed {}'.format(bbits, seed)))
-        tasks.append(('a8w4g{}_p_seed{}'.format(bbits, seed),
-                      '-c quantize --qa=True --qw=True --qg=True --abits=8 --wbits=4 --bbits={} --persample=True --seed {}'.format(bbits, seed)))
-        tasks.append(('a8w4g{}_h_seed{}'.format(bbits, seed),
-                      '-c quantize --qa=True --qw=True --qg=True --abits=8 --wbits=4 --bbits={} --persample=True --hadamard=True --seed {}'.format(
-                          bbits, seed)))
+seed = 0
+tasks.append(('a32w32g32_seed{}'.format(seed), '--seed {}'.format(seed)))
+tasks.append(('a8w8g32_seed{}'.format(seed), '-c quantize --qa=True --qw=True --qg=False --seed {}'.format(seed)))
+for bbits in range(4, 9):
+    tasks.append(('a8w8g{}_seed{}'.format(bbits, seed), '-c quantize --qa=True --qw=True --qg=True --bbits={} --seed {}'.format(bbits, seed)))
+    tasks.append(('a8w8g{}_p_seed{}'.format(bbits, seed),
+                  '-c quantize --qa=True --qw=True --qg=True --bbits={} --persample=True --seed {}'.format(bbits, seed)))
+    tasks.append(('a8w8g{}_h_seed{}'.format(bbits, seed),
+                  '-c quantize --qa=True --qw=True --qg=True --bbits={} --persample=True --hadamard=True --seed {}'.format(
+                      bbits, seed)))
 
 def launch(task):
     tid, params = task
     host_name, host_id = host_queue.get()
 
     work_dir = prefix + '/' + tid
-    cmd = 'conda activate nvidia && cd ~/work/RN50v1.5 && mkdir -p {work_dir} && CUDA_VISIBLE_DEVICES={hid} python ./multiproc.py --master_port {hport} \
-    --nproc_per_node 1 ./main.py --dataset cifar10 --arch preact_resnet56 --workspace {work_dir} --epochs 200 --lr 0.1 \
+    cmd = 'conda deactivate && conda activate nvidia && cd ~/RN50v1.5 && mkdir -p {work_dir} && CUDA_VISIBLE_DEVICES={hid} \
+    python main.py --dataset cifar10 --arch preact_resnet56 --workspace {work_dir} --epochs 200 --lr 0.1 \
     --batch-size 128 --momentum 0.9 --label-smoothing 0  --warmup 0 --weight-decay 1e-4  \
-    {params} ~/data/cifar10'.format(hid=host_id, work_dir=work_dir, hport=29500+host_id, params=params)
+    {params} ~/data/cifar10'.format(hid=host_id, work_dir=work_dir, params=params)
     print(cmd)
     os.system("ssh {} << 'ENDSSH'\nsource ~/.zshrc\n{}\nENDSSH".format(host_name, cmd))
 
@@ -37,5 +37,5 @@ def launch(task):
 
 
 if __name__ == '__main__':
-    with Pool(10) as p:
+    with Pool(16) as p:
         p.map(launch, tasks)

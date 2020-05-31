@@ -82,3 +82,7 @@ def dict_sqrt(x):
 
 def dict_mul(x, a):
     return {k: x[k]*a for k in x}
+
+
+def dict_clone(x):
+    return {k: x[k].clone() for k in x}

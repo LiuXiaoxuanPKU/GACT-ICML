@@ -120,6 +120,44 @@ def get_grad_bias_std(model_and_loss, optimizer, val_loader, mean_grad, ckpt_nam
         return bias_grad, std_grad
 
 
+def get_grad_std_naive(model_and_loss, optimizer, val_loader, num_epochs=1):
+    if hasattr(model_and_loss.model, 'module'):
+        m = model_and_loss.model.module
+    else:
+        m = model_and_loss.model
+
+    m.set_debug(True)
+    data_iter = enumerate(val_loader)
+    var_grad = None
+    cnt = 0
+    for i, (input, target) in data_iter:
+        config.quantize_gradient = False
+        optimizer.zero_grad()
+        loss, output = model_and_loss(input, target)
+        loss.backward()
+        torch.cuda.synchronize()
+        mean_grad = dict_clone(get_grad(m))
+
+        config.quantize_gradient = True
+        for e in range(num_epochs):
+            optimizer.zero_grad()
+            loss, output = model_and_loss(input, target)
+            loss.backward()
+            torch.cuda.synchronize()
+            grad_dict = get_grad(m)
+
+            e_grad = dict_sqr(dict_minus(grad_dict, mean_grad))
+            if var_grad is None:
+                var_grad = e_grad
+            else:
+                var_grad = dict_add(var_grad, e_grad)
+
+            cnt += 1
+
+    std_grad = dict_sqrt(dict_mul(var_grad, 1.0 / cnt))
+    return std_grad
+
+
 def debug_bias(model_and_loss, optimizer, val_loader):
     if hasattr(model_and_loss.model, 'module'):
         m = model_and_loss.model.module
@@ -262,32 +300,33 @@ def fast_dump_2(model_and_loss, optimizer, val_loader, checkpoint_dir):
     print("Computing gradient std...")
     g_outputs = get_grad_bias_std(model_and_loss, optimizer, val_loader, grad, checkpoint_dir + "/grad_std.grad", num_epochs=1)
 
-    config.quantize_gradient = True
-    q_outputs = get_grad_bias_std(model_and_loss, optimizer, val_loader, grad, checkpoint_dir + "/grad_std_quan.grad", num_epochs=1)
+    # config.quantize_gradient = True
+    # q_outputs = get_grad_bias_std(model_and_loss, optimizer, val_loader, grad, checkpoint_dir + "/grad_std_quan.grad", num_epochs=3)
+    std_quan = get_grad_std_naive(model_and_loss, optimizer, val_loader, num_epochs=10)
 
     if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
         bias_grad, std_grad = g_outputs
-        bias_quan, std_quan = q_outputs
+        # bias_quan, std_quan = q_outputs
         weight_names = list(grad.keys())
         weight_names = [n.replace('_grad', '').replace('_weight', '') for n in weight_names]
         weight_names = list(set(weight_names))
         weight_names.sort(key=key)
 
         sample_var = 0.0
-        overall_var = 0.0
+        quant_var = 0.0
         for k in weight_names:
             grad_mean = grad[k + '_grad']
             sg = std_grad[k + '_grad']
             sq = std_quan[k + '_grad']
 
             print('{}, batch grad norm={}, sample var={}, quantization var={}, overall var={}'.format(
-                k, grad_mean.norm()**2, sg.norm()**2, sq.norm()**2-sg.norm()**2, sq.norm()**2))
+                k, grad_mean.norm()**2, sg.norm()**2, sq.norm()**2, sq.norm()**2 + sg.norm()**2))
 
             sample_var += sg.norm()**2
-            overall_var += sq.norm()**2
+            quant_var += sq.norm()**2
 
         print('SampleVar = {}, QuantVar = {}, OverallVar = {}'.format(
-            sample_var, overall_var - sample_var, overall_var))
+            sample_var, quant_var, sample_var + quant_var))
 
 
 
@@ -312,19 +351,93 @@ def plot_bin_hist(model_and_loss, optimizer, val_loader):
     loss.backward()
     torch.cuda.synchronize()
 
-    if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
-        num_grads = len(config.grads)
-        fig, ax = plt.subplots(num_grads, figsize=(5, 5*num_grads))
-        for i in range(num_grads):
-            g, min_val, max_val = config.grads[i]
-            ax[i].hist(g.ravel(), bins=2**config.backward_num_bits)
-            ax[i].set_title(str(i))
-            print(i, g.shape, min_val, max_val)
+    # fig, ax = plt.subplots(figsize=(5, 5))
+    g = config.grads[20]
+    # ax.hist(g.cpu().numpy().ravel(), bins=2**config.backward_num_bits-1)
+    # ax.set_yscale('log')
+    # fig.savefig('grad_output_hist.pdf')
 
-        fig.savefig('grad_hist.pdf')
+    for i in [1, 2]:
+        fig, ax = plt.subplots(figsize=(2.5, 2.5))
+        ax.hist(g[i].cpu().numpy().ravel(), bins=256, range=[-1e-5, 1e-5])
+        ax.set_yscale('log')
+        ax.set_xlim([-1e-5, 1e-5])
+        ax.set_xticks([-1e-5, 0, 1e-5])
+        ax.set_xticklabels(['$-10^{-5}$', '$0$', '$10^{-5}$'])
+        l, b, w, h = ax.get_position().bounds
+        ax.set_position([l + 0.05 * w, b, 0.95 * w, h])
+        fig.savefig('{}_hist.pdf'.format(i), transparent=True)
 
-        np.savez('errors.pkl', *config.grads)
-        np.savez('acts.pkl', *config.acts)
+    from image_classification.quantize import quantize
+
+    def plot_each(preconditioner, Preconditioner, name, g):
+        input = g
+        prec = preconditioner(g, num_bits=config.backward_num_bits)
+        g = prec.forward()
+
+        fig, ax = plt.subplots(figsize=(2.5, 2.5))
+        ax.hist(g.cpu().numpy().ravel(), bins=2**config.backward_num_bits-1, range=[0, 255])
+        ax.set_yscale('log')
+        ax.set_ylim([1, 1e6])
+        ax.set_xlim([0, 255])
+        ax.set_xticks([0, 255])
+        l, b, w, h = ax.get_position().bounds
+        ax.set_position([l + 0.05 * w, b, 0.95 * w, h])
+        fig.savefig('{}_hist.pdf'.format(name), transparent=True)
+
+        prec.zero_point *= 0
+        bin_sizes = []
+        for i in range(128):
+            bin_sizes.append(float(prec.inverse_transform(torch.eye(128)[:,i:i+1].cuda()).sum()))
+        print(bin_sizes)
+        fig, ax = plt.subplots(figsize=(2.5, 2.5))
+        ax.hist(bin_sizes, bins=50, range=[0, 1e-5])
+        # ax.set_yscale('log')
+        ax.set_xlim([0, 1e-5])
+        ax.set_xticks([0, 1e-5])
+        ax.set_xticklabels(['$0$', '$10^{-5}$'])
+        l, b, w, h = ax.get_position().bounds
+        ax.set_position([l + 0.05 * w, b, 0.95 * w, h])
+        # ax.set_ylim([0, 128])
+        fig.savefig('{}_bin_size_hist.pdf'.format(name), transparent=True)
+
+        gs = []
+        for i in range(10):
+            grad = quantize(input, Preconditioner, stochastic=True)
+            gs.append(grad.cpu().numpy())
+        var = np.stack(gs).var(0).sum()
+        print(var)
+
+    from image_classification.preconditioner import ScalarPreconditionerAct, DiagonalPreconditioner, BlockwiseHouseholderPreconditioner
+    plot_each(ScalarPreconditionerAct, lambda x: ScalarPreconditionerAct(x, config.backward_num_bits), 'PTQ', g)
+    plot_each(DiagonalPreconditioner, lambda x: DiagonalPreconditioner(x, config.backward_num_bits), 'PSQ', g)
+    plot_each(BlockwiseHouseholderPreconditioner, lambda x: BlockwiseHouseholderPreconditioner(x, config.backward_num_bits), 'BHQ', g)
+
+    # R = g.max(1)[0] - g.min(1)[0]
+    # fig, ax = plt.subplots(figsize=(5, 5))
+    # ax.hist(R.cpu().numpy().ravel(), bins=2 ** config.backward_num_bits - 1)
+    # fig.savefig('dyn_range_hist.pdf')
+
+    # prec = BlockwiseHouseholderPreconditioner(g, num_bits=config.backward_num_bits)
+    # gH = prec.T @ g
+    # R = gH.max(1)[0] - gH.min(1)[0]
+    # fig, ax = plt.subplots(figsize=(5, 5))
+    # ax.hist(R.cpu().numpy().ravel(), bins=2 ** config.backward_num_bits - 1)
+    # fig.savefig('bH_dyn_range_hist.pdf')
+
+    # if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
+    #     num_grads = len(config.grads)
+    #     fig, ax = plt.subplots(num_grads, figsize=(5, 5*num_grads))
+    #     for i in range(num_grads):
+    #         g = config.grads[i]
+    #         ax[i].hist(g.cpu().numpy().ravel(), bins=2**config.backward_num_bits)
+    #         ax[i].set_title(str(i))
+    #         print(i, g.shape)
+    #
+    #     fig.savefig('grad_hist.pdf')
+
+        # np.savez('errors.pkl', *config.grads)
+        # np.savez('acts.pkl', *config.acts)
 
 
 def plot_weight_hist(model_and_loss, optimizer, val_loader):

@@ -364,10 +364,10 @@ def train_loop(model_and_loss, optimizer, lr_scheduler, train_loader, val_loader
             logger.end()
 
     if skip_training:
-        # fast_dump_2(model_and_loss, optimizer, debug_loader, checkpoint_dir)
-        # dump(model_and_loss, optimizer, debug_loader, checkpoint_dir)
-        # plot_bin_hist(model_and_loss, optimizer, debug_loader)
+        # fast_dump_2(model_and_loss, optimizer, train_loader, checkpoint_dir)
+        # dump(model_and_loss, optimizer, train_loader, checkpoint_dir)
+        plot_bin_hist(model_and_loss, optimizer, val_loader)
         # write_errors(model_and_loss, optimizer, debug_loader)
         # variance_profile(model_and_loss, optimizer, debug_loader)
         # get_var(model_and_loss, optimizer, train_loader)
-        plot_weight_hist(model_and_loss, optimizer, train_loader)
+        # plot_weight_hist(model_and_loss, optimizer, train_loader)

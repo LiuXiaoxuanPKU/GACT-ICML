@@ -1,5 +1,5 @@
 import torch
-from .quantize import config
+from .quantize import config, QF
 from .utils import *
 import matplotlib
 matplotlib.use('Agg')
@@ -358,14 +358,14 @@ def plot_bin_hist(model_and_loss, optimizer, val_loader):
     # fig.savefig('grad_output_hist.pdf')
 
     for i in [1, 2]:
-        fig, ax = plt.subplots(figsize=(2.5, 2.5))
+        fig, ax = plt.subplots(figsize=(2.0, 1.5))
         ax.hist(g[i].cpu().numpy().ravel(), bins=256, range=[-1e-5, 1e-5])
         ax.set_yscale('log')
         ax.set_xlim([-1e-5, 1e-5])
         ax.set_xticks([-1e-5, 0, 1e-5])
         ax.set_xticklabels(['$-10^{-5}$', '$0$', '$10^{-5}$'])
         l, b, w, h = ax.get_position().bounds
-        ax.set_position([l + 0.05 * w, b, 0.95 * w, h])
+        ax.set_position([l + 0.05 * w, b + 0.05 * h, 0.95 * w, 0.98 * h])
         fig.savefig('{}_hist.pdf'.format(i), transparent=True)
 
     from image_classification.quantize import quantize
@@ -375,14 +375,14 @@ def plot_bin_hist(model_and_loss, optimizer, val_loader):
         prec = preconditioner(g, num_bits=config.backward_num_bits)
         g = prec.forward()
 
-        fig, ax = plt.subplots(figsize=(2.5, 2.5))
+        fig, ax = plt.subplots(figsize=(2.0, 1.5))
         ax.hist(g.cpu().numpy().ravel(), bins=2**config.backward_num_bits-1, range=[0, 255])
         ax.set_yscale('log')
         ax.set_ylim([1, 1e6])
         ax.set_xlim([0, 255])
         ax.set_xticks([0, 255])
         l, b, w, h = ax.get_position().bounds
-        ax.set_position([l + 0.05 * w, b, 0.95 * w, h])
+        ax.set_position([l + 0.05 * w, b + 0.05 * h, 0.95 * w, 0.98 * h])
         fig.savefig('{}_hist.pdf'.format(name), transparent=True)
 
         prec.zero_point *= 0
@@ -390,14 +390,14 @@ def plot_bin_hist(model_and_loss, optimizer, val_loader):
         for i in range(128):
             bin_sizes.append(float(prec.inverse_transform(torch.eye(128)[:,i:i+1].cuda()).sum()))
         print(bin_sizes)
-        fig, ax = plt.subplots(figsize=(2.5, 2.5))
+        fig, ax = plt.subplots(figsize=(2.0, 1.5))
         ax.hist(bin_sizes, bins=50, range=[0, 1e-5])
         # ax.set_yscale('log')
         ax.set_xlim([0, 1e-5])
         ax.set_xticks([0, 1e-5])
         ax.set_xticklabels(['$0$', '$10^{-5}$'])
         l, b, w, h = ax.get_position().bounds
-        ax.set_position([l + 0.05 * w, b, 0.95 * w, h])
+        ax.set_position([l + 0.05 * w, b + 0.05 * h, 0.95 * w, 0.98 * h])
         # ax.set_ylim([0, 128])
         fig.savefig('{}_bin_size_hist.pdf'.format(name), transparent=True)
 
@@ -651,6 +651,7 @@ def variance_profile(model_and_loss, optimizer, val_loader, prefix='.', num_batc
 
 
 def get_var(model_and_loss, optimizer, val_loader, num_batches=10000):
+    # print(QF.num_samples, QF.update_scale, QF.training)
     if hasattr(model_and_loss.model, 'module'):
         m = model_and_loss.model.module
     else:
@@ -664,8 +665,10 @@ def get_var(model_and_loss, optimizer, val_loader, num_batches=10000):
     data_iter = enumerate(val_loader)
     inputs = []
     targets = []
+    indices = []
     batch_grad = None
     quant_var = None
+    config.activation_compression_bits = 32
 
     def bp(input, target):
         optimizer.zero_grad()
@@ -676,11 +679,13 @@ def get_var(model_and_loss, optimizer, val_loader, num_batches=10000):
         return grad
 
     cnt = 0
-    for i, (input, target) in tqdm(data_iter):
+    for i, (input, target, index) in tqdm(data_iter):
+        QF.set_current_batch(index)
         cnt += 1
 
         inputs.append(input.clone())
         targets.append(target.clone())
+        indices.append(index.copy())
 
         # Deterministic
         config.quantize_gradient = False
@@ -689,31 +694,37 @@ def get_var(model_and_loss, optimizer, val_loader, num_batches=10000):
 
         if cnt == num_batches:
             break
+        if cnt == 100:
+            break
 
     num_batches = cnt
     batch_grad = dict_mul(batch_grad, 1.0 / num_batches)
+    QF.update_scale = False
+    config.activation_compression_bits = 8
 
     def get_variance():
         total_var = None
-        for i, input, target in tqdm(zip(range(num_batches), inputs, targets)):
+        for i, input, target, index in tqdm(zip(range(num_batches), inputs, targets, indices)):
+            QF.set_current_batch(index)
             grad = bp(input, target)
             total_var = dict_add(total_var, dict_sqr(dict_minus(grad, batch_grad)))
+            # exit(0)
 
         grads = [total_var[k].sum() / num_batches for k in weight_names]
         return grads
 
-    config.quantize_gradient = True
-    q_grads = get_variance()
-    config.quantize_gradient = False
+    # config.quantize_gradient = True
+    # q_grads = get_variance()
+    # config.quantize_gradient = False
     s_grads = get_variance()
 
-    all_qg = 0
+    # all_qg = 0
     all_sg = 0
     for i, k in enumerate(weight_names):
-        qg = q_grads[i].sum()
+        # qg = q_grads[i].sum()
         sg = s_grads[i].sum()
-        all_qg += qg
+        # all_qg += qg
         all_sg += sg
-        print('{}, overall var = {}, quant var = {}, sample var = {}'.format(k, qg, qg-sg, sg))
+        print('{}, var = {}'.format(k, sg))
 
-    print('Overall Var = {}, Quant Var = {}, Sample Var = {}'.format(all_qg, all_qg - all_sg, all_sg))
+    print('Overall Var = {}'.format(all_sg))

@@ -3,6 +3,7 @@ import torch
 import numpy as np
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
+import dataloader
 
 DATA_BACKEND_CHOICES = ['pytorch']
 # try:
@@ -201,7 +202,8 @@ class PrefetchedWrapper(object):
         stream = torch.cuda.Stream()
         first = True
 
-        for next_input, next_target in loader:
+        for next_indices, next_data in loader:
+            next_input, next_target = next_data
             with torch.cuda.stream(stream):
                 next_input = next_input.cuda(non_blocking=True)
                 next_target = next_target.cuda(non_blocking=True)
@@ -217,15 +219,16 @@ class PrefetchedWrapper(object):
                 next_input = next_input.sub_(mean).div_(std)
 
             if not first:
-                yield input, target
+                yield input, target, indices
             else:
                 first = False
 
             torch.cuda.current_stream().wait_stream(stream)
             input = next_input
             target = next_target
+            indices = next_indices.copy()
 
-        yield input, target
+        yield input, target, indices
 
     def __init__(self, dataloader, num_classes, fp16, one_hot):
         self.dataloader = dataloader
@@ -298,11 +301,13 @@ def get_pytorch_train_loader_cifar10(data_path, batch_size, num_classes, one_hot
     else:
         train_sampler = None
 
-    train_loader = torch.utils.data.DataLoader(
+    # train_loader = torch.utils.data.DataLoader(
+    train_loader = dataloader.DataLoader(
             train_dataset, batch_size=batch_size, shuffle=(train_sampler is None),
             num_workers=workers, worker_init_fn=_worker_init_fn, pin_memory=True, sampler=train_sampler,
         collate_fn=fast_collate, drop_last=True)
 
+    # return train_loader, len(train_loader)
     return PrefetchedWrapper(train_loader, num_classes, fp16, one_hot), len(train_loader)
 
 
@@ -314,7 +319,8 @@ def get_pytorch_val_loader_cifar10(data_path, batch_size, num_classes, one_hot, 
     else:
         val_sampler = None
 
-    val_loader = torch.utils.data.DataLoader(
+    # val_loader = torch.utils.data.DataLoader(
+    val_loader = dataloader.DataLoader(
             val_dataset,
             sampler=val_sampler,
             batch_size=batch_size, shuffle=False,
@@ -336,7 +342,8 @@ def get_pytorch_debug_loader_cifar10(data_path, batch_size, num_classes, one_hot
     else:
         val_sampler = None
 
-    val_loader = torch.utils.data.DataLoader(
+    # val_loader = torch.utils.data.DataLoader(
+    val_loader = dataloader.DataLoader(
             val_dataset,
             sampler=val_sampler,
             batch_size=batch_size, shuffle=False,

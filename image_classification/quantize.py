@@ -4,6 +4,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd.function import InplaceFunction
 from image_classification.preconditioner import ScalarPreconditioner, ForwardPreconditioner, DiagonalPreconditioner, BlockwiseHouseholderPreconditioner, ScalarPreconditionerAct
+import pytorch_minimax
+from quantizers import calc_precision
 
 
 class QuantizationConfig:
@@ -11,6 +13,7 @@ class QuantizationConfig:
         self.quantize_activation = True
         self.quantize_weights = True
         self.quantize_gradient = True
+        self.compress_activation = False
         self.activation_num_bits = 8
         self.weight_num_bits = 8
         self.bias_num_bits = 16
@@ -22,6 +25,7 @@ class QuantizationConfig:
         self.acts = None
         self.hadamard = False
         self.biprecision = True
+        self.activation_compression_bits = 8
 
     def activation_preconditioner(self):
         # return lambda x: ForwardPreconditioner(x, self.activation_num_bits)
@@ -170,11 +174,15 @@ class QuantMeasure(nn.Module):
 class QConv2d(nn.Conv2d):
     """docstring for QConv2d."""
 
+    num_layers = 0
+
     def __init__(self, in_channels, out_channels, kernel_size,
                  stride=1, padding=0, dilation=1, groups=1, bias=True):
         super(QConv2d, self).__init__(in_channels, out_channels, kernel_size,
                                       stride, padding, dilation, groups, bias)
         self.quantize_input = QuantMeasure()
+        self.name = str(QConv2d.num_layers)
+        QConv2d.num_layers += 1
 
     def forward(self, input):
         if config.acts is not None:
@@ -200,8 +208,12 @@ class QConv2d(nn.Conv2d):
 
         self.iact = qinput
 
-        if hasattr(self, 'exact'):
-            output = F.conv2d(qinput, qweight, qbias, self.stride,
+        if hasattr(self, 'exact') or not config.biprecision:
+            if config.compress_activation:
+                output = QF.conv2d(qinput, qweight, qbias, self.stride,
+                              self.padding, self.dilation, self.groups, self.name)
+            else:
+                output = F.conv2d(qinput, qweight, qbias, self.stride,
                               self.padding, self.dilation, self.groups)
         else:
             output = conv2d_biprec(qinput, qweight, qbias, self.stride,
@@ -284,6 +296,127 @@ class QBatchNorm2D(nn.BatchNorm2d):
             input, self.running_mean, self.running_var, qweight, qbias,
             self.training or not self.track_running_stats,
             exponential_average_factor, self.eps)
+
+
+class GradRecorder(InplaceFunction):
+    @staticmethod
+    def forward(ctx, input, name):
+        ctx.name = name
+        return input
+
+    @staticmethod
+    def backward(ctx, grad):
+        scale = (grad.view(grad.shape[0], -1) ** 2).sum(1)
+        QF.set_scale(ctx.name, scale.detach().cpu())
+        return grad, None
+
+
+class MixedPrecisionQuantize(InplaceFunction):
+
+    @staticmethod
+    def forward(ctx, input, bits, stochastic=False, inplace=False):
+
+        ctx.inplace = inplace
+
+        if ctx.inplace:
+            ctx.mark_dirty(input)
+            output = input
+        else:
+            output = input.clone()
+
+        with torch.no_grad():
+            B = (2 ** bits - 1).unsqueeze(1)
+            x_shape = output.shape
+            output = output.view(x_shape[0], -1)
+            # print(x_shape, output.shape)
+            mn = pytorch_minimax.min(output).unsqueeze(1) - 1e-8
+            mx = pytorch_minimax.max(output).unsqueeze(1) + 1e-8
+            # print(mn[:5], mx[:5], B[:5])
+            scale = B / (mx - mn)
+            output = (output - mn) * scale
+
+            if stochastic:
+                noise = output.new(output.shape).uniform_(-0.5, 0.5)
+                output.add_(noise)
+
+            output = F.relu(output)
+            output = torch.min(output, B).round_()
+
+            output = output / scale + mn
+            output = output.view(*x_shape)
+
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        # straight-through estimator
+        grad_input = grad_output
+        return grad_input, None, None, None
+
+
+# Quantized Activation Layers
+class QF:
+    @staticmethod
+    def init(num_samples):
+        # print('Initialized batch size ', num_samples)
+        QF.num_samples = num_samples
+        QF.scales = {}
+        QF.update_scale = True
+        QF.training = True
+
+    @staticmethod
+    def set_current_batch(ids):
+        # print('Set current batch ', ids)
+        QF.ids = ids
+
+    @staticmethod
+    def get_scale(name):
+        if not name in QF.scales:
+            QF.scales[name] = torch.ones(QF.num_samples)
+
+        return QF.scales[name][QF.ids]
+
+    @staticmethod
+    def set_scale(name, scale):
+        if QF.update_scale and QF.training:
+            if not name in QF.scales:
+                QF.scales[name] = torch.ones(QF.num_samples)
+
+            QF.scales[name][QF.ids] = scale
+            # print('Set scale ', name, scale)
+
+    @staticmethod
+    def quantize(input, name):
+        if config.activation_compression_bits >= 32 or not QF.training:
+            return input
+
+        C = QF.get_scale(name)
+        # print('Layer ', name)
+        # print('Get scale ', C)
+        N = input.shape[0]
+
+        target_b = config.activation_compression_bits * N
+        b = torch.ones(N, dtype=torch.int32) * 8
+        C = C.cpu()
+        b = calc_precision(b, C, target_b).float()
+
+        # print('Precision ', b[:5])
+        # print('Before ', input.view(N, -1)[:5,:5])
+        output = MixedPrecisionQuantize().apply(input, b.cuda(), True, False)
+        # print('After ', output.view(N, -1)[:5,:5])
+        return output
+
+    @staticmethod
+    def conv2d(input, weight, bias, stride, padding, dilation, groups, name):
+        output = F.conv2d(input, weight, bias, stride, padding, dilation, groups)
+        if not QF.training:
+            return output
+
+        qinput = QF.quantize(input, name)
+        fake_output = F.conv2d(qinput, weight, bias, stride, padding, dilation, groups)
+        fake_output = GradRecorder().apply(fake_output, name)
+
+        return output.detach() + fake_output - fake_output.detach()
 
 
 if __name__ == '__main__':

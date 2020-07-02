@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <vector>
 #include <cmath>
+#include <queue>
 
 struct KeyValue {
     int k;
@@ -111,6 +112,46 @@ std::vector<torch::Tensor> get_transform(torch::Tensor mvec,
     return {T2, T2_inv};
 }
 
+torch::Tensor calc_precision(torch::Tensor b, torch::Tensor C, int target) {
+    TORCH_CHECK(!b.type().is_cuda(), "b must be a CPU tensor!");
+    TORCH_CHECK(b.is_contiguous(), "b must be contiguous!");
+    TORCH_CHECK(!C.type().is_cuda(), "C must be a CPU tensor!");
+    TORCH_CHECK(C.is_contiguous(), "C must be contiguous!");
+
+    // min \sum_i C_i / (2^b_i - 1)^2, s.t., \sum_i b_i = N b
+    std::priority_queue<std::pair<float, int>> q;
+
+    auto *b_data = b.data_ptr<int>();
+    auto *C_data = C.data_ptr<float>();
+
+    auto get_obj = [&](float C, int b) {
+        int coeff_1 = ((1 << b) - 1) * ((1 << b) - 1);
+        int coeff_2 = ((1 << (b-1)) - 1) * ((1 << (b-1)) - 1);
+        return C * (1.0 / coeff_1 - 1.0 / coeff_2);     // negative
+    };
+
+    int N = b.size(0);
+    int b_sum = 0;
+    for (int i = 0; i < N; i++) {
+        auto delta = get_obj(C_data[i], b_data[i]);
+        q.push(std::make_pair(delta, i));
+        b_sum += b_data[i];
+    }
+
+    while (b_sum > target) {
+        auto i = q.top().second;
+        q.pop();
+        b_data[i] -= 1;
+        b_sum--;
+        if (b_data[i] > 1) {
+            auto delta = get_obj(C_data[i], b_data[i]);
+            q.push(std::make_pair(delta, i));
+        }
+    }
+    return b;
+}
+
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("get_transform", &get_transform, "get_transform");
+  m.def("calc_precision", &calc_precision, "calc_precision");
 }

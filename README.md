@@ -54,11 +54,3 @@ mkdir results
 # 8-bit BHQ
 ./dist-train 1 0 127.0.0.1 8 resnet18 "-c quantize --qa=True --qw=True --qg=True --persample=True --hadamard=True --bbits=8" bhq_8 <imagenet_path>
 ```
-
-Convergence Curves
-====
-
-We include convergence curves at `reports`, they can be viewed as
-```bash
-python dump_raport.json reports/cifar10/a32w32g32_seed0/raport.json
-```

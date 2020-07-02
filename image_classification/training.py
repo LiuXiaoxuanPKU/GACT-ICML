@@ -8,6 +8,7 @@ from . import logger as log
 from . import resnet as models
 from . import utils
 from .debug import dump, fast_dump, plot_bin_hist, write_errors, fast_dump_2, variance_profile, get_var, plot_weight_hist
+from .quantize import QF, config
 
 try:
     from apex.parallel import DistributedDataParallel as DDP
@@ -201,7 +202,6 @@ def get_train_step(model_and_loss, optimizer, fp16, use_amp = False, batch_size_
 
 
 def train(train_loader, model_and_loss, optimizer, lr_scheduler, fp16, logger, epoch, use_amp=False, prof=-1, batch_size_multiplier=1, register_metrics=True):
-
     if register_metrics and logger is not None:
         logger.register_metric('train.top1', log.AverageMeter(), log_level = 0)
         logger.register_metric('train.top5', log.AverageMeter(), log_level = 0)
@@ -222,7 +222,8 @@ def train(train_loader, model_and_loss, optimizer, lr_scheduler, fp16, logger, e
     if logger is not None:
         data_iter = logger.iteration_generator_wrapper(data_iter)
 
-    for i, (input, target) in data_iter:
+    for i, (input, target, index) in data_iter:
+        QF.set_current_batch(index)
         bs = input.size(0)
         lr_scheduler(optimizer, i, epoch)
         data_time = time.time() - end
@@ -274,6 +275,7 @@ def get_val_step(model_and_loss):
 
 
 def validate(val_loader, model_and_loss, fp16, logger, epoch, prof=-1, register_metrics=True):
+    QF.training = False
     if register_metrics and logger is not None:
         logger.register_metric('val.top1',         log.AverageMeter(), log_level = 0)
         logger.register_metric('val.top5',         log.AverageMeter(), log_level = 0)
@@ -295,7 +297,7 @@ def validate(val_loader, model_and_loss, fp16, logger, epoch, prof=-1, register_
     if not logger is None:
         data_iter = logger.iteration_generator_wrapper(data_iter, val=True)
 
-    for i, (input, target) in data_iter:
+    for i, (input, target, _) in data_iter:
         bs = input.size(0)
         data_time = time.time() - end
         if prof > 0:
@@ -318,6 +320,7 @@ def validate(val_loader, model_and_loss, fp16, logger, epoch, prof=-1, register_
 
         end = time.time()
 
+    QF.training = True
     return top1.get_val()
 
 # Train loop {{{
@@ -330,6 +333,7 @@ def train_loop(model_and_loss, optimizer, lr_scheduler, train_loader, val_loader
                should_backup_checkpoint, use_amp=False,
                batch_size_multiplier = 1,
                best_prec1 = 0, start_epoch = 0, prof = -1, skip_training = False, skip_validation = False, save_checkpoints = True, checkpoint_dir='./'):
+    QF.init(50000)
     prec1 = -1
 
     epoch_iter = range(start_epoch, epochs)
@@ -366,8 +370,8 @@ def train_loop(model_and_loss, optimizer, lr_scheduler, train_loader, val_loader
     if skip_training:
         # fast_dump_2(model_and_loss, optimizer, train_loader, checkpoint_dir)
         # dump(model_and_loss, optimizer, train_loader, checkpoint_dir)
-        plot_bin_hist(model_and_loss, optimizer, val_loader)
+        # plot_bin_hist(model_and_loss, optimizer, val_loader)
         # write_errors(model_and_loss, optimizer, debug_loader)
         # variance_profile(model_and_loss, optimizer, debug_loader)
-        # get_var(model_and_loss, optimizer, train_loader)
+        get_var(model_and_loss, optimizer, train_loader)
         # plot_weight_hist(model_and_loss, optimizer, train_loader)

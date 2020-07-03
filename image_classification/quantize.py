@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from torch.autograd.function import InplaceFunction
 from image_classification.preconditioner import ScalarPreconditioner, ForwardPreconditioner, DiagonalPreconditioner, BlockwiseHouseholderPreconditioner, ScalarPreconditionerAct
 import pytorch_minimax
-from quantizers import calc_precision
+from quantizers import calc_precision, calc_precision_dp
 
 
 class QuantizationConfig:
@@ -388,21 +388,44 @@ class QF:
     @staticmethod
     def quantize(input, name):
         if config.activation_compression_bits >= 32 or not QF.training:
+            # print('Skipping')
             return input
 
-        C = QF.get_scale(name)
-        # print('Layer ', name)
-        # print('Get scale ', C)
         N = input.shape[0]
+        input_flatten = input.view(N, -1)
+        D = input_flatten.shape[1]
 
-        target_b = config.activation_compression_bits * N
-        b = torch.ones(N, dtype=torch.int32) * 8
-        C = C.cpu()
-        b = calc_precision(b, C, target_b).float()
+        grad_sum = QF.get_scale(name).cpu()
+        input_sum = (input_flatten ** 2).sum(1).cpu()
+        mn = pytorch_minimax.min(input_flatten).cpu()
+        mx = pytorch_minimax.max(input_flatten).cpu()
+        Range = mx - mn
+
+        C = D / 4 * Range ** 2 * grad_sum
+        A = input_sum * grad_sum
+
+        # target_b = config.activation_compression_bits * N
+        # b = torch.ones(N, dtype=torch.int32) * 8
+        # C = C.cpu()
+        # b = calc_precision(b, C, target_b).float()
+        b, keep_prob = calc_precision_dp(A, C, 4, config.activation_compression_bits, 1)
+
+        mask = torch.distributions.Bernoulli(probs=keep_prob).sample() / keep_prob
+        # print(D)
+        # print(torch.stack([D * Range ** 2 / 4, input_sum, A, C, b, keep_prob, mask], 1))
+        # exit(0)
+        mask = mask.cuda()
+        if len(input.shape) == 2:
+            mask = mask.unsqueeze(1)
+        else:
+            mask = mask.view(N, 1, 1, 1)
+
 
         # print('Precision ', b[:5])
         # print('Before ', input.view(N, -1)[:5,:5])
-        output = MixedPrecisionQuantize().apply(input, b.cuda(), True, False)
+        output = MixedPrecisionQuantize().apply(input, b.cuda(), True, False) * mask
+        print(output.view(N, -1)[:10, :10])
+        exit(0)
         # print('After ', output.view(N, -1)[:5,:5])
         return output
 

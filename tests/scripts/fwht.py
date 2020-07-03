@@ -6,7 +6,7 @@ Author: Ding Luo@Fraunhofer IOSB
 """
 from math import log
 import numpy as np
-import GrayCode
+from scripts import GrayCode
 from time import clock
 
 

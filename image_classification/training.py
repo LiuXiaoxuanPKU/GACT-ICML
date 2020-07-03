@@ -202,6 +202,7 @@ def get_train_step(model_and_loss, optimizer, fp16, use_amp = False, batch_size_
 
 
 def train(train_loader, model_and_loss, optimizer, lr_scheduler, fp16, logger, epoch, use_amp=False, prof=-1, batch_size_multiplier=1, register_metrics=True):
+    QF.init(50000)
     if register_metrics and logger is not None:
         logger.register_metric('train.top1', log.AverageMeter(), log_level = 0)
         logger.register_metric('train.top5', log.AverageMeter(), log_level = 0)
@@ -373,5 +374,6 @@ def train_loop(model_and_loss, optimizer, lr_scheduler, train_loader, val_loader
         # plot_bin_hist(model_and_loss, optimizer, val_loader)
         # write_errors(model_and_loss, optimizer, debug_loader)
         # variance_profile(model_and_loss, optimizer, debug_loader)
+        # get_var(model_and_loss, optimizer, train_loader)
         get_var(model_and_loss, optimizer, train_loader)
         # plot_weight_hist(model_and_loss, optimizer, train_loader)

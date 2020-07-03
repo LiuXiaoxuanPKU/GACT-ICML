@@ -652,6 +652,7 @@ def variance_profile(model_and_loss, optimizer, val_loader, prefix='.', num_batc
 
 def get_var(model_and_loss, optimizer, val_loader, num_batches=10000):
     # print(QF.num_samples, QF.update_scale, QF.training)
+    model_and_loss.train()
     if hasattr(model_and_loss.model, 'module'):
         m = model_and_loss.model.module
     else:
@@ -694,13 +695,15 @@ def get_var(model_and_loss, optimizer, val_loader, num_batches=10000):
 
         if cnt == num_batches:
             break
-        if cnt == 100:
-            break
+        # if cnt == 100:
+        #     break
 
     num_batches = cnt
     batch_grad = dict_mul(batch_grad, 1.0 / num_batches)
     QF.update_scale = False
-    config.activation_compression_bits = 8
+    config.activation_compression_bits = 4
+    # print(inputs[0].view(128, -1))
+    # print(batch_grad['conv_0'][0,0])
 
     def get_variance():
         total_var = None

@@ -147,6 +147,7 @@ def add_parser_arguments(parser):
     parser.add_argument('--ca', type=str2bool, default=True, help='compress activation')
     parser.add_argument('--biased', type=str2bool, default=False, help='biased quantization')
     parser.add_argument('--abits', type=int, default=8, help='activation number of bits')
+    parser.add_argument('--cabits', type=int, default=8, help='activation number of bits')
     parser.add_argument('--wbits', type=int, default=8, help='weight number of bits')
     parser.add_argument('--biasbits', type=int, default=16, help='bias number of bits')
     parser.add_argument('--bbits', type=int, default=8, help='backward number of bits')
@@ -162,6 +163,7 @@ def main(args):
     config.quantize_gradient = args.qg
     config.compress_activation = args.ca
     config.activation_num_bits = args.abits
+    config.activation_compression_bits = args.cabits
     config.weight_num_bits = args.wbits
     config.bias_num_bits = args.biasbits
     config.backward_num_bits = args.bbits

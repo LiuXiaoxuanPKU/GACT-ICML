@@ -695,15 +695,11 @@ def get_var(model_and_loss, optimizer, val_loader, num_batches=10000):
 
         if cnt == num_batches:
             break
-        if cnt == 100:
-            break
 
     num_batches = cnt
     batch_grad = dict_mul(batch_grad, 1.0 / num_batches)
     QF.update_scale = False
     config.activation_compression_bits = 2
-    # print(inputs[0].view(128, -1))
-    # print(batch_grad['conv_0'][0,0])
 
     def get_variance():
         total_var = None
@@ -711,7 +707,6 @@ def get_var(model_and_loss, optimizer, val_loader, num_batches=10000):
             QF.set_current_batch(index)
             grad = bp(input, target)
             total_var = dict_add(total_var, dict_sqr(dict_minus(grad, batch_grad)))
-            # exit(0)
 
         grads = [total_var[k].sum() / num_batches for k in weight_names]
         return grads

@@ -6,6 +6,7 @@ from torch.autograd.function import InplaceFunction
 from image_classification.preconditioner import ScalarPreconditioner, ForwardPreconditioner, DiagonalPreconditioner, BlockwiseHouseholderPreconditioner, ScalarPreconditionerAct
 import pytorch_minimax
 from quantizers import calc_precision, calc_precision_dp
+import numpy as np
 
 
 class QuantizationConfig:
@@ -391,12 +392,13 @@ class QF:
             # print('Skipping')
             return input
 
-        N = input.shape[0]
+        N, D, _, _ = input.shape
         input_flatten = input.view(N, -1)
-        D = input_flatten.shape[1]
+        D = input.shape[1]
 
         grad_sum = QF.get_scale(name).cpu()
         input_sum = (input_flatten ** 2).sum(1).cpu()
+
         mn = pytorch_minimax.min(input_flatten).cpu()
         mx = pytorch_minimax.max(input_flatten).cpu()
         Range = mx - mn
@@ -404,43 +406,34 @@ class QF:
         C = D / 4 * Range ** 2 * grad_sum
         A = input_sum * grad_sum
 
-        # target_b = config.activation_compression_bits * N
-        # b = torch.ones(N, dtype=torch.int32) * 8
-        # C = C.cpu()
-        # b = calc_precision(b, C, target_b).float()
-        b, keep_prob = calc_precision_dp(A, C, 4, config.activation_compression_bits, 1)
-
+        b, keep_prob = calc_precision_dp(A, C, 8, config.activation_compression_bits, 2)
         mask = torch.distributions.Bernoulli(probs=keep_prob).sample() / keep_prob
-        # print(D)
-        # print(torch.stack([D * Range ** 2 / 4, input_sum, A, C, b, keep_prob, mask], 1))
-        # exit(0)
-        mask = mask.cuda()
-        if len(input.shape) == 2:
-            mask = mask.unsqueeze(1)
-        else:
-            mask = mask.view(N, 1, 1, 1)
 
+        with torch.no_grad():
+            mask = mask.cuda()
+            if len(input.shape) == 2:
+                mask = mask.unsqueeze(1)
+            else:
+                mask = mask.view(N, 1, 1, 1)
 
-        # print('Precision ', b[:5])
-        # print('Before ', input.view(N, -1)[:5,:5])
         output = MixedPrecisionQuantize().apply(input, b.cuda(), True, False) * mask
-        print(output.view(N, -1)[:10, :10])
-        exit(0)
-        # print('After ', output.view(N, -1)[:5,:5])
         return output
 
     @staticmethod
     def conv2d(input, weight, bias, stride, padding, dilation, groups, name):
-        output = F.conv2d(input, weight, bias, stride, padding, dilation, groups)
+        assert(bias is None)
+        # Correct output, and correct L'input, incorrect L'weight
+        output = F.conv2d(input, weight.detach(), bias, stride, padding, dilation, groups)
         if not QF.training:
             return output
 
         qinput = QF.quantize(input, name)
-        fake_output = F.conv2d(qinput, weight, bias, stride, padding, dilation, groups)
+        # Incorrect output, incorrect L'input, correct L'weight
+        fake_output = F.conv2d(qinput.detach(), weight, bias, stride, padding, dilation, groups)
         fake_output = GradRecorder().apply(fake_output, name)
+        # output = GradRecorder().apply(output, name)
 
-        return output.detach() + fake_output - fake_output.detach()
-
+        return output + fake_output - fake_output.detach()
 
 if __name__ == '__main__':
     x = torch.rand(2, 3)

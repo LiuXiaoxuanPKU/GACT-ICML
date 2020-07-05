@@ -22,7 +22,7 @@ A = H_sum * grad_sum
 
 # bits = calc_precision(b, C, target * N).float()
 #    torch.tensor([10.0, 10.0, 10.0, 10.0, 1.0, 10.0, 10.0, 10.0])
-bits, keep_prob = calc_precision_dp(A, C, 8, target, 4)
+bits, keep_prob = calc_precision_dp(A, C, 8, target, 2)
 
 print('Keep prob = ', keep_prob)
 print('bits = ', bits)

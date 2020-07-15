@@ -446,7 +446,7 @@ class MyLinear_apply(torch.autograd.Function):
             output += bias.unsqueeze(0).expand_as(output)
         
         _input = QF.quantize(input.detach(), name) # TODO: what is name???
-        ctx.save_for_backward(input, weight, bias)
+        ctx.save_for_backward(_input, weight, bias)
         return output
 
     @staticmethod

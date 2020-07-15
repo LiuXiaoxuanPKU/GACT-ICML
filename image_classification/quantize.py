@@ -435,6 +435,67 @@ class QF:
 
         return output + fake_output - fake_output.detach()
 
+##############
+class MyLinear_apply(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, input, weight, bias=None, name=None):
+
+        output = input.mm(weight.t())
+        if bias is not None:
+            output += bias.unsqueeze(0).expand_as(output)
+        
+        _input = QF.quantize(input.detach(), name) # TODO: what is name???
+        ctx.save_for_backward(input, weight, bias)
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        input, weight, bias = ctx.saved_tensors
+
+        grad_input = grad_weight = grad_bias = None
+
+        grad_input = grad_output.mm(weight)
+
+        grad_weight = grad_output.t().mm(input)
+        if bias is not None:
+            grad_bias = grad_output.sum(0)
+
+        return grad_input, grad_weight, grad_bias, None # The name does not need gradient.
+
+class MyLinear(nn.Module):
+    def __init__(self, input_features, output_features, bias=True):
+        super(MyLinear, self).__init__()
+        self.input_features = input_features
+        self.output_features = output_features
+
+        self.weight = nn.Parameter(torch.Tensor(output_features, input_features))
+        if bias:
+            self.bias = nn.Parameter(torch.Tensor(output_features))
+        else:
+            self.register_parameter('bias', None)
+
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        init.kaiming_uniform_(self.weight, a=math.sqrt(5))
+        if self.bias is not None:
+            fan_in, _ = init._calculate_fan_in_and_fan_out(self.weight)
+            bound = 1 / math.sqrt(fan_in)
+            init.uniform_(self.bias, -bound, bound)
+
+    def forward(self, input, name): # TODO: I guess we need this name passed here?
+        # See the autograd section for explanation of what happens here.
+        return MyLinear_apply.apply(input, self.weight, self.bias, name)
+
+    def extra_repr(self):
+        # (Optional)Set the extra information about this module. You can test
+        # it by printing an object of this class.
+        return 'input_features={}, output_features={}, bias={}'.format(
+            self.input_features, self.output_features, self.bias is not None
+        )
+
+
 if __name__ == '__main__':
     x = torch.rand(2, 3)
     x_q = quantize(x, flatten_dims=(-1), num_bits=8, dequantize=True)

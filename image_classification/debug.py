@@ -699,7 +699,7 @@ def get_var(model_and_loss, optimizer, val_loader, num_batches=10000):
     num_batches = cnt
     batch_grad = dict_mul(batch_grad, 1.0 / num_batches)
     QF.update_scale = False
-    config.activation_compression_bits = 2
+    config.activation_compression_bits = 1
 
     def get_variance():
         total_var = None

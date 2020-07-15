@@ -205,9 +205,9 @@ class QConv2d(nn.Conv2d):
             qweight = self.weight
             qbias = self.bias
 
-        self.qweight = qweight
+        # self.qweight = qweight
 
-        self.iact = qinput
+        # self.iact = qinput
 
         if hasattr(self, 'exact') or not config.biprecision:
             if config.compress_activation:
@@ -219,7 +219,7 @@ class QConv2d(nn.Conv2d):
         else:
             output = conv2d_biprec(qinput, qweight, qbias, self.stride,
                                    self.padding, self.dilation, self.groups)
-        self.act = output
+        # self.act = output
 
         return output
 

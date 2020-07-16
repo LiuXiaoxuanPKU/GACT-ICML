@@ -205,25 +205,36 @@ class QF:
         input_flatten = input.view(N, -1)
         D = input.shape[1]
 
-        grad_sum = QF.get_scale(name).cpu()
-        input_sum = (input_flatten ** 2).sum(1).cpu()
+        if config.alg == 'greedy':
+            grad_sum = QF.get_scale(name).cpu()
+            mn = pytorch_minimax.min(input_flatten).cpu()
+            mx = pytorch_minimax.max(input_flatten).cpu()
+            Range = mx - mn
+            C = D / 4 * Range ** 2 * grad_sum
+            b = torch.ones(N, dtype=torch.int32) * config.initial_bits
+            b = calc_precision(b, C, config.activation_compression_bits * N).float()
 
-        mn = pytorch_minimax.min(input_flatten).cpu()
-        mx = pytorch_minimax.max(input_flatten).cpu()
-        Range = mx - mn
+            mask = 1.0
+        else:   # DP. only work for convolution
+            grad_sum = QF.get_scale(name).cpu()
+            input_sum = (input_flatten ** 2).sum(1).cpu()
 
-        C = D / 4 * Range ** 2 * grad_sum
-        A = input_sum * grad_sum
+            mn = pytorch_minimax.min(input_flatten).cpu()
+            mx = pytorch_minimax.max(input_flatten).cpu()
+            Range = mx - mn
 
-        b, keep_prob = calc_precision_dp(A, C, 8, config.activation_compression_bits, 1)
-        mask = torch.distributions.Bernoulli(probs=keep_prob).sample() / keep_prob
+            C = D / 4 * Range ** 2 * grad_sum
+            A = input_sum * grad_sum
 
-        with torch.no_grad():
-            mask = mask.cuda()
-            if len(input.shape) == 2:
-                mask = mask.unsqueeze(1)
-            else:
-                mask = mask.view(N, 1, 1, 1)
+            b, keep_prob = calc_precision_dp(A, C, config.initial_bits, config.activation_compression_bits, 2)
+            mask = torch.distributions.Bernoulli(probs=keep_prob).sample() / keep_prob
+
+            with torch.no_grad():
+                mask = mask.cuda()
+                if len(input.shape) == 2:
+                    mask = mask.unsqueeze(1)
+                else:
+                    mask = mask.view(N, 1, 1, 1)
 
         output = MixedPrecisionQuantize().apply(input, b.cuda(), True, False) * mask
         return output

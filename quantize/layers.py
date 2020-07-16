@@ -189,3 +189,13 @@ class QBatchNorm2D(nn.BatchNorm2d):
             exponential_average_factor, self.eps, self.name)
 
 
+class QSoftmax(nn.Module):
+    num_layers = 0
+
+    def __init__(self):
+        super(QSoftmax, self).__init__()
+        self.name = 'softmax_{}'.format(QLinear.num_layers)
+        QSoftmax.num_layers += 1
+
+    def forward(self, input):
+        return qsoftmax().apply(input, -1, self.name)

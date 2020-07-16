@@ -339,6 +339,26 @@ class batch_norm(Function):
         return grad_input, None, None, grad_weight, grad_bias, None, None, None, None
 
 
+class qsoftmax(Function):
+    @staticmethod
+    def forward(ctx, input, dim, name):
+        output = F.softmax(input)
+        ctx.dim = dim
+        ctx.name = name
+        ctx.output = QF.quantize(output, name)
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        # Record gradient
+        scale = (grad_output.view(grad_output.shape[0], -1) ** 2).sum(1)
+        QF.set_scale(ctx.name, scale.detach().cpu())
+
+        output = ctx.output
+        grad = output * (grad_output - (output * grad_output).sum(ctx.dim, keepdim=True))
+        return grad, None, None
+
+
 if __name__ == '__main__':
     x = torch.rand(2, 3)
     x_q = quantize(x, flatten_dims=(-1), num_bits=8, dequantize=True)

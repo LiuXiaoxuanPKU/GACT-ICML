@@ -1,5 +1,4 @@
-import torch
-from .quantize import config, QF
+from quantize import config, QF
 from .utils import *
 import matplotlib
 matplotlib.use('Agg')
@@ -368,7 +367,7 @@ def plot_bin_hist(model_and_loss, optimizer, val_loader):
         ax.set_position([l + 0.05 * w, b + 0.05 * h, 0.95 * w, 0.98 * h])
         fig.savefig('{}_hist.pdf'.format(i), transparent=True)
 
-    from image_classification.quantize import quantize
+    from quantize.quantize import quantize
 
     def plot_each(preconditioner, Preconditioner, name, g):
         input = g
@@ -408,7 +407,7 @@ def plot_bin_hist(model_and_loss, optimizer, val_loader):
         var = np.stack(gs).var(0).sum()
         print(var)
 
-    from image_classification.preconditioner import ScalarPreconditionerAct, DiagonalPreconditioner, BlockwiseHouseholderPreconditioner
+    from quantize.preconditioner import ScalarPreconditionerAct, DiagonalPreconditioner, BlockwiseHouseholderPreconditioner
     plot_each(ScalarPreconditionerAct, lambda x: ScalarPreconditionerAct(x, config.backward_num_bits), 'PTQ', g)
     plot_each(DiagonalPreconditioner, lambda x: DiagonalPreconditioner(x, config.backward_num_bits), 'PSQ', g)
     plot_each(BlockwiseHouseholderPreconditioner, lambda x: BlockwiseHouseholderPreconditioner(x, config.backward_num_bits), 'BHQ', g)
@@ -699,7 +698,7 @@ def get_var(model_and_loss, optimizer, val_loader, num_batches=10000):
     num_batches = cnt
     batch_grad = dict_mul(batch_grad, 1.0 / num_batches)
     QF.update_scale = False
-    config.activation_compression_bits = 1
+    config.activation_compression_bits = 2
 
     def get_variance():
         total_var = None

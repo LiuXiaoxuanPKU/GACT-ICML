@@ -3,7 +3,7 @@ import torch
 import numpy as np
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
-import dataloader
+from quantize import dataloader
 
 DATA_BACKEND_CHOICES = ['pytorch']
 # try:

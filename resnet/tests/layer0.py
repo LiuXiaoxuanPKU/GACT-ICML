@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from image_classification.quantize import config, QF, calc_precision, calc_precision_dp
+from quantize.quantize import config, QF, calc_precision_dp
 from tqdm import tqdm
 
 data = np.load('55.pkl.npz')

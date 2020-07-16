@@ -4,8 +4,8 @@ import math
 import torch
 import time
 matplotlib.use('Agg')
-from image_classification.quantize import config
-from image_classification.preconditioner import init, BlockwiseHouseholderPreconditioner, ScalarPreconditioner, DiagonalPreconditioner
+from quantize.quantize import config
+from quantize.preconditioner import init, BlockwiseHouseholderPreconditioner, ScalarPreconditioner, DiagonalPreconditioner
 
 config.hadamard = True
 
@@ -41,7 +41,7 @@ S_T = torch.pow(weight, -1.0 / 3)
 S_T = torch.nn.Parameter(S_T)
 u = torch.nn.Parameter(torch.qr(torch.randn(128, 128))[0])
 
-from image_classification.quantize import quantize
+from quantize.quantize import quantize
 
 
 def calc_std(u, x, persample, num_bits=4):

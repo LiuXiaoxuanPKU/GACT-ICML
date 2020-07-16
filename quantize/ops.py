@@ -1,62 +1,12 @@
 from collections import namedtuple
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
-from torch.autograd.function import InplaceFunction
-from image_classification.preconditioner import ScalarPreconditioner, ForwardPreconditioner, DiagonalPreconditioner, BlockwiseHouseholderPreconditioner, ScalarPreconditionerAct
+from torch.autograd.function import InplaceFunction, Function
 import pytorch_minimax
-from quantizers import calc_precision, calc_precision_dp
-import numpy as np
 
+from quantize.conf import config
+from quantize.C import calc_precision_dp, calc_precision
 
-class QuantizationConfig:
-    def __init__(self):
-        self.quantize_activation = True
-        self.quantize_weights = True
-        self.quantize_gradient = True
-        self.compress_activation = False
-        self.activation_num_bits = 8
-        self.weight_num_bits = 8
-        self.bias_num_bits = 16
-        self.backward_num_bits = 8
-        self.bweight_num_bits = 8
-        self.backward_persample = False
-        self.biased = False
-        self.grads = None
-        self.acts = None
-        self.hadamard = False
-        self.biprecision = True
-        self.activation_compression_bits = 8
-
-    def activation_preconditioner(self):
-        # return lambda x: ForwardPreconditioner(x, self.activation_num_bits)
-        return lambda x: ScalarPreconditionerAct(x, self.activation_num_bits)
-        # return lambda x: ScalarPreconditioner(x, 16)
-
-    def weight_preconditioner(self):
-        return lambda x: ScalarPreconditioner(x, self.weight_num_bits)
-        # return lambda x: ForwardPreconditioner(x, self.weight_num_bits)
-        # return lambda x: DiagonalPreconditioner(x, self.weight_num_bits)
-
-    def bias_preconditioner(self):
-        return lambda x: ScalarPreconditioner(x, self.bias_num_bits)
-
-    def activation_gradient_preconditioner(self):
-        if self.hadamard:
-            return lambda x: BlockwiseHouseholderPreconditioner(x, self.backward_num_bits)
-        if self.backward_persample:
-            return lambda x: DiagonalPreconditioner(x, self.backward_num_bits)
-        else:
-            return lambda x: ScalarPreconditioner(x, self.backward_num_bits)
-
-    def weight_gradient_preconditioner(self):
-        if self.backward_persample:
-            return lambda x: DiagonalPreconditioner(x, self.bweight_num_bits, left=False)
-        else:
-            return lambda x: ScalarPreconditioner(x, self.bweight_num_bits)
-
-
-config = QuantizationConfig()
 
 QParams = namedtuple('QParams', ['range', 'zero_point', 'num_bits'])
 
@@ -156,147 +106,6 @@ def linear_biprec(input, weight, bias=None):
     else:
         out = F.linear(input, weight, bias)
         return out
-
-
-class QuantMeasure(nn.Module):
-    """docstring for QuantMeasure."""
-
-    def __init__(self, inplace=False, stochastic=False):
-        super(QuantMeasure, self).__init__()
-        self.stochastic = stochastic
-        self.inplace = inplace
-
-    def forward(self, input):
-        q_input = quantize(input, config.activation_preconditioner(),
-                           stochastic=self.stochastic, inplace=self.inplace)
-        return q_input
-
-
-class QConv2d(nn.Conv2d):
-    """docstring for QConv2d."""
-
-    num_layers = 0
-
-    def __init__(self, in_channels, out_channels, kernel_size,
-                 stride=1, padding=0, dilation=1, groups=1, bias=True):
-        super(QConv2d, self).__init__(in_channels, out_channels, kernel_size,
-                                      stride, padding, dilation, groups, bias)
-        self.quantize_input = QuantMeasure()
-        self.name = str(QConv2d.num_layers)
-        QConv2d.num_layers += 1
-
-    def forward(self, input):
-        if config.acts is not None:
-            config.acts.append(input.detach().cpu().numpy())
-
-        if config.quantize_activation:
-            qinput = self.quantize_input(input)
-        else:
-            qinput = input
-
-        if config.quantize_weights:     # TODO weight quantization scheme...
-            qweight = quantize(self.weight, config.weight_preconditioner())
-            if self.bias is not None:
-                qbias = quantize(self.bias, config.bias_preconditioner())
-            else:
-                qbias = None
-            qbias = self.bias
-        else:
-            qweight = self.weight
-            qbias = self.bias
-
-        # self.qweight = qweight
-
-        # self.iact = qinput
-
-        if hasattr(self, 'exact') or not config.biprecision:
-            if config.compress_activation:
-                output = QF.conv2d(qinput, qweight, qbias, self.stride,
-                              self.padding, self.dilation, self.groups, self.name)
-            else:
-                output = F.conv2d(qinput, qweight, qbias, self.stride,
-                              self.padding, self.dilation, self.groups)
-        else:
-            output = conv2d_biprec(qinput, qweight, qbias, self.stride,
-                                   self.padding, self.dilation, self.groups)
-        # self.act = output
-
-        return output
-
-
-class QLinear(nn.Linear):
-    """docstring for QConv2d."""
-
-    def __init__(self, in_features, out_features, bias=True,):
-        super(QLinear, self).__init__(in_features, out_features, bias)
-        self.quantize_input = QuantMeasure()
-
-    def forward(self, input):
-        if config.quantize_activation:
-            qinput = self.quantize_input(input)
-        else:
-            qinput = input
-
-        if config.quantize_weights:
-            qweight = quantize(self.weight, config.weight_preconditioner())
-            if self.bias is not None:
-                qbias = quantize(self.bias, config.bias_preconditioner())
-            else:
-                qbias = None
-        else:
-            qweight = self.weight
-            qbias = self.bias
-
-        if hasattr(self, 'exact'):
-            output = F.linear(qinput, qweight, qbias)
-        else:
-            output = linear_biprec(qinput, qweight, qbias)
-
-        return output
-
-
-class QBatchNorm2D(nn.BatchNorm2d):
-    def __init__(self, num_features):
-        super(QBatchNorm2D, self).__init__(num_features)
-        self.quantize_input = QuantMeasure()
-
-    def forward(self, input):       # TODO: weight is not quantized
-        self._check_input_dim(input)
-        if config.quantize_activation:
-            qinput = self.quantize_input(input)
-        else:
-            qinput = input
-
-        # if config.quantize_weights:
-        #     qweight = quantize(self.weight, config.bias_preconditioner())
-        #     qbias = quantize(self.bias, config.bias_preconditioner())
-        # else:
-        #     qweight = self.weight
-        #     qbias = self.bias
-
-        qweight = self.weight
-        qbias = self.bias
-
-        # exponential_average_factor is set to self.momentum
-        # (when it is available) only so that if gets updated
-        # in ONNX graph when this node is exported to ONNX.
-        if self.momentum is None:
-            exponential_average_factor = 0.0
-        else:
-            exponential_average_factor = self.momentum
-
-        if self.training and self.track_running_stats:
-            if self.num_batches_tracked is not None:
-                self.num_batches_tracked = self.num_batches_tracked + 1
-                if self.momentum is None:  # use cumulative moving average
-                    exponential_average_factor = 1.0 / float(self.num_batches_tracked)
-                else:  # use exponential moving average
-                    exponential_average_factor = self.momentum
-
-        return F.batch_norm(
-            input, self.running_mean, self.running_var, qweight, qbias,
-            self.training or not self.track_running_stats,
-            exponential_average_factor, self.eps)
 
 
 class GradRecorder(InplaceFunction):
@@ -406,7 +215,7 @@ class QF:
         C = D / 4 * Range ** 2 * grad_sum
         A = input_sum * grad_sum
 
-        b, keep_prob = calc_precision_dp(A, C, 8, config.activation_compression_bits, 2)
+        b, keep_prob = calc_precision_dp(A, C, 8, config.activation_compression_bits, 1)
         mask = torch.distributions.Bernoulli(probs=keep_prob).sample() / keep_prob
 
         with torch.no_grad():
@@ -462,38 +271,6 @@ class MyLinear_apply(torch.autograd.Function):
             grad_bias = grad_output.sum(0)
 
         return grad_input, grad_weight, grad_bias, None # The name does not need gradient.
-
-class MyLinear(nn.Module):
-    def __init__(self, input_features, output_features, bias=True):
-        super(MyLinear, self).__init__()
-        self.input_features = input_features
-        self.output_features = output_features
-
-        self.weight = nn.Parameter(torch.Tensor(output_features, input_features))
-        if bias:
-            self.bias = nn.Parameter(torch.Tensor(output_features))
-        else:
-            self.register_parameter('bias', None)
-
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        init.kaiming_uniform_(self.weight, a=math.sqrt(5))
-        if self.bias is not None:
-            fan_in, _ = init._calculate_fan_in_and_fan_out(self.weight)
-            bound = 1 / math.sqrt(fan_in)
-            init.uniform_(self.bias, -bound, bound)
-
-    def forward(self, input, name): # TODO: I guess we need this name passed here?
-        # See the autograd section for explanation of what happens here.
-        return MyLinear_apply.apply(input, self.weight, self.bias, name)
-
-    def extra_repr(self):
-        # (Optional)Set the extra information about this module. You can test
-        # it by printing an object of this class.
-        return 'input_features={}, output_features={}, bias={}'.format(
-            self.input_features, self.output_features, self.bias is not None
-        )
 
 
 if __name__ == '__main__':

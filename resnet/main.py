@@ -1,23 +1,13 @@
 import argparse
-import os
-import shutil
-import time
 import random
 
-import numpy as np
-import torch
-from torch.autograd import Variable
-import torch.nn as nn
 import torch.nn.parallel
 import torch.backends.cudnn as cudnn
 import torch.distributed as dist
 import torch.optim
 import torch.utils.data
 import torch.utils.data.distributed
-import torchvision.transforms as transforms
-import torchvision.datasets as datasets
-from image_classification.quantize import config
-from image_classification.preconditioner import init
+from quantize import config
 
 try:
     from apex.parallel import DistributedDataParallel as DDP
@@ -25,9 +15,6 @@ try:
     from apex import amp
 except ImportError:
     raise ImportError("Please install apex from https://www.github.com/nvidia/apex to run this example.")
-
-import image_classification.resnet as models
-import image_classification.logger as log
 
 from image_classification.smoothing import LabelSmoothing
 from image_classification.mixup import NLLMultiLabelSmooth, MixUpWrapper
@@ -172,7 +159,7 @@ def main(args):
     config.hadamard = args.hadamard
     config.biased = args.biased
     config.biprecision = args.biprecision
-    init(args.batch_size)
+    # init(args.batch_size)
 
     exp_start_time = time.time()
     global best_prec1

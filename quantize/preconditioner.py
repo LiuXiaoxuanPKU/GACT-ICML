@@ -2,7 +2,7 @@ import torch
 import math
 import time
 import pytorch_minimax
-from quantizers import get_transform
+from quantize.C import get_transform
 
 
 def householder(src, tar):

@@ -54,3 +54,10 @@ mkdir results
 # 8-bit BHQ
 ./dist-train 1 0 127.0.0.1 8 resnet18 "-c quantize --qa=True --qw=True --qg=True --persample=True --hadamard=True --bbits=8" bhq_8 <imagenet_path>
 ```
+
+Memory Saving Training
+====
+
+```bash
+CUDA_VISIBLE_DEVICES=1 python main.py --dataset cifar10 --gather-checkpoints --arch preact_resnet56 --gather-checkpoints --workspace results/exact --batch-size 128 --lr 0.1 --momentum 0.9 --label-smoothing 0  --warmup 0 --weight-decay 1e-4 --epochs 200 --ca=True -c quantize --qa=False --qw=False --qg=False --biprecision=False --resume results/exact/checkpoint-1.pth.tar --epochs 2 --evaluate  -j 0 --training-only   ~/data/cifar10
+```

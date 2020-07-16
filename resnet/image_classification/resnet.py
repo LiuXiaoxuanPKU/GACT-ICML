@@ -1,8 +1,5 @@
-import math
-import torch
 import torch.nn as nn
-import numpy as np
-from .quantize import QConv2d, QLinear, QBatchNorm2D
+from quantize import QConv2d, QLinear, QBatchNorm2D
 from .preact_resnet import PreActBlock, PreActBottleneck, PreActResNet
 
 __all__ = ['ResNet', 'build_resnet', 'resnet_versions', 'resnet_configs']

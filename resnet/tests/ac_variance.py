@@ -1,6 +1,6 @@
 import torch
-from image_classification.quantize import MixedPrecisionQuantize
-from quantizers import calc_precision, calc_precision_dp
+from quantize.quantize import MixedPrecisionQuantize
+from quantizers import calc_precision_dp
 torch.set_printoptions(linewidth=250, sci_mode=False, precision=3)
 torch.manual_seed(0)
 

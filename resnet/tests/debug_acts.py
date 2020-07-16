@@ -2,7 +2,7 @@ import numpy as np
 import pickle
 import torch
 import torch.nn.functional as F
-from image_classification.preconditioner import ScalarPreconditioner
+from quantize.preconditioner import ScalarPreconditioner
 
 iacts = np.load('iacts.pkl.npz', allow_pickle=True)
 acts = np.load('acts.pkl.npz', allow_pickle=True)

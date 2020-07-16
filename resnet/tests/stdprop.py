@@ -1,8 +1,5 @@
 import torch
-import numpy as np
-import math
-from image_classification.quantize import config, Hadamard
-from image_classification.quantize import quantize, config, QParams
+from quantize.quantize import quantize, config, QParams
 
 
 def calc_real_std(x, w, qparams, num_bits=4):

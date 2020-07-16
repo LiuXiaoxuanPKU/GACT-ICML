@@ -1,4 +1,3 @@
-import os
 import time
 import numpy as np
 import torch
@@ -7,8 +6,8 @@ from torch.autograd import Variable
 from . import logger as log
 from . import resnet as models
 from . import utils
-from .debug import dump, fast_dump, plot_bin_hist, write_errors, fast_dump_2, variance_profile, get_var, plot_weight_hist
-from .quantize import QF, config
+from .debug import get_var
+from quantize import QF
 
 try:
     from apex.parallel import DistributedDataParallel as DDP

@@ -201,9 +201,9 @@ class QF:
             # print('Skipping')
             return input
 
-        N, D, _, _ = input.shape
-        input_flatten = input.view(N, -1)
+        N = input.shape[0]
         D = input.shape[1]
+        input_flatten = input.view(N, -1)
 
         if config.alg == 'greedy':
             grad_sum = QF.get_scale(name).cpu()
@@ -265,8 +265,10 @@ class MyLinear_apply(torch.autograd.Function):
         if bias is not None:
             output += bias.unsqueeze(0).expand_as(output)
         
-        _input = QF.quantize(input.detach(), name) # TODO: what is name???
+        _input = QF.quantize(input.detach(), name)
         ctx.save_for_backward(_input, weight, bias)
+
+        output = GradRecorder().apply(output, name)
         return output
 
     @staticmethod

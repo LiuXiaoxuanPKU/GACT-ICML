@@ -1,3 +1,4 @@
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -29,7 +30,7 @@ class QConv2d(nn.Conv2d):
         super(QConv2d, self).__init__(in_channels, out_channels, kernel_size,
                                       stride, padding, dilation, groups, bias)
         self.quantize_input = QuantMeasure()
-        self.name = str(QConv2d.num_layers)
+        self.name = 'conv_{}'.format(QConv2d.num_layers)
         QConv2d.num_layers += 1
 
     def forward(self, input):
@@ -71,35 +72,73 @@ class QConv2d(nn.Conv2d):
         return output
 
 
-class QLinear(nn.Linear):
-    """docstring for QConv2d."""
+# class QLinear(nn.Linear): # The linear layer for quantized training
+#     """docstring for QConv2d."""
+#
+#     def __init__(self, in_features, out_features, bias=True,):
+#         super(QLinear, self).__init__(in_features, out_features, bias)
+#         self.quantize_input = QuantMeasure()
+#
+#     def forward(self, input):
+#         if config.quantize_activation:
+#             qinput = self.quantize_input(input)
+#         else:
+#             qinput = input
+#
+#         if config.quantize_weights:
+#             qweight = quantize(self.weight, config.weight_preconditioner())
+#             if self.bias is not None:
+#                 qbias = quantize(self.bias, config.bias_preconditioner())
+#             else:
+#                 qbias = None
+#         else:
+#             qweight = self.weight
+#             qbias = self.bias
+#
+#         if hasattr(self, 'exact'):
+#             output = F.linear(qinput, qweight, qbias)
+#         else:
+#             output = linear_biprec(qinput, qweight, qbias)
+#
+#         return output
 
-    def __init__(self, in_features, out_features, bias=True,):
-        super(QLinear, self).__init__(in_features, out_features, bias)
-        self.quantize_input = QuantMeasure()
+
+class QLinear(nn.Module):
+    num_layers = 0
+
+    def __init__(self, input_features, output_features, bias=True):
+        super(QLinear, self).__init__()
+        self.name = 'linear_{}'.format(QLinear.num_layers)
+        QLinear.num_layers += 1
+
+        self.input_features = input_features
+        self.output_features = output_features
+
+        self.weight = nn.Parameter(torch.Tensor(output_features, input_features))
+        if bias:
+            self.bias = nn.Parameter(torch.Tensor(output_features))
+        else:
+            self.register_parameter('bias', None)
+
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        torch.nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
+        if self.bias is not None:
+            fan_in, _ = torch.nn.init._calculate_fan_in_and_fan_out(self.weight)
+            bound = 1 / math.sqrt(fan_in)
+            torch.nn.init.uniform_(self.bias, -bound, bound)
 
     def forward(self, input):
-        if config.quantize_activation:
-            qinput = self.quantize_input(input)
-        else:
-            qinput = input
+        # See the autograd section for explanation of what happens here.
+        return MyLinear_apply.apply(input, self.weight, self.bias, self.name)
 
-        if config.quantize_weights:
-            qweight = quantize(self.weight, config.weight_preconditioner())
-            if self.bias is not None:
-                qbias = quantize(self.bias, config.bias_preconditioner())
-            else:
-                qbias = None
-        else:
-            qweight = self.weight
-            qbias = self.bias
-
-        if hasattr(self, 'exact'):
-            output = F.linear(qinput, qweight, qbias)
-        else:
-            output = linear_biprec(qinput, qweight, qbias)
-
-        return output
+    def extra_repr(self):
+        # (Optional)Set the extra information about this module. You can test
+        # it by printing an object of this class.
+        return 'name={}, input_features={}, output_features={}, bias={}'.format(
+            self.name, self.input_features, self.output_features, self.bias is not None
+        )
 
 
 class QBatchNorm2D(nn.BatchNorm2d):
@@ -146,34 +185,3 @@ class QBatchNorm2D(nn.BatchNorm2d):
             exponential_average_factor, self.eps)
 
 
-# class MyLinear(nn.Module):
-#     def __init__(self, input_features, output_features, bias=True):
-#         super(MyLinear, self).__init__()
-#         self.input_features = input_features
-#         self.output_features = output_features
-#
-#         self.weight = nn.Parameter(torch.Tensor(output_features, input_features))
-#         if bias:
-#             self.bias = nn.Parameter(torch.Tensor(output_features))
-#         else:
-#             self.register_parameter('bias', None)
-#
-#         self.reset_parameters()
-#
-#     def reset_parameters(self):
-#         init.kaiming_uniform_(self.weight, a=math.sqrt(5))
-#         if self.bias is not None:
-#             fan_in, _ = init._calculate_fan_in_and_fan_out(self.weight)
-#             bound = 1 / math.sqrt(fan_in)
-#             init.uniform_(self.bias, -bound, bound)
-#
-#     def forward(self, input, name): # TODO: I guess we need this name passed here?
-#         # See the autograd section for explanation of what happens here.
-#         return MyLinear_apply.apply(input, self.weight, self.bias, name)
-#
-#     def extra_repr(self):
-#         # (Optional)Set the extra information about this module. You can test
-#         # it by printing an object of this class.
-#         return 'input_features={}, output_features={}, bias={}'.format(
-#             self.input_features, self.output_features, self.bias is not None
-#         )

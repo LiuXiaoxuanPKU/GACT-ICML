@@ -267,13 +267,18 @@ class MyLinear_apply(torch.autograd.Function):
         
         _input = QF.quantize(input.detach(), name)
         ctx.save_for_backward(_input, weight, bias)
+        ctx.name = name
 
-        output = GradRecorder().apply(output, name)
+        # output = GradRecorder().apply(output, name)
         return output
 
     @staticmethod
     def backward(ctx, grad_output):
         input, weight, bias = ctx.saved_tensors
+
+        # Record gradient
+        scale = (grad_output ** 2).sum(1)
+        QF.set_scale(ctx.name, scale.detach().cpu())
 
         grad_input = grad_weight = grad_bias = None
 
@@ -284,6 +289,54 @@ class MyLinear_apply(torch.autograd.Function):
             grad_bias = grad_output.sum(0)
 
         return grad_input, grad_weight, grad_bias, None # The name does not need gradient.
+
+
+class batch_norm(Function):
+    @staticmethod
+    def forward(ctx, input, running_mean, running_var, weight, bias,
+                training, exponential_average_factor, eps, name):
+        output = F.batch_norm(
+            input, running_mean, running_var, weight, bias,
+            training, exponential_average_factor, eps)
+
+        batch_mean = input.mean((0, 2, 3), keepdim=True)
+        batch_std = torch.sqrt(input.var((0, 2, 3), keepdim=True) + eps)
+
+        normalized = (input - batch_mean) / batch_std
+
+        weight = weight.view(1, -1, 1, 1)
+        bias = bias.view(1, -1, 1, 1)
+
+        # ctx.save_for_backward(batch_std, weight, normalized)
+        ctx.batch_std = batch_std
+        ctx.weight = weight
+        ctx.normalized = QF.quantize(normalized, name)
+        ctx.name = name
+
+        # my_output = normalized * weight + bias
+        # print(my_output.norm())
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        # Record gradient
+        scale = (grad_output.view(grad_output.shape[0], -1) ** 2).sum(1)
+        QF.set_scale(ctx.name, scale.detach().cpu())
+
+        # batch_std, weight, normalized = ctx.saved_tensors
+        batch_std = ctx.batch_std
+        weight = ctx.weight
+        normalized = ctx.normalized
+
+        grad_weight = (grad_output * normalized).sum((0, 2, 3))
+        grad_bias = grad_output.sum((0, 2, 3))
+        grad_normalized = grad_output * weight
+
+        mean_grad_normalized = grad_normalized.mean((0, 2, 3), keepdim=True)
+        grad_input = grad_normalized - mean_grad_normalized - normalized * \
+                     (normalized * grad_normalized).mean((0, 2, 3), keepdim=True)
+        grad_input = grad_input / batch_std
+        return grad_input, None, None, grad_weight, grad_bias, None, None, None, None
 
 
 if __name__ == '__main__':

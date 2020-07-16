@@ -142,9 +142,13 @@ class QLinear(nn.Module):
 
 
 class QBatchNorm2D(nn.BatchNorm2d):
+    num_layers = 0
+
     def __init__(self, num_features):
         super(QBatchNorm2D, self).__init__(num_features)
         self.quantize_input = QuantMeasure()
+        self.name = 'bn_{}'.format(QBatchNorm2D.num_layers)
+        QBatchNorm2D.num_layers += 1
 
     def forward(self, input):       # TODO: weight is not quantized
         self._check_input_dim(input)
@@ -179,9 +183,9 @@ class QBatchNorm2D(nn.BatchNorm2d):
                 else:  # use exponential moving average
                     exponential_average_factor = self.momentum
 
-        return F.batch_norm(
+        return batch_norm().apply(
             input, self.running_mean, self.running_var, qweight, qbias,
             self.training or not self.track_running_stats,
-            exponential_average_factor, self.eps)
+            exponential_average_factor, self.eps, self.name)
 
 

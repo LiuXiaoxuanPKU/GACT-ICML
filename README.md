@@ -18,6 +18,7 @@ cd ..
 cd quantize
 python setup.py install
 cd ..
+export PYTHONPATH=$PWD:$PYTHONPATH
 ```
 
 CIFAR10

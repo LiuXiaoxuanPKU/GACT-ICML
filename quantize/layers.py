@@ -188,6 +188,42 @@ class QBatchNorm2D(nn.BatchNorm2d):
             self.training or not self.track_running_stats,
             exponential_average_factor, self.eps, self.name)
 
+class QLayerNorm(nn.LayerNorm):
+
+    num_layers = 0
+
+    def __init__(self, normalized_shape: _shape_t, eps: float = 1e-5, elementwise_affine: bool = True) -> None:
+        super(QLayerNorm, self).__init__()
+        if isinstance(normalized_shape, numbers.Integral):
+            normalized_shape = (normalized_shape,)
+
+        self.name = 'ln_{}'.format(QLayerNorm.num_layers)
+        QLayerNorm.num_layers += 1
+
+        self.normalized_shape = tuple(normalized_shape)
+        self.eps = eps
+        self.elementwise_affine = elementwise_affine
+        if self.elementwise_affine:
+            self.weight = Parameter(torch.Tensor(*normalized_shape))
+            self.bias = Parameter(torch.Tensor(*normalized_shape))
+        else:
+            self.register_parameter('weight', None)
+            self.register_parameter('bias', None)
+        self.reset_parameters()
+
+    def reset_parameters(self) -> None:
+        if self.elementwise_affine:
+            init.ones_(self.weight)
+            init.zeros_(self.bias)
+
+    def forward(self, input: Tensor) -> Tensor:
+        return my_layer_norm().apply(
+            input, self.normalized_shape, self.weight, self.bias, self.eps, self.name)
+
+    def extra_repr(self) -> Tensor:
+        return '{normalized_shape}, eps={eps}, ' \
+            'elementwise_affine={elementwise_affine}'.format(**self.__dict__)
+
 
 class QSoftmax(nn.Module):
     num_layers = 0

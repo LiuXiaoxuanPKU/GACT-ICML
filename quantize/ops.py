@@ -338,6 +338,32 @@ class batch_norm(Function):
         grad_input = grad_input / batch_std
         return grad_input, None, None, grad_weight, grad_bias, None, None, None, None
 
+class my_layer_norm(Function):
+    @staticmethod
+    def forward(ctx, input, normalized_shape, weight, bias, eps, name):
+        mean = input.mean(dim=-1, keepdim=True)
+        var = ((input - mean) ** 2).mean(dim=-1, keepdim=True)
+        std = var.sqrt().add_(eps)
+
+        normalized = (input - mean) / std 
+        ctx.mean = mean
+        ctx.std = std 
+        ctx.normalized = QF.quantize(normalized.detach(), name)
+        ctx.weight = weight
+        ctx.name = name
+
+
+        output = normalized * output + bias 
+
+        return output 
+
+    def backward(ctx, grad_output):
+        # we may do not need scale here
+        scale = (grad_output.view(grad_output.shape[0], -1) ** 2).sum(1) # for NLP, input is seq_length * batch_size * token_size, this one is wrong.
+        QF.set_scale(ctx.name, scale.detach().cpu())
+
+        std = ctx.std 
+
 
 class qsoftmax(Function):
     @staticmethod

@@ -291,6 +291,41 @@ class MyLinear_apply(torch.autograd.Function):
         return grad_input, grad_weight, grad_bias, None # The name does not need gradient.
 
 
+class conv2d(Function):
+    @staticmethod
+    def forward(ctx, input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1, name=None):
+        qinput = QF.quantize(input.detach(), name)
+        ctx.name = name
+        ctx.save_for_backward(qinput, weight, bias)
+        ctx.other_args = (stride, padding, dilation, groups)
+        return F.conv2d(input, weight, bias, stride, padding, dilation, groups)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        # Record gradient
+        scale = (grad_output.view(grad_output.shape[0], -1) ** 2).sum(1)
+        QF.set_scale(ctx.name, scale.detach().cpu())
+
+        qinput, weight, bias = ctx.saved_tensors
+
+        if ctx.needs_input_grad[0]:
+            grad_input = torch.nn.grad.conv2d_input(qinput.shape, weight, grad_output, *ctx.other_args)
+        else:
+            grad_input = None
+
+        if ctx.needs_input_grad[1]:
+            grad_weight = torch.nn.grad.conv2d_weight(qinput, weight.shape, grad_output, *ctx.other_args)
+        else:
+            grad_weight = None
+
+        if bias is not None and ctx.needs_input_grad[2]:
+            grad_bias = grad_output.sum(0).squeeze(0)
+        else:
+            grad_bias = None
+
+        return grad_input, grad_weight, grad_bias, None, None, None, None, None
+
+
 class batch_norm(Function):
     @staticmethod
     def forward(ctx, input, running_mean, running_var, weight, bias,
@@ -337,6 +372,7 @@ class batch_norm(Function):
                      (normalized * grad_normalized).mean((0, 2, 3), keepdim=True)
         grad_input = grad_input / batch_std
         return grad_input, None, None, grad_weight, grad_bias, None, None, None, None
+
 
 class my_layer_norm(Function):
     @staticmethod

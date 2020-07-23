@@ -72,6 +72,45 @@ class QConv2d(nn.Conv2d):
         return output
 
 
+# class QConv2d(nn.Conv2d):
+#     """docstring for QConv2d."""
+#
+#     num_layers = 0
+#
+#     def __init__(self, in_channels, out_channels, kernel_size,
+#                  stride=1, padding=0, dilation=1, groups=1, bias=True):
+#         super(QConv2d, self).__init__(in_channels, out_channels, kernel_size,
+#                                       stride, padding, dilation, groups, bias)
+#         self.quantize_input = QuantMeasure()
+#         self.name = 'conv_{}'.format(QConv2d.num_layers)
+#         QConv2d.num_layers += 1
+#
+#     def forward(self, input):
+#         if config.acts is not None:
+#             config.acts.append(input.detach().cpu().numpy())
+#
+#         if config.quantize_activation:
+#             qinput = self.quantize_input(input)
+#         else:
+#             qinput = input
+#
+#         if config.quantize_weights:     # TODO weight quantization scheme...
+#             qweight = quantize(self.weight, config.weight_preconditioner())
+#             if self.bias is not None:
+#                 qbias = quantize(self.bias, config.bias_preconditioner())
+#             else:
+#                 qbias = None
+#             qbias = self.bias
+#         else:
+#             qweight = self.weight
+#             qbias = self.bias
+#
+#         output = conv2d.apply(qinput, qweight, qbias, self.stride,
+#                               self.padding, self.dilation, self.groups, self.name)
+#
+#         return output
+
+
 # class QLinear(nn.Linear): # The linear layer for quantized training
 #     """docstring for QConv2d."""
 #
@@ -188,41 +227,41 @@ class QBatchNorm2D(nn.BatchNorm2d):
             self.training or not self.track_running_stats,
             exponential_average_factor, self.eps, self.name)
 
-class QLayerNorm(nn.LayerNorm):
-
-    num_layers = 0
-
-    def __init__(self, normalized_shape: _shape_t, eps: float = 1e-5, elementwise_affine: bool = True) -> None:
-        super(QLayerNorm, self).__init__()
-        if isinstance(normalized_shape, numbers.Integral):
-            normalized_shape = (normalized_shape,)
-
-        self.name = 'ln_{}'.format(QLayerNorm.num_layers)
-        QLayerNorm.num_layers += 1
-
-        self.normalized_shape = tuple(normalized_shape)
-        self.eps = eps
-        self.elementwise_affine = elementwise_affine
-        if self.elementwise_affine:
-            self.weight = Parameter(torch.Tensor(*normalized_shape))
-            self.bias = Parameter(torch.Tensor(*normalized_shape))
-        else:
-            self.register_parameter('weight', None)
-            self.register_parameter('bias', None)
-        self.reset_parameters()
-
-    def reset_parameters(self) -> None:
-        if self.elementwise_affine:
-            init.ones_(self.weight)
-            init.zeros_(self.bias)
-
-    def forward(self, input: Tensor) -> Tensor:
-        return my_layer_norm().apply(
-            input, self.normalized_shape, self.weight, self.bias, self.eps, self.name)
-
-    def extra_repr(self) -> Tensor:
-        return '{normalized_shape}, eps={eps}, ' \
-            'elementwise_affine={elementwise_affine}'.format(**self.__dict__)
+# class QLayerNorm(nn.LayerNorm):
+#
+#     num_layers = 0
+#
+#     def __init__(self, normalized_shape: _shape_t, eps: float = 1e-5, elementwise_affine: bool = True) -> None:
+#         super(QLayerNorm, self).__init__()
+#         if isinstance(normalized_shape, numbers.Integral):
+#             normalized_shape = (normalized_shape,)
+#
+#         self.name = 'ln_{}'.format(QLayerNorm.num_layers)
+#         QLayerNorm.num_layers += 1
+#
+#         self.normalized_shape = tuple(normalized_shape)
+#         self.eps = eps
+#         self.elementwise_affine = elementwise_affine
+#         if self.elementwise_affine:
+#             self.weight = Parameter(torch.Tensor(*normalized_shape))
+#             self.bias = Parameter(torch.Tensor(*normalized_shape))
+#         else:
+#             self.register_parameter('weight', None)
+#             self.register_parameter('bias', None)
+#         self.reset_parameters()
+#
+#     def reset_parameters(self) -> None:
+#         if self.elementwise_affine:
+#             init.ones_(self.weight)
+#             init.zeros_(self.bias)
+#
+#     def forward(self, input: Tensor) -> Tensor:
+#         return my_layer_norm().apply(
+#             input, self.normalized_shape, self.weight, self.bias, self.eps, self.name)
+#
+#     def extra_repr(self) -> Tensor:
+#         return '{normalized_shape}, eps={eps}, ' \
+#             'elementwise_affine={elementwise_affine}'.format(**self.__dict__)
 
 
 class QSoftmax(nn.Module):

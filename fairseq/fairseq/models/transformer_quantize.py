@@ -25,7 +25,7 @@ from fairseq.modules import (
     SinusoidalPositionalEmbedding,
 )
 
-from fairseq.modules.support_quantize_layers import  QLayerNorm
+from fairseq.modules.support_quantize_layers import  (QLayerNorm, QLinear)
 from fairseq.modules.transformer_layer_quantize import (QTransformerDecoderLayer, QTransformerEncoderLayer)
 
 from fairseq.modules.quant_noise import quant_noise as apply_quant_noise_
@@ -339,7 +339,7 @@ class TransformerEncoder(FairseqEncoder):
 
         if not args.adaptive_input and args.quant_noise_pq > 0:
             self.quant_noise = apply_quant_noise_(
-                nn.Linear(embed_dim, embed_dim, bias=False),
+                QLinear(embed_dim, embed_dim, bias=False),
                 args.quant_noise_pq,
                 args.quant_noise_pq_block_size,
             )
@@ -551,7 +551,7 @@ class TransformerDecoder(FairseqIncrementalDecoder):
 
         if not args.adaptive_input and args.quant_noise_pq > 0:
             self.quant_noise = apply_quant_noise_(
-                nn.Linear(embed_dim, embed_dim, bias=False),
+                QLinear(embed_dim, embed_dim, bias=False),
                 args.quant_noise_pq,
                 args.quant_noise_pq_block_size,
             )
@@ -620,14 +620,14 @@ class TransformerDecoder(FairseqIncrementalDecoder):
                 tie_proj=args.tie_adaptive_proj,
             )
         elif self.share_input_output_embed:
-            self.output_projection = nn.Linear(
+            self.output_projection = QLinear(
                 self.embed_tokens.weight.shape[1],
                 self.embed_tokens.weight.shape[0],
                 bias=False,
             )
             self.output_projection.weight = self.embed_tokens.weight
         else:
-            self.output_projection = nn.Linear(
+            self.output_projection = QLinear(
                 self.output_embed_dim, len(dictionary), bias=False
             )
             nn.init.normal_(
@@ -893,7 +893,7 @@ def Embedding(num_embeddings, embedding_dim, padding_idx):
 
 
 def Linear(in_features, out_features, bias=True):
-    m = nn.Linear(in_features, out_features, bias)
+    m = QLinear(in_features, out_features, bias)
     nn.init.xavier_uniform_(m.weight)
     if bias:
         nn.init.constant_(m.bias, 0.0)

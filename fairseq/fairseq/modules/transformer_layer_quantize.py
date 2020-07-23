@@ -12,7 +12,8 @@ from fairseq.modules.quant_noise import quant_noise
 from fairseq.modules.fairseq_dropout import FairseqDropout
 from torch import Tensor
 from fairseq.modules.support_quantize_layers import (QLinear, QLayerNorm)
-from fairseq.modules.multihead_attention_quantize import QMultiheadAttention
+# from fairseq.modules.multihead_attention_quantize import QMultiheadAttention
+from fairseq.modules.multihead_attention import MultiheadAttention as QMultiheadAttention
 
 class QTransformerEncoderLayer(nn.Module):
     """Encoder layer block.
@@ -58,10 +59,10 @@ class QTransformerEncoderLayer(nn.Module):
         self.final_layer_norm = QLayerNorm(self.embed_dim)
 
     def build_fc1(self, input_dim, output_dim, q_noise, qn_block_size):
-        return quant_noise(nn.Linear(input_dim, output_dim), p=q_noise, block_size=qn_block_size)
+        return quant_noise(QLinear(input_dim, output_dim), p=q_noise, block_size=qn_block_size)
 
     def build_fc2(self, input_dim, output_dim, q_noise, qn_block_size):
-        return quant_noise(nn.Linear(input_dim, output_dim), p=q_noise, block_size=qn_block_size)
+        return quant_noise(QLinear(input_dim, output_dim), p=q_noise, block_size=qn_block_size)
 
     def build_self_attention(self, embed_dim, args):
         return QMultiheadAttention(
@@ -214,10 +215,10 @@ class QTransformerDecoderLayer(nn.Module):
         self.onnx_trace = False
 
     def build_fc1(self, input_dim, output_dim, q_noise, qn_block_size):
-        return quant_noise(nn.Linear(input_dim, output_dim), q_noise, qn_block_size)
+        return quant_noise(QLinear(input_dim, output_dim), q_noise, qn_block_size)
 
     def build_fc2(self, input_dim, output_dim, q_noise, qn_block_size):
-        return quant_noise(nn.Linear(input_dim, output_dim), q_noise, qn_block_size)
+        return quant_noise(QLinear(input_dim, output_dim), q_noise, qn_block_size)
 
     def build_self_attention(self, embed_dim, args, add_bias_kv=False, add_zero_attn=False):
         return QMultiheadAttention(

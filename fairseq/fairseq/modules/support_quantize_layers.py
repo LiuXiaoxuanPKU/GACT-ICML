@@ -39,7 +39,7 @@ def linear_quantize(input, scale, zero_point, inplace=True):
     if inplace:
         input.mul_(scale).sub_(zero_point).round_()
         return input
-    return torch.trunc(scale * input - zero_point)
+    return torch.round(scale * input - zero_point)
 
 
 def linear_dequantize(input, scale, zero_point, inplace=True):
@@ -60,8 +60,7 @@ def linear_dequantize(input, scale, zero_point, inplace=True):
     #     zero_point = zero_point.view(-1, 1)
     # mapping integer input to fixed point float point value with given scaling factor and zeropoint
     if inplace:
-        input.add_(zero_point).div_(scale)
-        return input
+        return input.add_(zero_point).div_(scale)
     return (input + zero_point) / scale
 
 
@@ -105,6 +104,9 @@ class AsymmetricQuantFunction(Function):
         """
 
         # my guess is that for NLP, the input size is always in Length * Batch Size * tokens, and we want each token has its own quantization range.
+        # make random quantization
+        noise = x.new(x.shape).uniform_(-0.5, 0.5)
+        x.add_(noise)
 
         x_min, x_max = x.min(dim=-1, keepdim=True)[0], x.max(dim=-1, keepdim=True)[0]
         scale, zero_point = asymmetric_linear_quantization_params(
@@ -141,6 +143,8 @@ class qlinear(torch.autograd.Function):
                     output += bias.unsqueeze(0).expand_as(output)
                 elif len(output.size()) == 3:
                     output += bias.unsqueeze(0).unsqueeze(0).expand_as(output)
+                else:
+                    raise Exception("Error happens in linear bias term")
             
             _input, _scale, _zero = AsymmetricQuantFunction.apply(input, _quantize_bit)
 
@@ -183,6 +187,7 @@ class QLinear(nn.Module):
     def __init__(self, input_features, output_features, bias=True):
         super(QLinear, self).__init__()
 
+        self.name = QLinear
         self.input_features = input_features
         self.output_features = output_features
 
@@ -210,7 +215,7 @@ class QLinear(nn.Module):
         # (Optional)Set the extra information about this module. You can test
         # it by printing an object of this class.
         return 'name={}, input_features={}, output_features={}, bias={}'.format(
-            self.name, self.input_features, self.output_features, self.bias is not None
+            'QLinear', self.input_features, self.output_features, self.bias is not None
         )
 
 
@@ -282,6 +287,14 @@ class QSoftmax(nn.Module):
 
     def __init__(self):
         super(QSoftmax, self).__init__()
+        self.name = QSoftmax
 
     def forward(self, input, dim=-1):
         return qsoftmax().apply(input, dim)
+
+    def extra_repr(self):
+        # (Optional)Set the extra information about this module. You can test
+        # it by printing an object of this class.
+        return 'name={}'.format(
+            'QSoftmax'
+        )

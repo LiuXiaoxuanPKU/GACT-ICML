@@ -67,7 +67,8 @@ def main(args):
     # Build model and criterion
     model = task.build_model(args)
     criterion = task.build_criterion(args)
-    logger.info(model)
+    print(model)
+    # logger.info(model)
     logger.info(
         "model {}, criterion {}".format(args.arch, criterion.__class__.__name__)
     )

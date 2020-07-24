@@ -19,7 +19,7 @@ def clamp(input, min, max, inplace=False):
     return torch.clamp(input, min, max)
 
 
-def linear_quantize(input, scale, zero_point, inplace=True):
+def linear_quantize(input, scale, zero_point, inplace=False):
     """
     Quantize single-precision input tensor to integers with the given scaling factor and zeropoint.
     input: single-precision input tensor to be quantized
@@ -27,22 +27,24 @@ def linear_quantize(input, scale, zero_point, inplace=True):
     zero_pint: shift for quantization
     """
 
-    # reshape scale and zeropoint for convolutional weights and activation
-    # if len(input.shape) == 4:
-    #     scale = scale.view(-1, 1, 1, 1)
-    #     zero_point = zero_point.view(-1, 1, 1, 1)
-    # # reshape scale and zeropoint for linear weights
-    # elif len(input.shape) == 2:
-    #     scale = scale.view(-1, 1)
-    #     zero_point = zero_point.view(-1, 1)
-    # mapping single-precision input to integer values with the given scale and zeropoint
+
+    # stochasitc quantization
+    
+    # input.mul_(scale).sub_(zero_point)
+    # noise = input.new(input.shape).uniform_(-0.5, 0.5)
+    # input.add_(noise)
+
     if inplace:
-        input.mul_(scale).sub_(zero_point).round_()
+        input.mul_(scale).sub_(zero_point)
+        noise = input.new(input.shape).uniform_(-0.5, 0.5)
+        input.add_(noise)
+        input.round_()
+        # input.mul_(scale).sub_(zero_point).round_()
         return input
-    return torch.round(scale * input - zero_point)
+    return torch.round(scale * input - zero_point +  input.new(input.shape).uniform_(-0.5, 0.5))
 
 
-def linear_dequantize(input, scale, zero_point, inplace=True):
+def linear_dequantize(input, scale, zero_point, inplace=False):
     """
     Map integer input tensor to fixed point float point with given scaling factor and zeropoint.
     input: integer input tensor to be mapped
@@ -50,17 +52,9 @@ def linear_dequantize(input, scale, zero_point, inplace=True):
     zero_pint: shift for quantization
     """
 
-    # # reshape scale and zeropoint for convolutional weights and activation
-    # if len(input.shape) == 4:
-    #     scale = scale.view(-1, 1, 1, 1)
-    #     zero_point = zero_point.view(-1, 1, 1, 1)
-    # # reshape scale and zeropoint for linear weights
-    # elif len(input.shape) == 2:
-    #     scale = scale.view(-1, 1)
-    #     zero_point = zero_point.view(-1, 1)
-    # mapping integer input to fixed point float point value with given scaling factor and zeropoint
     if inplace:
         return input.add_(zero_point).div_(scale)
+
     return (input + zero_point) / scale
 
 
@@ -69,7 +63,7 @@ def asymmetric_linear_quantization_params(num_bits,
                                           saturation_min,
                                           saturation_max,
                                           integral_zero_point=True,
-                                          signed=False):
+                                          signed=True):
     """
     Compute the scaling factor and zeropoint with the given quantization range.
     saturation_min: lower bound for quantization range
@@ -105,8 +99,7 @@ class AsymmetricQuantFunction(Function):
 
         # my guess is that for NLP, the input size is always in Length * Batch Size * tokens, and we want each token has its own quantization range.
         # make random quantization
-        noise = x.new(x.shape).uniform_(-0.5, 0.5)
-        x.add_(noise)
+        
 
         x_min, x_max = x.min(dim=-1, keepdim=True)[0], x.max(dim=-1, keepdim=True)[0]
         scale, zero_point = asymmetric_linear_quantization_params(
@@ -114,7 +107,9 @@ class AsymmetricQuantFunction(Function):
         new_quant_x = linear_quantize(x, scale, zero_point, inplace=False)
         n = 2 ** (k - 1)
         new_quant_x = torch.clamp(new_quant_x, -n, n - 1)
+
         return new_quant_x.detach(), scale, zero_point
+
         # quant_x = linear_dequantize(new_quant_x,
         #                             scale,
         #                             zero_point,
@@ -222,6 +217,50 @@ class QLinear(nn.Module):
 #################
 # TODO: This have not been implemented yet!
 #################
+
+class qlayernorm(Function):
+
+    @staticmethod
+    def forward(ctx, input, narmalized_shape, weight, bias, eps=1e-5):
+        with torch.no_grad():
+            mean = input.mean(-1, keepdim=True)
+            var = input.var(-1, keepdim=True)
+            std = var.sqrt().add_(eps)
+
+            normalized = (input - mean) / std 
+
+            weight = weight.view(1, 1, -1)
+            bias = bias.view(1, 1, -1)
+
+            output = weight * normalized + bias 
+
+            ctx.std = std 
+            ctx.weight = weight 
+            _normalized, ctx.scale, ctx.zero = AsymmetricQuantFunction.apply(normalized, _quantize_bit)
+            ctx.normalized = _normalized.type(torch.int8)
+
+        return output 
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        with torch.no_grad():
+            std = ctx.std 
+            weight = ctx.weight 
+            normalized = linear_dequantize(ctx.normalized.type(torch.float), ctx.scale, ctx.zero)
+
+            grad_weight = (grad_output * normalized).sum((0, 1))
+            grad_bias = grad_output.sum((0, 1))
+            grad_normalized = grad_output * weight
+
+            mean_grad_normalized = grad_normalized.mean((-1), keepdim=True)
+            grad_input = grad_normalized - mean_grad_normalized - normalized * \
+                     (normalized * grad_normalized).mean((-1), keepdim=True)
+
+            grad_input = grad_input / std 
+
+        return grad_input, None, grad_weight, grad_bias, None
+
+
 class QLayerNorm(nn.Module):
 
     def __init__(self, normalized_shape, eps = 1e-5, elementwise_affine = True):
@@ -247,9 +286,9 @@ class QLayerNorm(nn.Module):
             torch.nn.init.zeros_(self.bias)
 
     def forward(self, input):
-        # return my_layer_norm().apply(
-        #     input, self.normalized_shape, self.weight, self.bias, self.eps)
-        return F.layer_norm(input, self.normalized_shape, self.weight, self.bias, self.eps)
+        return qlayernorm().apply(
+            input, self.normalized_shape, self.weight, self.bias, self.eps)
+        # return F.layer_norm(input, self.normalized_shape, self.weight, self.bias, self.eps)
 
 
     def extra_repr(self):
@@ -262,13 +301,16 @@ class qsoftmax(Function):
     def forward(ctx, input, dim=-1):
         with torch.no_grad():
             
-            output = F.softmax(input, dim=dim)
+            ori_output = F.softmax(input, dim=dim)
             ctx.dim = dim
             
-            output, ctx.scale, ctx.zero = AsymmetricQuantFunction.apply(output, _quantize_bit)
-            ctx.output = output.type(torch.int8)
+            output1, ctx.scale, ctx.zero = AsymmetricQuantFunction.apply(ori_output, _quantize_bit)
+            ctx.output1 = output1.type(torch.int8)
 
-        return output
+            # output2, _, _ = AsymmetricQuantFunction.apply(ori_output, _quantize_bit)
+            # ctx.output2 = output2.type(torch.int8)
+
+        return ori_output
 
     @staticmethod
     def backward(ctx, grad_output):
@@ -276,9 +318,10 @@ class qsoftmax(Function):
             # Record gradient
             scale = (grad_output.view(grad_output.shape[0], -1) ** 2).sum(1)
 
-            output = linear_dequantize(ctx.output.type(torch.float), ctx.scale, ctx.zero)
+            output1 = linear_dequantize(ctx.output1.type(torch.float), ctx.scale, ctx.zero)
+            # output2 = linear_dequantize(ctx.output2.type(torch.float), ctx.scale, ctx.zero)
 
-            grad = output * (grad_output - (output * grad_output).sum(ctx.dim, keepdim=True))
+            grad = output1 * (grad_output - (output1 * grad_output).sum(ctx.dim, keepdim=True))
 
         return grad, None
 
@@ -291,6 +334,7 @@ class QSoftmax(nn.Module):
 
     def forward(self, input, dim=-1):
         return qsoftmax().apply(input, dim)
+        # return F.softmax(input, dim)
 
     def extra_repr(self):
         # (Optional)Set the extra information about this module. You can test

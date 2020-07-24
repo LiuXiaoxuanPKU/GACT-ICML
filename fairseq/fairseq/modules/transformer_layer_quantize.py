@@ -12,8 +12,8 @@ from fairseq.modules.quant_noise import quant_noise
 from fairseq.modules.fairseq_dropout import FairseqDropout
 from torch import Tensor
 from fairseq.modules.support_quantize_layers import (QLinear, QLayerNorm)
-# from fairseq.modules.multihead_attention_quantize import QMultiheadAttention
-from fairseq.modules.multihead_attention import MultiheadAttention as QMultiheadAttention
+from fairseq.modules.multihead_attention_quantize import QMultiheadAttention
+# from fairseq.modules.multihead_attention import MultiheadAttention as QMultiheadAttention
 
 class QTransformerEncoderLayer(nn.Module):
     """Encoder layer block.

@@ -7,6 +7,15 @@ from torch.autograd.function import InplaceFunction, Function
 import numpy as np
 import numbers
 
+
+class QF:
+    def __init__(self):
+        super().__init__()
+
+    def set_bit(bit):
+        global _quantize_bit
+        _quantize_bit = bit
+
 def clamp(input, min, max, inplace=False):
     """
     Clamp tensor input to (min, max).
@@ -122,7 +131,8 @@ class AsymmetricQuantFunction(Function):
         return grad_output, None
 
 
-_quantize_bit = 8
+# _quantize_bit = 5
+# _quantize_bit = QF.get_bit()
 
 
 class qlinear(torch.autograd.Function):
@@ -146,7 +156,6 @@ class qlinear(torch.autograd.Function):
             ctx.scale = _scale 
             ctx.zero = _zero
             ctx.save_for_backward(_input.type(torch.int8), weight, bias)
-
         return output
 
     @staticmethod
@@ -342,3 +351,45 @@ class QSoftmax(nn.Module):
         return 'name={}'.format(
             'QSoftmax'
         )
+
+
+class qbmm(Function):
+    @staticmethod
+    def forward(ctx, inputA, inputB, transpose=True):
+        with torch.no_grad():
+
+            if transpose:
+                output = torch.bmm( inputA, inputB.transpose(1, 2) )
+            else:
+                output = torch.bmm( inputA, inputB )
+
+            _inputA, ctx.scaleA, ctx.zeroA = AsymmetricQuantFunction.apply(inputA, _quantize_bit)
+            ctx.inputA = _inputA.type(torch.int8)
+
+            _inputB, ctx.scaleB, ctx.zeroB = AsymmetricQuantFunction.apply(inputB, _quantize_bit)
+            ctx.inputB = _inputB.type(torch.int8)
+
+
+
+            ctx.transpose = transpose
+
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        with torch.no_grad():
+
+
+            transpose = ctx.transpose 
+
+            inputA = linear_dequantize(ctx.inputA.type(torch.float), ctx.scaleA, ctx.zeroA)
+            inputB = linear_dequantize(ctx.inputB.type(torch.float), ctx.scaleB, ctx.zeroB)
+            
+            if transpose:
+                grad_inputA = torch.bmm(grad_output, inputB)
+                grad_inputB = torch.bmm(grad_output.transpose(1, 2), inputA)
+            else:
+                grad_inputA = torch.bmm(grad_output, inputB.transpose(1, 2))
+                grad_inputB = torch.bmm(inputA.transpose(1, 2), grad_output)
+
+        return grad_inputA, grad_inputB, None

@@ -16,7 +16,7 @@ from fairseq.incremental_decoding_utils import with_incremental_state
 from fairseq.modules.fairseq_dropout import FairseqDropout
 from fairseq.modules.quant_noise import quant_noise
 
-from fairseq.modules.support_quantize_layers import QLinear, QLayerNorm, qlinear, qsoftmax
+from fairseq.modules.support_quantize_layers import QLinear, QLayerNorm, qlinear, qsoftmax, qbmm
 
 
 def qmulti_head_attention_forward(query,                           # type: Tensor
@@ -205,7 +205,8 @@ def qmulti_head_attention_forward(query,                           # type: Tenso
         if key_padding_mask is not None:
             key_padding_mask = F.pad(key_padding_mask, (0, 1))
 
-    attn_output_weights = torch.bmm(q, k.transpose(1, 2))
+    # attn_output_weights = torch.bmm(q, k.transpose(1, 2))
+    attn_output_weights = qbmm.apply(q, k, True)
     assert list(attn_output_weights.size()) == [bsz * num_heads, tgt_len, src_len]
 
     if attn_mask is not None:
@@ -227,7 +228,9 @@ def qmulti_head_attention_forward(query,                           # type: Tenso
         attn_output_weights, -1)
     attn_output_weights = F.dropout(attn_output_weights, p=dropout_p, training=training)
 
-    attn_output = torch.bmm(attn_output_weights, v)
+    # attn_output = torch.bmm(attn_output_weights, v)
+    attn_output = qbmm.apply(attn_output_weights, v, False)
+
     assert list(attn_output.size()) == [bsz * num_heads, tgt_len, head_dim]
     attn_output = attn_output.transpose(0, 1).contiguous().view(tgt_len, bsz, embed_dim)
     attn_output = qlinear.apply(attn_output, out_proj_weight, out_proj_bias)
@@ -539,7 +542,8 @@ class QMultiheadAttention(nn.Module):
                     dim=1,
                 )
 
-        attn_weights = torch.bmm(q, k.transpose(1, 2))
+        # attn_weights = torch.bmm(q, k.transpose(1, 2))
+        attn_weights = qbmm.apply(q, k, True)
         attn_weights = QMultiheadAttention.apply_sparse_mask(attn_weights, tgt_len, src_len, bsz)
 
         assert list(attn_weights.size()) == [bsz * self.num_heads, tgt_len, src_len]
@@ -574,7 +578,8 @@ class QMultiheadAttention(nn.Module):
         attn_probs = self.dropout_module(attn_weights)
 
         assert v is not None
-        attn = torch.bmm(attn_probs, v)
+        # attn = torch.bmm(attn_probs, v)
+        attn = qbmm.apply(attn_probs, v, False)
         assert list(attn.size()) == [bsz * self.num_heads, tgt_len, self.head_dim]
         if self.onnx_trace and attn.size(1) == 1:
             # when ONNX tracing a single decoder step (sequence length == 1)

@@ -28,6 +28,7 @@ from fairseq.logging import meters, metrics, progress_bar
 from fairseq.model_parallel.megatron_trainer import MegatronTrainer
 from fairseq.trainer import Trainer
 
+from fairseq.modules.support_quantize_layers import QF
 
 logging.basicConfig(
     # filename=f"{args.save_dir}/train_log.log", 
@@ -68,6 +69,11 @@ def main(args):
     model = task.build_model(args)
     criterion = task.build_criterion(args)
     print(model)
+    ###
+    # Set quantize bit
+    ###
+    QF.set_bit(args.quantize_bit)
+
     # logger.info(model)
     logger.info(
         "model {}, criterion {}".format(args.arch, criterion.__class__.__name__)

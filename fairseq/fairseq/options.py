@@ -474,6 +474,8 @@ def add_optimization_args(parser):
     group.add_argument('--use-bmuf', default=False, action='store_true',
                        help='specify global optimizer for syncing models on different GPUs/shards')
     # fmt: on
+    group.add_argument('--quantize-bit', type=int, default=8, 
+    help="quantize bit number")
     return group
 
 

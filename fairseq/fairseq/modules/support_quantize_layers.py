@@ -72,7 +72,7 @@ def asymmetric_linear_quantization_params(num_bits,
                                           saturation_min,
                                           saturation_max,
                                           integral_zero_point=True,
-                                          signed=True):
+                                          signed=False):
     """
     Compute the scaling factor and zeropoint with the given quantization range.
     saturation_min: lower bound for quantization range
@@ -114,8 +114,8 @@ class AsymmetricQuantFunction(Function):
         scale, zero_point = asymmetric_linear_quantization_params(
             k, x_min, x_max)
         new_quant_x = linear_quantize(x, scale, zero_point, inplace=False)
-        n = 2 ** (k - 1)
-        new_quant_x = torch.clamp(new_quant_x, -n, n - 1)
+        n = 2 ** k -1
+        new_quant_x = torch.clamp(new_quant_x, 0, n)
 
         return new_quant_x.detach(), scale, zero_point
 
@@ -155,7 +155,7 @@ class qlinear(torch.autograd.Function):
 
             ctx.scale = _scale 
             ctx.zero = _zero
-            ctx.save_for_backward(_input.type(torch.int8), weight, bias)
+            ctx.save_for_backward(_input.type(torch.uint8), weight, bias)
         return output
 
     @staticmethod
@@ -246,7 +246,7 @@ class qlayernorm(Function):
             ctx.std = std 
             ctx.weight = weight 
             _normalized, ctx.scale, ctx.zero = AsymmetricQuantFunction.apply(normalized, _quantize_bit)
-            ctx.normalized = _normalized.type(torch.int8)
+            ctx.normalized = _normalized.type(torch.uint8)
 
         return output 
 
@@ -314,10 +314,10 @@ class qsoftmax(Function):
             ctx.dim = dim
             
             output1, ctx.scale, ctx.zero = AsymmetricQuantFunction.apply(ori_output, _quantize_bit)
-            ctx.output1 = output1.type(torch.int8)
+            ctx.output1 = output1.type(torch.uint8)
 
             # output2, _, _ = AsymmetricQuantFunction.apply(ori_output, _quantize_bit)
-            # ctx.output2 = output2.type(torch.int8)
+            # ctx.output2 = output2.type(torch.uint8)
 
         return ori_output
 
@@ -364,10 +364,10 @@ class qbmm(Function):
                 output = torch.bmm( inputA, inputB )
 
             _inputA, ctx.scaleA, ctx.zeroA = AsymmetricQuantFunction.apply(inputA, _quantize_bit)
-            ctx.inputA = _inputA.type(torch.int8)
+            ctx.inputA = _inputA.type(torch.uint8)
 
             _inputB, ctx.scaleB, ctx.zeroB = AsymmetricQuantFunction.apply(inputB, _quantize_bit)
-            ctx.inputB = _inputB.type(torch.int8)
+            ctx.inputB = _inputB.type(torch.uint8)
 
 
 

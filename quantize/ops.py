@@ -5,7 +5,7 @@ from torch.autograd.function import InplaceFunction, Function
 import pytorch_minimax
 
 from quantize.conf import config
-from quantize.C import calc_precision_dp, calc_precision
+from quantize.C import calc_precision_dp, calc_precision, calc_avg_bits
 
 
 QParams = namedtuple('QParams', ['range', 'zero_point', 'num_bits'])
@@ -152,6 +152,9 @@ class MixedPrecisionQuantize(InplaceFunction):
             output = F.relu(output)
             output = torch.min(output, B).round_()
 
+            if QF.debug:
+                print(calc_avg_bits(output.detach().cpu(), bits.int().detach().cpu()))
+
             output = output / scale + mn
             output = output.view(*x_shape)
 
@@ -173,6 +176,7 @@ class QF:
         QF.scales = {}
         QF.update_scale = True
         QF.training = True
+        QF.debug = False
 
     @staticmethod
     def set_current_batch(ids):

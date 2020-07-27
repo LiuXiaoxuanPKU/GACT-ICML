@@ -229,6 +229,33 @@ std::pair<torch::Tensor, torch::Tensor> calc_precision_dp(torch::Tensor A, torch
     return std::make_pair(b_vec, p_vec);
 }
 
+
+float calc_avg_bits(torch::Tensor x, torch::Tensor b) {
+    int N = x.size(0);
+    int D = x.size(1);
+    auto *x_data = x.data_ptr<float>();
+    auto *b_data = b.data_ptr<int>();
+
+    double avg_bits = 0;
+    for (int n = 0; n < N; n++) {
+        int b = b_data[n];
+        int B = 1<<b;
+
+        std::vector<int> cnt(B);
+        for (int d = 0; d < D; d++)
+            cnt[(int)x_data[n * D + d]]++;
+
+        double entropy = 0;
+        for (int i = 0; i < B; i++) {
+            double prob = (double)cnt[i] / D + 1e-8;
+            entropy -= prob * log2(prob);
+        }
+        avg_bits += entropy;
+    }
+    return (float)(avg_bits / N);
+}
+
+
 //// Newton's method
 //std::pair<torch::Tensor, torch::Tensor> calc_precision_newton(torch::Tensor A, torch::Tensor C, int max_b, int target, int states) {
 //    // min \sum_i (1-p_i)/p_i A_i + C_i / (p_i B_i^2),
@@ -243,4 +270,5 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("get_transform", &get_transform, "get_transform");
   m.def("calc_precision", &calc_precision, "calc_precision");
   m.def("calc_precision_dp", &calc_precision_dp, "calc_precision_dp");
+  m.def("calc_avg_bits", &calc_avg_bits, "calc_avg_bits");
 }

@@ -7,6 +7,10 @@ from torch.autograd.function import InplaceFunction, Function
 import numpy as np
 import numbers
 
+from torch.nn.modules.utils import _pair
+from torch.utils.cpp_extension import load
+
+# ext_backward_func = load(name="ext_backward_func", sources=["ext_backward_func.cc"], verbose=True)
 
 class QF:
     def __init__(self):
@@ -223,10 +227,6 @@ class QLinear(nn.Module):
         )
 
 
-#################
-# TODO: This have not been implemented yet!
-#################
-
 class qlayernorm(Function):
 
     @staticmethod
@@ -314,10 +314,15 @@ class qsoftmax(Function):
             ctx.dim = dim
             
             output1, ctx.scale, ctx.zero = AsymmetricQuantFunction.apply(ori_output, _quantize_bit)
+            # print(f"Sparsity: {torch.sum(output1 < 1e-6)} / {output1.numel()}")
             ctx.output1 = output1.type(torch.uint8)
-
             # output2, _, _ = AsymmetricQuantFunction.apply(ori_output, _quantize_bit)
             # ctx.output2 = output2.type(torch.uint8)
+            ###
+            # AHa
+            ###
+            
+
 
         return ori_output
 
@@ -357,14 +362,19 @@ class qbmm(Function):
     @staticmethod
     def forward(ctx, inputA, inputB, transpose=True):
         with torch.no_grad():
-
+            # print('The current input map size in BMM: ', inputA.size(), inputB.size())
             if transpose:
                 output = torch.bmm( inputA, inputB.transpose(1, 2) )
             else:
                 output = torch.bmm( inputA, inputB )
 
-            _inputA, ctx.scaleA, ctx.zeroA = AsymmetricQuantFunction.apply(inputA, _quantize_bit)
-            ctx.inputA = _inputA.type(torch.uint8)
+            ctx.inputA_size = inputA.size()
+            if transpose:
+                _inputA, ctx.scaleA, ctx.zeroA = AsymmetricQuantFunction.apply(inputA, _quantize_bit)
+                ctx.inputA = _inputA.type(torch.uint8)
+            else:
+                _inputA, ctx.scaleA, ctx.zeroA = AsymmetricQuantFunction.apply(inputA.view(-1, inputA.size(1) * inputA.size(2)), _quantize_bit)
+                ctx.inputA = _inputA.type(torch.uint8)
 
             _inputB, ctx.scaleB, ctx.zeroB = AsymmetricQuantFunction.apply(inputB, _quantize_bit)
             ctx.inputB = _inputB.type(torch.uint8)
@@ -381,8 +391,10 @@ class qbmm(Function):
 
 
             transpose = ctx.transpose 
-
-            inputA = linear_dequantize(ctx.inputA.type(torch.float), ctx.scaleA, ctx.zeroA)
+            if transpose:
+                inputA = linear_dequantize(ctx.inputA.type(torch.float), ctx.scaleA, ctx.zeroA)
+            else:
+                inputA = linear_dequantize(ctx.inputA.type(torch.float), ctx.scaleA, ctx.zeroA).view(ctx.inputA_size)
             inputB = linear_dequantize(ctx.inputB.type(torch.float), ctx.scaleB, ctx.zeroB)
             
             if transpose:

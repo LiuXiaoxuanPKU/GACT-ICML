@@ -342,15 +342,19 @@ class FairseqTask(object):
         """
         model.train()
         model.set_num_updates(update_num)
+        # with torch.autograd.profiler.profile(profile_memory=True, use_cuda=True, record_shapes=True) as prof:
         with torch.autograd.profiler.record_function("forward"):
-            # Zhewei: the sample already have the index (i.e., ID)
-            # print(sample)
-            # print(sample['id'])
             loss, sample_size, logging_output = criterion(model, sample)
+        
+        # print('Forward: ', prof.key_averages().table(row_limit=10))
+        # print('Forward: ', prof)
+        # with torch.autograd.profiler.profile(profile_memory=True, use_cuda=True, record_shapes=True) as prof:
         if ignore_grad:
             loss *= 0
         with torch.autograd.profiler.record_function("backward"):
             optimizer.backward(loss)
+        # print('Backward: ', prof.key_averages().table(row_limit=10))
+        # raise Exception('Profiling!!!')
         return loss, sample_size, logging_output
 
     def valid_step(self, sample, model, criterion):

@@ -7,6 +7,7 @@ import math
 import torch 
 from fairseq import metrics, utils
 from fairseq.criterions import FairseqCriterion, register_criterion
+import torch.autograd.profiler as profiler
 
 
 def label_smoothed_nll_loss(lprobs, target, epsilon, ignore_index=None, reduce=True):

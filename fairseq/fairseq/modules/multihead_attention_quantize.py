@@ -381,6 +381,7 @@ class QMultiheadAttention(nn.Module):
             and not torch.jit.is_scripting()
         ):
             assert key is not None and value is not None
+            # print('Do we ever call this function!!!?')
             return qmulti_head_attention_forward(
                 query,
                 key,

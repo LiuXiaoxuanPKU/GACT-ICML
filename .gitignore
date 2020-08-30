@@ -8,3 +8,5 @@ __pycache__
 .DS_Store
 *.jpg
 *.pptx
+*.swp
+*.pyc

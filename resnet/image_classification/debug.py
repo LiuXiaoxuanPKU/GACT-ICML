@@ -649,7 +649,8 @@ def variance_profile(model_and_loss, optimizer, val_loader, prefix='.', num_batc
     fig.savefig('variance_profile.pdf')
 
 
-def get_var(model_and_loss, optimizer, val_loader, num_batches=10000):
+def get_var(model_and_loss, optimizer, val_loader, num_batches=20):
+    bb = 5
     # print(QF.num_samples, QF.update_scale, QF.training)
     model_and_loss.train()
     if hasattr(model_and_loss.model, 'module'):
@@ -695,10 +696,169 @@ def get_var(model_and_loss, optimizer, val_loader, num_batches=10000):
         if cnt == num_batches:
             break
 
+
     num_batches = cnt
     batch_grad = dict_mul(batch_grad, 1.0 / num_batches)
     QF.update_scale = False
-    config.activation_compression_bits = 2
+
+    # Compute layer Lipschitz       TODO: bug?
+    input = inputs[0]
+    target = targets[0]
+    grad_0 = bp(input, target)
+    alpha = 1e-3
+    lips = {layer.name: 0 for layer in m.linear_layers}
+
+    # for iter in range(10):
+    #     wt_bak = {layer.layer_name: layer.weight.detach().cpu() for layer in m.linear_layers}
+    #     len = {}
+    #     with torch.no_grad():
+    #         for layer in m.linear_layers:
+    #             eps = torch.randn_like(layer.weight)
+    #             eps = alpha * (eps**2).sum() / (layer.weight**2).sum()
+    #             layer.weight += eps
+    #             len[layer.layer_name] = (eps**2).sum()
+    #
+    #     grad = bp(input, target)
+    #     with torch.no_grad():
+    #         for layer in m.linear_layers:
+    #             layer.weight.copy_(wt_bak[layer.layer_name])
+    #             lips[layer.name] += torch.sqrt(((grad[layer.layer_name] -
+    #                                                    grad_0[layer.layer_name])**2).sum()
+    #                                                   /len[layer.layer_name])
+
+    config.initial_bits = {}
+    config.activation_compression_bits = {}
+    for i in range(57):
+        config.initial_bits['conv_{}'.format(i)] = bb
+        config.activation_compression_bits['conv_{}'.format(i)] = bb
+
+    config.initial_bits['linear_0'] = bb
+    config.activation_compression_bits['linear_0'] = bb
+
+    # print('Lipschitz')
+    # for k in lips:
+    #     lips[k] /= 10
+    #     print(k, lips[k])
+    config.lips = lips
+    config.weights = {}
+    config.dims = {}
+
+    # Evolution algorithm...
+    # Ffff
+
+    # config.activation_compression_bits = 2
+    # config.initial_bits = 2
+    grad = bp(input, target)
+
+    # min. weight[i] / (2 ** (bits[i] - 1))**2
+    # s.t. \sum_i bits[i] * dims[i] <= target * \sum_i dims[i]
+    # weights = []
+    # dims = []
+    # for i in range(57):
+    #     weights.append(config.weights['conv_{}'.format(i)].cpu().numpy())
+    #     dims.append(config.dims['conv_{}'.format(i)] // 1024)
+    #
+    # weights = np.array(weights)
+    # dims = np.array(dims, dtype=np.int32)
+    #
+    # print(weights)
+    # print(dims)
+    #
+    # total_bits = dims.sum() * bb
+    # L = weights.shape[0]
+    # var = np.ones([L+1, total_bits+1]) * 1e8
+    # pred = np.ones([L+1, total_bits+1], dtype=np.int32) * -1
+    # var[0, 0] = 0
+    # pred[0, 0] = 0
+    # for l in range(L):
+    #     for b in range(total_bits):
+    #         if pred[l, b] >= 0:
+    #             for nb in range(1, 9):
+    #                 tb = b + nb * dims[l]
+    #                 if tb <= total_bits:
+    #                     obj = var[l, b] + weights[l] / (2 ** nb - 1)**2
+    #                     if obj < var[l+1, tb]:
+    #                         var[l+1, tb] = obj
+    #                         pred[l+1, tb] = nb
+    # best_obj = 1e8
+    # best_tb = -1
+    # for tb in range(total_bits+1):
+    #     if var[L, tb] <= best_obj:
+    #         best_obj = var[L, tb]
+    #         best_tb = tb
+    #
+    # print('Best obj = ', best_obj)
+    # bits = np.zeros(L, dtype=np.int32)
+    # tb = best_tb
+    # for l in range(L, 0, -1):
+    #     bits[l-1] = pred[l, tb]
+    #     tb -= dims[l-1] * bits[l-1]
+    #     tb = int(tb)
+
+    # print(bits)
+
+    m.set_debug(False)
+    # Measure expected amount of descent
+    for l in range(57):
+        config.initial_bits['conv_{}'.format(l)] = 8
+        config.activation_compression_bits['conv_{}'.format(l)] = 8
+    config.initial_bits['linear_0'] = 8
+    config.activation_compression_bits['linear_0'] = 8
+
+    expected_descent = 0.0
+    optimizer.zero_grad()
+    loss, _ = model_and_loss(input, target)
+    loss.backward()
+    step = 1e-1
+
+    wt_bak = {layer.layer_name: layer.weight.detach().cpu() for layer in m.linear_layers}
+    with torch.no_grad():
+        for layer in m.linear_layers:
+            layer.weight -= step * grad[layer.layer_name].cuda()
+
+        loss_2, _ = model_and_loss(input, target)
+        for layer in m.linear_layers:
+            layer.weight.copy_(wt_bak[layer.layer_name].cuda())
+
+        print('Mean descent', (loss_2 - loss) / step)
+
+    for l in range(57):
+        config.initial_bits['conv_{}'.format(l)] = bb
+        config.activation_compression_bits['conv_{}'.format(l)] = bb
+    config.initial_bits['linear_0'] = bb
+    config.activation_compression_bits['linear_0'] = bb
+
+    for iter in tqdm(range(100)):
+        wt_bak = {layer.layer_name: layer.weight.detach().cpu() for layer in m.linear_layers}
+        grad = bp(input, target)
+        decent = 0.0
+        # for layer in m.linear_layers:
+        #     decent += -(layer.weight.grad ** 2).sum()
+        # print('Decent ', decent)
+
+        with torch.no_grad():
+            for layer in m.linear_layers:
+                layer.weight -= step * grad[layer.layer_name].cuda()
+
+            loss_2, _ = model_and_loss(input, target)
+            for layer in m.linear_layers:
+                layer.weight.copy_(wt_bak[layer.layer_name].cuda())
+
+            print((loss_2 - loss) / step)
+            expected_descent += (loss_2 - loss).detach().cpu().numpy()
+
+    expected_descent /= 100 * step
+    print('Expected descent = ', expected_descent)
+
+
+    def bp(input, target):
+        loss.backward()
+        torch.cuda.synchronize()
+        grad = {layer.layer_name : layer.weight.grad.detach().cpu() for layer in m.linear_layers}
+        return grad
+
+    grad = bp(input, target)
+
 
     def get_variance():
         total_var = None

@@ -201,7 +201,10 @@ class QF:
 
     @staticmethod
     def quantize(input, name):
-        if config.activation_compression_bits >= 32 or not QF.training:
+        if type(config.activation_compression_bits) == int:
+            return input
+
+        if config.activation_compression_bits[name] >= 32 or not QF.training:
             # print('Skipping')
             return input
 
@@ -210,13 +213,19 @@ class QF:
         input_flatten = input.view(N, -1)
 
         if config.alg == 'greedy':
+            # print('Quantizing ', config.activation_compression_bits[name])
             grad_sum = QF.get_scale(name).cpu()
             mn = pytorch_minimax.min(input_flatten).cpu()
             mx = pytorch_minimax.max(input_flatten).cpu()
             Range = mx - mn
             C = D / 4 * Range ** 2 * grad_sum
-            b = torch.ones(N, dtype=torch.int32) * config.initial_bits
-            b = calc_precision(b, C, config.activation_compression_bits * N).float()
+            b = torch.ones(N, dtype=torch.int32) * config.initial_bits[name]
+            b = calc_precision(b, C, config.activation_compression_bits[name] * N).float()
+
+            # print(name, 'variance = ', C.sum(), 'weight = ', C.sum() / config.lips[name])
+
+            config.weights[name] = (C / (2 ** b - 1)**2).sum() / config.lips[name]
+            config.dims[name] = input[0].numel()
 
             mask = 1.0
         else:   # DP. only work for convolution

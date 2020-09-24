@@ -1,4 +1,4 @@
-"""Test activation quantized convolution layer"""
+"""Test the activation quantized convolution layer"""
 
 import math
 

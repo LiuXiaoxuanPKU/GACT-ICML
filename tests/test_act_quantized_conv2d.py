@@ -1,7 +1,6 @@
-"""Examples of Python implemtations that call c++ backward functions"""
+"""Test activation quantized convolution layer"""
 
 import math
-import time
 
 import numpy as np
 import torch
@@ -27,6 +26,7 @@ def compute_tensor_bytes(x):
     return np.prod(x.size()) * 4
 
 def get_memory_usage(print_info=False):
+    """Get accurate gpu memory usage by querying torch runtime"""
     torch.cuda.empty_cache()
     allocated = torch.cuda.memory_allocated(0)
     reserved = torch.cuda.memory_reserved(0)
@@ -64,7 +64,7 @@ def quantize_mixed_precision(data, bits, mn, mx, stochastic=False):
         bits = bits.cuda()
         B = (2 ** bits - 1).unsqueeze(1)
         mn = mn - 1e-8
-        mx = mx - 1e-8
+        mx = mx + 1e-8
         scale = B / (mx - mn)
         output = (output - mn) * scale
 
@@ -120,11 +120,13 @@ class act_quantized_conv2d(autograd.Function):
 
 
 def test_conv2d_correctness():
+    """Test the correctness of computation results"""
+
     # arguments and test data
     N, H, W, CI, CO, kernel_size, stride, padding, dilation, groups = 4, 28, 28, 256, 256, 3, 1, 1, 1, 1
-    data_np = np.random.uniform(size=(N, CI, H, W)).astype('float32')
-    weight_np = np.random.uniform(size=(CO, CI // groups, kernel_size, kernel_size)).astype('float32')
-    bias_np = np.random.uniform(size=(CO,)).astype('float32')
+    data_np = np.random.randn(N, CI, H, W).astype('float32')
+    weight_np = np.random.randn(CO, CI // groups, kernel_size, kernel_size).astype('float32')
+    bias_np = np.random.randn(CO).astype('float32')
 
     for device in ['cuda']:
         def test_implementation(func):
@@ -150,12 +152,14 @@ def test_conv2d_correctness():
 
 
 def test_conv2d_speed():
+    """Test the speed of convolution layer"""
+
     # arguments and test data
     N, H, W, CI, CO, kernel_size, stride, padding, dilation, groups = 128, 28, 28, 256, 256, 3, 1, 1, 1, 1
     #N, H, W, CI, CO, kernel_size, stride, padding, dilation, groups = 128, 28, 28, 256, 256, 1, 1, 0, 1, 1
-    data_np = np.random.uniform(size=(N, CI, H, W)).astype('float32')
-    weight_np = np.random.uniform(size=(CO, CI // groups, kernel_size, kernel_size)).astype('float32')
-    bias_np = np.random.uniform(size=(CO,)).astype('float32')
+    data_np = np.random.randn(N, CI, H, W).astype('float32')
+    weight_np = np.random.randn(CO, CI // groups, kernel_size, kernel_size).astype('float32')
+    bias_np = np.random.randn(CO).astype('float32')
 
     for device in ['cuda']:
         def test_implementation(func, stride, padding, dilation, groups):
@@ -187,11 +191,13 @@ def test_conv2d_speed():
 
 
 def test_conv2d_memory_analytical():
+    """Compute the memory of activation analytically"""
+
     # arguments and test data
     N, H, W, CI, CO, kernel_size, stride, padding, dilation, groups = 256, 28, 28, 256, 256, 3, 1, 1, 1, 1
-    data_np = np.random.uniform(size=(N, CI, H, W)).astype('float32')
-    weight_np = np.random.uniform(size=(CO, CI // groups, kernel_size, kernel_size)).astype('float32')
-    bias_np = np.random.uniform(size=(CO,)).astype('float32')
+    data_np = np.random.randn(N, CI, H, W).astype('float32')
+    weight_np = np.random.randn(CO, CI // groups, kernel_size, kernel_size).astype('float32')
+    bias_np = np.random.randn(CO).astype('float32')
 
     for device in ['cuda']:
         def test_implementation(func):
@@ -221,6 +227,8 @@ def test_conv2d_memory_analytical():
 
 
 def test_conv2d_memory_max_batch_size():
+    """Find the maximum batch size by gradually increasing the batch size until hitting Out-of-memory error"""
+
     for device in ['cuda']:
         def test_implementation(func, n_layers, batch_sizes):
             def run_batch_size(batch_size):
@@ -249,6 +257,7 @@ def test_conv2d_memory_max_batch_size():
     
                 return after_size / 1024**2, (after_size - before_size - output_size) / 1024**2
 
+            # try gradually increased batch sizes
             try:
                 for i, batch_size in enumerate(batch_sizes):
                     total_size_ref, act_size_ref = run_batch_size(batch_size)
@@ -263,7 +272,7 @@ def test_conv2d_memory_max_batch_size():
         print("---> Reference")
         test_implementation(F.conv2d, n_layers=50, batch_sizes=[100, 200, 250, 300, 350, 400, 450, 500, 1000])
         print("---> Ours")
-        test_implementation(act_quantized_conv2d.apply, n_layers=50, batch_sizes=[100, 200, 500, 1000, 2200, 2300, 2400, 3000, 4000])
+        test_implementation(act_quantized_conv2d.apply, n_layers=50, batch_sizes=[100, 200, 250, 500, 1000, 2200, 2300, 2400, 3000, 4000])
 
 if __name__ == "__main__":
     config.activation_compression_bits = 8

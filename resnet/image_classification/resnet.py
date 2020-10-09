@@ -409,7 +409,7 @@ resnet_versions = {
             'net' : ResNetCifar,
             'block' : BasicBlock,
             'layers' : [9, 9, 9],
-            'num_classes' : 10,
+            'num_classes' : 100,
             },
         'preact_resnet20' : {
             'net' : PreActResNet,

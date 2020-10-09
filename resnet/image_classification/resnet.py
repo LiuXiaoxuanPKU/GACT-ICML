@@ -239,9 +239,97 @@ class ResNet(nn.Module):
             for b in l:
                 b.debug = debug
 
+    def set_name(self):
+        self.linear_layers = [self.conv1]
+        self.conv1.layer_name = 'conv_0'
+        for lid, layer in enumerate([self.layer1, self.layer2, self.layer3, self.layer4]):
+            for bid, block in enumerate(layer):
+                for cid, convlayer in enumerate([block.conv1, block.conv2, block.conv3]):
+                    convlayer.layer_name = 'conv_{}_{}_{}'.format(lid+1, bid+1, cid+1)
+                    self.linear_layers.append(convlayer)
+                if block.downsample is not None:
+                    block.downsample[0].layer_name = 'conv_{}_{}_skip'.format(lid+1, bid+1)
+                    self.linear_layers.append(block.downsample[0])
+
+        self.fc.layer_name = 'fc'
+        self.linear_layers.append(self.fc)
+
 
 # ResNet }}}
 
+
+# ResNet {{{
+class ResNetCifar(nn.Module):
+    def __init__(self, builder, block, layers, num_classes=10):
+        self.inplanes = 16
+        super(ResNetCifar, self).__init__()
+        self.conv1 = builder.conv3x3(3, 16)
+        self.bn1 = builder.batchnorm(16)
+        self.relu = builder.activation()
+        self.layer1 = self._make_layer(builder, block, 16, layers[0])
+        self.layer2 = self._make_layer(builder, block, 32, layers[1], stride=2)
+        self.layer3 = self._make_layer(builder, block, 64, layers[2], stride=2)
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
+        self.fc = builder.linear(64 * block.expansion, num_classes)
+
+    def _make_layer(self, builder, block, planes, blocks, stride=1):
+        downsample = None
+        if stride != 1 or self.inplanes != planes * block.expansion:
+            dconv = builder.conv1x1(self.inplanes, planes * block.expansion,
+                                    stride=stride)
+            dbn = builder.batchnorm(planes * block.expansion)
+            if dbn is not None:
+                downsample = nn.Sequential(dconv, dbn)
+            else:
+                downsample = dconv
+
+        layers = []
+        layers.append(block(builder, self.inplanes, planes, stride, downsample))
+        self.inplanes = planes * block.expansion
+        for i in range(1, blocks):
+            layers.append(block(builder, self.inplanes, planes))
+
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        if self.bn1 is not None:
+            x = self.bn1(x)
+        x = self.relu(x)
+
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+
+        x = self.avgpool(x)
+        x = x.view(x.size(0), -1)
+        x = self.fc(x)
+
+        return x
+
+    def set_debug(self, debug):
+        self.debug = True
+        for l in [self.layer1, self.layer2, self.layer3]:
+            for b in l:
+                b.debug = debug
+
+    def set_name(self):
+        self.linear_layers = [self.conv1]
+        self.conv1.layer_name = 'conv_0'
+        for lid, layer in enumerate([self.layer1, self.layer2, self.layer3]):
+            for bid, block in enumerate(layer):
+                for cid, convlayer in enumerate([block.conv1, block.conv2]):
+                    convlayer.layer_name = 'conv_{}_{}_{}'.format(lid+1, bid+1, cid+1)
+                    self.linear_layers.append(convlayer)
+                if block.downsample is not None:
+                    block.downsample[0].layer_name = 'conv_{}_{}_skip'.format(lid+1, bid+1)
+                    self.linear_layers.append(block.downsample[0])
+
+        self.fc.layer_name = 'fc'
+        self.linear_layers.append(self.fc)
+
+
+# ResNet }}}
 
 resnet_configs = {
         'classic' : {
@@ -317,16 +405,16 @@ resnet_versions = {
             'layers' : [3, 8, 36, 3],
             'num_classes' : 1000,
             },
+        'resnet56' : {
+            'net' : ResNetCifar,
+            'block' : BasicBlock,
+            'layers' : [9, 9, 9],
+            'num_classes' : 10,
+            },
         'preact_resnet20' : {
             'net' : PreActResNet,
             'block' : PreActBlock,
             'layers' : [3, 3, 3],
-            'num_classes' : 10,
-            },
-        'resnet56' : {
-            'net' : ResNet,
-            'block' : BasicBlock,
-            'layers' : [9, 9, 9],
             'num_classes' : 10,
             },
         'preact_resnet56' : {

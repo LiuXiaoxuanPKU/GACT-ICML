@@ -53,7 +53,12 @@ class ModelAndLoss(nn.Module):
 
     def load_model_state(self, state):
         if not state is None:
-            self.model.load_state_dict(state)
+            try:
+                self.model.load_state_dict(state)
+            except:
+                state = {k.replace('module.', ''): state[k] for k in state}
+                self.model.load_state_dict(state)
+
 
 
 def get_optimizer(parameters, fp16, lr, momentum, weight_decay,

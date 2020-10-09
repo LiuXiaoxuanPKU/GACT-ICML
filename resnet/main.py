@@ -47,6 +47,8 @@ def add_parser_arguments(parser):
 
     parser.add_argument('-j', '--workers', default=5, type=int, metavar='N',
                         help='number of data loading workers (default: 5)')
+    parser.add_argument('--num-classes', default=1000, type=int, metavar='N',
+                        help='number of classes (default: 1000)')
     parser.add_argument('--epochs', default=90, type=int, metavar='N',
                         help='number of total epochs to run')
     parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
@@ -274,12 +276,12 @@ def main(args):
         get_train_loader = get_dali_train_loader(dali_cpu=True)
         get_val_loader = get_dali_val_loader()
 
-    train_loader, train_loader_len = get_train_loader(args.data, args.batch_size, 1000, args.mixup > 0.0, workers=args.workers, fp16=args.fp16)
+    train_loader, train_loader_len = get_train_loader(args.data, args.batch_size, args.num_classes, args.mixup > 0.0, workers=args.workers, fp16=args.fp16)
     if args.mixup != 0.0:
-        train_loader = MixUpWrapper(args.mixup, 1000, train_loader)
+        train_loader = MixUpWrapper(args.mixup, args.num_classes, train_loader)
 
-    val_loader, val_loader_len = get_val_loader(args.data, args.batch_size, 1000, False, workers=args.workers, fp16=args.fp16)
-    debug_loader, debug_loader_len = get_debug_loader(args.data, args.batch_size, 1000, False, workers=args.workers, fp16=args.fp16)
+    val_loader, val_loader_len = get_val_loader(args.data, args.batch_size, args.num_classes, False, workers=args.workers, fp16=args.fp16)
+    debug_loader, debug_loader_len = get_debug_loader(args.data, args.batch_size, args.num_classes, False, workers=args.workers, fp16=args.fp16)
 
     if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
         logger = log.Logger(

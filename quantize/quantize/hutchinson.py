@@ -32,20 +32,23 @@ def trace_Hessian(model_and_loss, params, inputs, num_samples=100):
     loss, _ = model_and_loss(*inputs)
     grad = torch.autograd.grad(loss, param_vals, create_graph=True)
     grad = {param_names[k]: grad[k] for k in range(len(params))}
+    grad_vals = [grad[k] for k in param_names]
 
     trace = {k: 0.0 for k in params}
     for iter in tqdm(range(num_samples)):
-        aux_loss = 0.0
-        x = {}
-        for k in params:
-            x[k] = torch.randn_like(params[k])
-            aux_loss += (x[k] * grad[k]).sum()
+        # aux_loss = 0.0
+        # x = {}
+        # for k in params:
+        #     x[k] = torch.randn_like(params[k])
+        #     aux_loss += (x[k] * grad[k]).sum()
+        # second_grad = torch.autograd.grad(aux_loss, param_vals, retain_graph=True)
 
-        second_grad = torch.autograd.grad(aux_loss, param_vals, retain_graph=True)
+        x = [torch.randn_like(params[k]) for k in param_names]
+        second_grad = torch.autograd.grad(grad_vals, param_vals, x, retain_graph=True)
 
         for idx in range(len(param_vals)):
             k = param_names[idx]
-            trace[k] += (x[k] * second_grad[idx]).sum()
+            trace[k] += (x[idx] * second_grad[idx]).sum()
 
     return {k: trace[k] / num_samples for k in trace}
 
@@ -92,7 +95,15 @@ if __name__ == '__main__':
     b = torch.randn(5)
 
     print('Real trace = ', model.A.diag().sum(), model.B.diag().sum())
-    print(trace_Hessian(model, params, (), 30000))
+
+    class model_and_loss:
+        def __init__(self):
+            self.model = model
+
+        def __call__(self):
+            return model(), 0
+
+    print(trace_Hessian(model_and_loss(), params, (), 30000))
     # print(trace_Hessian_exact(model, params, ()))
 
     # from torch import Tensor

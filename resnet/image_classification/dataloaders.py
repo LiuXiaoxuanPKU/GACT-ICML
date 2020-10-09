@@ -202,8 +202,10 @@ class PrefetchedWrapper(object):
         stream = torch.cuda.Stream()
         first = True
 
-        # for next_indices, next_data in loader:
-        for next_input, next_target in loader:
+        for next_indices, next_data in loader:
+            next_input, next_target = next_data
+
+            # for next_input, next_target in loader:
             with torch.cuda.stream(stream):
                 next_input = next_input.cuda(non_blocking=True)
                 next_target = next_target.cuda(non_blocking=True)
@@ -227,8 +229,8 @@ class PrefetchedWrapper(object):
             input = next_input
             target = next_target
             N = input.shape[0]
-            indices = np.arange(N)
-            # indices = next_indices.copy()
+            # indices = np.arange(N)
+            indices = next_indices.copy()
 
         yield input, target, indices
 
@@ -296,7 +298,12 @@ def get_pytorch_train_loader_cifar10(data_path, batch_size, num_classes, one_hot
         transforms.RandomCrop(32, padding=4),
         transforms.RandomHorizontalFlip()
     ])
-    train_dataset = datasets.CIFAR10(root=data_path, train=True, download=True, transform=transform_train)
+    if num_classes == 10:
+        print('Loading CIFAR10')
+        train_dataset = datasets.CIFAR10(root=data_path, train=True, download=True, transform=transform_train)
+    else:
+        print('Loading CIFAR100')
+        train_dataset = datasets.CIFAR100(root=data_path, train=True, download=True, transform=transform_train)
 
     if torch.distributed.is_initialized():
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
@@ -314,7 +321,10 @@ def get_pytorch_train_loader_cifar10(data_path, batch_size, num_classes, one_hot
 
 
 def get_pytorch_val_loader_cifar10(data_path, batch_size, num_classes, one_hot, workers=5, _worker_init_fn=None, fp16=False):
-    val_dataset = datasets.CIFAR10(root=data_path, train=False, download=True)
+    if num_classes == 10:
+        val_dataset = datasets.CIFAR10(root=data_path, train=False, download=True)
+    else:
+        val_dataset = datasets.CIFAR100(root=data_path, train=False, download=True)
 
     if torch.distributed.is_initialized():
         val_sampler = torch.utils.data.distributed.DistributedSampler(val_dataset)
@@ -333,7 +343,10 @@ def get_pytorch_val_loader_cifar10(data_path, batch_size, num_classes, one_hot, 
 
 
 def get_pytorch_debug_loader_cifar10(data_path, batch_size, num_classes, one_hot, workers=5, _worker_init_fn=None, fp16=False):
-    val_dataset = datasets.CIFAR10(root=data_path, train=False, download=True)
+    if num_classes == 10:
+        val_dataset = datasets.CIFAR10(root=data_path, train=False, download=True)
+    else:
+        val_dataset = datasets.CIFAR100(root=data_path, train=False, download=True)
     n = val_dataset.data.shape[0]
     n = n//batch_size * batch_size
     val_dataset.data = val_dataset.data[:n]

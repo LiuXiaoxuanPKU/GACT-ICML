@@ -1020,8 +1020,8 @@ def get_var_2(model_and_loss, optimizer, val_loader, num_batches=20):
         QF.set_current_batch(index)
         cnt += 1
 
-        inputs.append(input.clone())
-        targets.append(target.clone())
+        inputs.append(input.clone().cpu())
+        targets.append(target.clone().cpu())
         indices.append(index.copy())
         mean_grad = bp(input, target)
         batch_grad = dict_add(batch_grad, mean_grad)
@@ -1035,11 +1035,13 @@ def get_var_2(model_and_loss, optimizer, val_loader, num_batches=20):
 
     # params = {layer.name: layer.weight for layer in m.linear_layers}
     # total_trace = None
-    # for b in range(8):
-    #     trace = trace_Hessian(model_and_loss, params, (inputs[b], targets[b]), num_samples=100)
+    # for b in range(80):
+    #     input = inputs[b].cuda()
+    #     target = targets[b].cuda()
+    #     trace = trace_Hessian(model_and_loss, params, (input, target), num_samples=10)
     #     total_trace = dict_add(total_trace, trace)
-    #
-    # total_trace = dict_mul(total_trace, 0.125)
+    # #
+    # total_trace = dict_mul(total_trace, 0.0125)
     # for k in total_trace:
     #     print(k, total_trace[k])
 
@@ -1060,8 +1062,10 @@ def get_var_2(model_and_loss, optimizer, val_loader, num_batches=20):
     total_var = None
     total_error = None
     total_bias = None
-    num_samples = 10
+    num_samples = 3
     for i, input, target, index in tqdm(zip(range(num_batches), inputs, targets, indices)):
+        input = input.cuda()
+        target = target.cuda()
         QF.set_current_batch(index)
         QF.training = False
         exact_grad = bp(input, target)

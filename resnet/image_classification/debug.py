@@ -7,6 +7,9 @@ from tqdm import tqdm
 import numpy as np
 import pickle
 from matplotlib.colors import LogNorm
+from quantize.hutchinson import trace_Hessian
+from quantize.weights import get_precision
+from copy import deepcopy
 
 
 def get_error_grad(m):
@@ -649,8 +652,8 @@ def variance_profile(model_and_loss, optimizer, val_loader, prefix='.', num_batc
     fig.savefig('variance_profile.pdf')
 
 
-def get_var(model_and_loss, optimizer, val_loader, num_batches=20):
-    bb = 5
+def get_var(model_and_loss, optimizer, new_optimizer, val_loader, num_batches=20):
+    bb = 3
     # print(QF.num_samples, QF.update_scale, QF.training)
     model_and_loss.train()
     if hasattr(model_and_loss.model, 'module'):
@@ -707,6 +710,16 @@ def get_var(model_and_loss, optimizer, val_loader, num_batches=20):
     grad_0 = bp(input, target)
     alpha = 1e-3
     lips = {layer.name: 0 for layer in m.linear_layers}
+    params = {layer.name: layer.weight for layer in m.linear_layers}
+    # trace = trace_Hessian(model_and_loss, params, (input, target), num_samples=100)
+    # print(trace)
+    # for k in trace:
+    #     print(k, trace[k])
+
+    # exit(0)
+
+
+
 
     # for iter in range(10):
     #     wt_bak = {layer.layer_name: layer.weight.detach().cpu() for layer in m.linear_layers}
@@ -750,105 +763,91 @@ def get_var(model_and_loss, optimizer, val_loader, num_batches=20):
     # config.initial_bits = 2
     grad = bp(input, target)
 
-    # min. weight[i] / (2 ** (bits[i] - 1))**2
-    # s.t. \sum_i bits[i] * dims[i] <= target * \sum_i dims[i]
-    # weights = []
-    # dims = []
-    # for i in range(57):
-    #     weights.append(config.weights['conv_{}'.format(i)].cpu().numpy())
-    #     dims.append(config.dims['conv_{}'.format(i)] // 1024)
-    #
-    # weights = np.array(weights)
-    # dims = np.array(dims, dtype=np.int32)
-    #
-    # print(weights)
-    # print(dims)
-    #
-    # total_bits = dims.sum() * bb
-    # L = weights.shape[0]
-    # var = np.ones([L+1, total_bits+1]) * 1e8
-    # pred = np.ones([L+1, total_bits+1], dtype=np.int32) * -1
-    # var[0, 0] = 0
-    # pred[0, 0] = 0
-    # for l in range(L):
-    #     for b in range(total_bits):
-    #         if pred[l, b] >= 0:
-    #             for nb in range(1, 9):
-    #                 tb = b + nb * dims[l]
-    #                 if tb <= total_bits:
-    #                     obj = var[l, b] + weights[l] / (2 ** nb - 1)**2
-    #                     if obj < var[l+1, tb]:
-    #                         var[l+1, tb] = obj
-    #                         pred[l+1, tb] = nb
-    # best_obj = 1e8
-    # best_tb = -1
-    # for tb in range(total_bits+1):
-    #     if var[L, tb] <= best_obj:
-    #         best_obj = var[L, tb]
-    #         best_tb = tb
-    #
-    # print('Best obj = ', best_obj)
-    # bits = np.zeros(L, dtype=np.int32)
-    # tb = best_tb
-    # for l in range(L, 0, -1):
-    #     bits[l-1] = pred[l, tb]
-    #     tb -= dims[l-1] * bits[l-1]
-    #     tb = int(tb)
+    dims = []
+    for i in range(57):
+        dims.append(config.dims['conv_{}'.format(i)] // 1024)
 
-    # print(bits)
+    bits = get_precision(dims, bb)
 
     m.set_debug(False)
     # Measure expected amount of descent
     for l in range(57):
         config.initial_bits['conv_{}'.format(l)] = 8
-        config.activation_compression_bits['conv_{}'.format(l)] = 8
+        config.activation_compression_bits['conv_{}'.format(l)] = bb + 1
     config.initial_bits['linear_0'] = 8
     config.activation_compression_bits['linear_0'] = 8
 
     expected_descent = 0.0
     optimizer.zero_grad()
-    loss, _ = model_and_loss(input, target)
-    loss.backward()
-    step = 1e-1
-
-    wt_bak = {layer.layer_name: layer.weight.detach().cpu() for layer in m.linear_layers}
+    loss = 0
     with torch.no_grad():
-        for layer in m.linear_layers:
-            layer.weight -= step * grad[layer.layer_name].cuda()
+        for iter in range(10):
+            loss += model_and_loss(inputs[iter], targets[iter])[0]
+    # loss.backward()
+    step = 1e-2
+    #
+    # wt_bak = {layer.layer_name: layer.weight.detach().cpu() for layer in m.linear_layers}
+    # with torch.no_grad():
+    #     for layer in m.linear_layers:
+    #         layer.weight -= step * grad[layer.layer_name].cuda()
+    #
+    #     loss_2, _ = model_and_loss(input, target)
+    #     for layer in m.linear_layers:
+    #         layer.weight.copy_(wt_bak[layer.layer_name].cuda())
+    #
+    #     print('Mean descent', (loss_2 - loss) / step)
 
-        loss_2, _ = model_and_loss(input, target)
-        for layer in m.linear_layers:
-            layer.weight.copy_(wt_bak[layer.layer_name].cuda())
+    # for l in range(57):
+    #     config.initial_bits['conv_{}'.format(l)] = bb
+    #     config.activation_compression_bits['conv_{}'.format(l)] = bb
+    # config.initial_bits['linear_0'] = bb
+    # config.activation_compression_bits['linear_0'] = bb
 
-        print('Mean descent', (loss_2 - loss) / step)
+
+    def get_trajectory():
+        losses = []
+        for sample in range(10):
+            # Backup model
+            state_dict = deepcopy(m.state_dict())
+            optim_state_dict = deepcopy(optimizer.state_dict())
+
+            loss_2 = 0
+            for iter in range(10):
+                optimizer.zero_grad()
+                l, _ = model_and_loss(inputs[iter], targets[iter])
+                l.backward()
+                optimizer.step()
+                loss_2 += l.detach()
+
+            losses.append(loss_2.detach().cpu().numpy())
+
+            m.load_state_dict(state_dict)
+            optimizer.load_state_dict(optim_state_dict)
+
+        return losses
+
+    losses = get_trajectory()
+    # print(losses)
+    print('Exact, stdev={}, decent={}'.format(np.std(losses), loss-np.mean(losses)))
+
+    exit(0)
 
     for l in range(57):
-        config.initial_bits['conv_{}'.format(l)] = bb
+        config.initial_bits['conv_{}'.format(l)] = 8
         config.activation_compression_bits['conv_{}'.format(l)] = bb
-    config.initial_bits['linear_0'] = bb
+
+        losses = get_trajectory()
+        # print(losses)
+        print('Conv_{}, stdev={}, decent={}'.format(l, np.std(losses), loss-np.mean(losses)))
+
+        config.initial_bits['conv_{}'.format(l)] = 8
+        config.activation_compression_bits['conv_{}'.format(l)] = 8
+
+    config.initial_bits['linear_0'] = 8
     config.activation_compression_bits['linear_0'] = bb
 
-    for iter in tqdm(range(100)):
-        wt_bak = {layer.layer_name: layer.weight.detach().cpu() for layer in m.linear_layers}
-        grad = bp(input, target)
-        decent = 0.0
-        # for layer in m.linear_layers:
-        #     decent += -(layer.weight.grad ** 2).sum()
-        # print('Decent ', decent)
-
-        with torch.no_grad():
-            for layer in m.linear_layers:
-                layer.weight -= step * grad[layer.layer_name].cuda()
-
-            loss_2, _ = model_and_loss(input, target)
-            for layer in m.linear_layers:
-                layer.weight.copy_(wt_bak[layer.layer_name].cuda())
-
-            print((loss_2 - loss) / step)
-            expected_descent += (loss_2 - loss).detach().cpu().numpy()
-
-    expected_descent /= 100 * step
-    print('Expected descent = ', expected_descent)
+    losses = get_trajectory()
+    print('Linear, stdev={}, decent={}'.format(np.std(losses), loss - np.mean(losses)))
 
 
     def bp(input, target):
@@ -885,3 +884,217 @@ def get_var(model_and_loss, optimizer, val_loader, num_batches=20):
         print('{}, var = {}'.format(k, sg))
 
     print('Overall Var = {}'.format(all_sg))
+
+
+def tune(model_and_loss, optimizer, train_loader, epoch, lr_scheduler):
+    # print(QF.num_samples, QF.update_scale, QF.training)
+
+    bb = 3
+    bits = np.array([bb for i in range(57)], dtype=np.float32)
+    config.dims = {}
+
+    model_and_loss.train()
+    if hasattr(model_and_loss.model, 'module'):
+        m = model_and_loss.model.module
+    else:
+        m = model_and_loss.model
+
+    state_dict = deepcopy(model_and_loss.model.state_dict())
+    optim_state_dict = deepcopy(optimizer.state_dict())
+
+    # Compute batch loss
+    def run(train=False):
+        data_iter = enumerate(train_loader)
+        losses = []
+        for i, (input, target, index) in data_iter:
+            QF.set_current_batch(index)
+            optimizer.zero_grad()
+            lr_scheduler(optimizer, i, epoch)
+
+            loss, _ = model_and_loss(input, target)
+            losses.append(loss.detach().cpu().numpy())
+            loss.backward()
+            if train:
+                optimizer.step()
+
+        return np.mean(losses)
+
+    def restore():
+        model_and_loss.model.load_state_dict(state_dict)
+        optimizer.load_state_dict(optim_state_dict)
+
+    def update_config(bits):
+        config.initial_bits = {}
+        config.activation_compression_bits = {}
+        for i in range(57):
+            config.initial_bits['conv_{}'.format(i)] = bits[i]
+            config.activation_compression_bits['conv_{}'.format(i)] = bits[i]
+
+        config.initial_bits['linear_0'] = 8
+        config.activation_compression_bits['linear_0'] = 8
+
+    print('Starting loss ', run())
+    QF.update_scale = False
+
+    update_config(bits)
+    run(True)
+    best_obj = run()
+    best_bits = np.copy(bits)
+    print('Final loss ', best_obj)
+
+    dims = []
+    for i in range(57):
+        dims.append(config.dims['conv_{}'.format(i)] // 1024)
+    dims = np.array(dims)
+    total_bits = (bits * dims).sum()
+
+    for iter in range(1000):
+        # Generate proposal
+        idx = np.random.randint(0, 57)
+        old_bits = np.copy(bits)
+        bits[idx] += 1
+        while ((bits * dims).sum() > total_bits):
+            idx = np.random.randint(0, 57)
+            bits[idx] -= 1
+
+        print('========= Iteration {} ==========='.format(iter))
+        update_config(bits)
+        restore()
+        run(True)
+        new_obj = run()
+        print('New proposal ', bits, ' loss ', new_obj)
+        if new_obj < best_obj:
+            best_obj = new_obj
+            best_bits = np.copy(bits)
+        else:
+            bits = old_bits
+
+        if iter % 10 == 0:
+            print('==== Refreshing best ====')
+            objs = []
+            for sample in range(3):
+                update_config(best_bits)
+                restore()
+                run(True)
+                objs.append(run())
+            print('Mean = {}, stdev = {}'.format(np.mean(objs), np.std(objs)))
+            best_obj = np.mean(objs)
+
+        print('Best obj ', best_obj)
+        print(best_bits)
+
+
+def get_var_2(model_and_loss, optimizer, val_loader, num_batches=20):
+    bb = 2
+    num_samples = 3
+    # print(QF.num_samples, QF.update_scale, QF.training)
+    model_and_loss.train()
+    if hasattr(model_and_loss.model, 'module'):
+        m = model_and_loss.model.module
+    else:
+        m = model_and_loss.model
+
+    m.set_debug(True)
+    m.set_name()
+    weight_names = [layer.layer_name for layer in m.linear_layers]
+
+    data_iter = enumerate(val_loader)
+    inputs = []
+    targets = []
+    indices = []
+    quant_var = None
+    config.activation_compression_bits = 32
+
+    def bp(input, target):
+        optimizer.zero_grad()
+        loss, output = model_and_loss(input, target)
+        loss.backward()
+        torch.cuda.synchronize()
+        grad = {layer.layer_name: layer.weight.grad.detach().cpu() for layer in m.linear_layers}
+        return grad
+
+    # First pass
+    cnt = 0
+    batch_grad = None
+    for i, (input, target, index) in tqdm(data_iter):
+        QF.set_current_batch(index)
+        cnt += 1
+
+        inputs.append(input.clone())
+        targets.append(target.clone())
+        indices.append(index.copy())
+        mean_grad = bp(input, target)
+        batch_grad = dict_add(batch_grad, mean_grad)
+
+        if cnt == num_batches:
+            break
+
+    num_batches = cnt
+    batch_grad = dict_mul(batch_grad, 1.0 / num_batches)
+    QF.update_scale = False
+
+    # params = {layer.name: layer.weight for layer in m.linear_layers}
+    # total_trace = None
+    # for b in range(8):
+    #     trace = trace_Hessian(model_and_loss, params, (inputs[b], targets[b]), num_samples=100)
+    #     total_trace = dict_add(total_trace, trace)
+    #
+    # total_trace = dict_mul(total_trace, 0.125)
+    # for k in total_trace:
+    #     print(k, total_trace[k])
+
+    # config.initial_bits = {}
+    # config.activation_compression_bits = {}
+    # for i in range(57):
+    # # for i in range(170):
+    #     config.initial_bits['conv_{}'.format(i)] = bb
+    #     config.activation_compression_bits['conv_{}'.format(i)] = bb
+    #     config.initial_bits['bn_{}'.format(i)] = bb
+    #     config.activation_compression_bits['bn_{}'.format(i)] = bb
+
+    # config.initial_bits['linear_0'] = bb
+    # config.activation_compression_bits['linear_0'] = bb
+    config.initial_bits = bb
+    config.activation_compression_bits = bb
+
+    total_var = None
+    total_error = None
+    total_bias = None
+    num_samples = 10
+    for i, input, target, index in tqdm(zip(range(num_batches), inputs, targets, indices)):
+        QF.set_current_batch(index)
+        QF.training = False
+        exact_grad = bp(input, target)
+
+        QF.training = True
+        mean_grad = None
+        second_momentum = None
+        for iter in range(num_samples):
+            grad = bp(input, target)
+            mean_grad = dict_add(mean_grad, grad)
+            total_error = dict_add(total_error, dict_sqr(dict_minus(exact_grad, grad)))
+            second_momentum = dict_add(second_momentum, dict_sqr(grad))
+
+        mean_grad = dict_mul(mean_grad, 1.0 / num_samples)
+        second_momentum = dict_mul(second_momentum, 1.0 / num_samples)
+
+        grad_bias = dict_sqr(dict_minus(mean_grad, exact_grad))
+        total_bias = dict_add(total_bias, grad_bias)
+
+        total_var = dict_add(total_var, dict_minus(second_momentum, dict_sqr(mean_grad)))
+
+    total_error = dict_mul(total_error, 1.0 / (num_samples * num_batches))
+    total_bias = dict_mul(total_bias, 1.0 / num_batches)
+    total_var = dict_mul(total_var, 1.0 / num_batches)
+
+    all_qg = 0
+    for k in total_var:
+        g = (batch_grad[k]**2).sum()
+        v = total_var[k].sum()
+        b = total_bias[k].sum()
+        e = total_error[k].sum()
+
+        all_qg +=v
+        print('{}, grad norm = {}, bias = {}, var = {}, error = {}'.format(k, g, b, v, e))
+
+    print('Overall Var = {}'.format(all_qg))

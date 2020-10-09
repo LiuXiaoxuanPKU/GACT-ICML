@@ -202,8 +202,8 @@ class PrefetchedWrapper(object):
         stream = torch.cuda.Stream()
         first = True
 
-        for next_indices, next_data in loader:
-            next_input, next_target = next_data
+        # for next_indices, next_data in loader:
+        for next_input, next_target in loader:
             with torch.cuda.stream(stream):
                 next_input = next_input.cuda(non_blocking=True)
                 next_target = next_target.cuda(non_blocking=True)
@@ -226,7 +226,9 @@ class PrefetchedWrapper(object):
             torch.cuda.current_stream().wait_stream(stream)
             input = next_input
             target = next_target
-            indices = next_indices.copy()
+            N = input.shape[0]
+            indices = np.arange(N)
+            # indices = next_indices.copy()
 
         yield input, target, indices
 

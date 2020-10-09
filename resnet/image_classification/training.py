@@ -6,7 +6,7 @@ from torch.autograd import Variable
 from . import logger as log
 from . import resnet as models
 from . import utils
-from .debug import get_var
+from .debug import get_var, tune, get_var_2
 from quantize import QF
 
 try:
@@ -329,7 +329,7 @@ def calc_ips(batch_size, time):
     tbs = world_size * batch_size
     return tbs/time
 
-def train_loop(model_and_loss, optimizer, lr_scheduler, train_loader, val_loader, debug_loader, epochs, fp16, logger,
+def train_loop(model_and_loss, optimizer, new_optimizer, lr_scheduler, train_loader, val_loader, debug_loader, epochs, fp16, logger,
                should_backup_checkpoint, use_amp=False,
                batch_size_multiplier = 1,
                best_prec1 = 0, start_epoch = 0, prof = -1, skip_training = False, skip_validation = False, save_checkpoints = True, checkpoint_dir='./'):
@@ -374,5 +374,7 @@ def train_loop(model_and_loss, optimizer, lr_scheduler, train_loader, val_loader
         # write_errors(model_and_loss, optimizer, debug_loader)
         # variance_profile(model_and_loss, optimizer, debug_loader)
         # get_var(model_and_loss, optimizer, train_loader)
-        get_var(model_and_loss, optimizer, val_loader)
+        get_var_2(model_and_loss, optimizer, train_loader, 1000)
+        # get_var(model_and_loss, optimizer, new_optimizer, train_loader)
         # plot_weight_hist(model_and_loss, optimizer, train_loader)
+        # tune(model_and_loss, optimizer, train_loader, start_epoch, lr_scheduler)

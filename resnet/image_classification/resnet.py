@@ -323,6 +323,12 @@ resnet_versions = {
             'layers' : [3, 3, 3],
             'num_classes' : 10,
             },
+        'resnet56' : {
+            'net' : ResNet,
+            'block' : BasicBlock,
+            'layers' : [9, 9, 9],
+            'num_classes' : 10,
+            },
         'preact_resnet56' : {
             'net' : PreActResNet,
             'block' : PreActBlock,

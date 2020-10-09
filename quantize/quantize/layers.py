@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from quantize import config
 from quantize.ops import *
+from quantize.act_quantized_conv2d import act_quantized_conv2d
 
 
 class QuantMeasure(nn.Module):
@@ -59,8 +60,9 @@ class QConv2d(nn.Conv2d):
 
         if hasattr(self, 'exact') or not config.biprecision:
             if config.compress_activation:
-                output = QF.conv2d(qinput, qweight, qbias, self.stride,
-                              self.padding, self.dilation, self.groups, self.name)
+                output = act_quantized_conv2d().apply(qinput, qweight, qbias,
+                              self.stride, self.padding, self.dilation,
+                              self.groups, self.name)
             else:
                 output = F.conv2d(qinput, qweight, qbias, self.stride,
                               self.padding, self.dilation, self.groups)

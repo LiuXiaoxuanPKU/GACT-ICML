@@ -303,6 +303,17 @@ def main(args):
             static_loss_scale = args.static_loss_scale,
             dynamic_loss_scale = args.dynamic_loss_scale)
 
+
+    def new_optimizer():
+        return get_optimizer(list(model_and_loss.model.named_parameters()),
+            args.fp16,
+            args.lr, args.momentum, args.weight_decay,
+            nesterov = args.nesterov,
+            bn_weight_decay = args.bn_weight_decay,
+            # state=optimizer_state,
+            static_loss_scale = args.static_loss_scale,
+            dynamic_loss_scale = args.dynamic_loss_scale)
+
     if args.lr_schedule == 'step':
         lr_policy = lr_step_policy(args.lr, [30,60,80], 0.1, args.warmup, logger=logger)
     elif args.lr_schedule == 'cosine':
@@ -323,7 +334,7 @@ def main(args):
 
     print('Start epoch {}'.format(args.start_epoch))
     train_loop(
-        model_and_loss, optimizer,
+        model_and_loss, optimizer, new_optimizer,
         lr_policy,
         train_loader, val_loader, debug_loader, args.epochs,
         args.fp16, logger, should_backup_checkpoint(args), use_amp=args.amp,

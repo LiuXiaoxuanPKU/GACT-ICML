@@ -5,7 +5,7 @@ from torch.autograd.function import InplaceFunction, Function
 import pytorch_minimax
 
 from quantize.conf import config
-from quantize.C import calc_precision_dp, calc_precision, calc_avg_bits
+from C import calc_precision_dp, calc_precision, calc_avg_bits
 
 
 QParams = namedtuple('QParams', ['range', 'zero_point', 'num_bits'])
@@ -201,11 +201,14 @@ class QF:
 
     @staticmethod
     def quantize(input, name):
-        if type(config.activation_compression_bits) == int:
-            return input
+        # if type(config.activation_compression_bits) == int:
+        #     return input
 
-        if config.activation_compression_bits[name] >= 32 or not QF.training:
-            # print('Skipping')
+        # if config.activation_compression_bits[name] >= 32 or not QF.training:
+        #     # print('Skipping')
+        #     return input
+
+        if config.activation_compression_bits >= 32 or not QF.training:
             return input
 
         N = input.shape[0]
@@ -219,13 +222,14 @@ class QF:
             mx = pytorch_minimax.max(input_flatten).cpu()
             Range = mx - mn
             C = D / 4 * Range ** 2 * grad_sum
-            b = torch.ones(N, dtype=torch.int32) * config.initial_bits[name]
-            b = calc_precision(b, C, config.activation_compression_bits[name] * N).float()
+            # print(name, 'Range ', (mx-mn).sum(), ' grad ', grad_sum.sum())
+            b = (torch.ones(N) * config.initial_bits).int()
+            total_bits = int(config.activation_compression_bits * N)
+            b = calc_precision(b, C, total_bits).float()
 
             # print(name, 'variance = ', C.sum(), 'weight = ', C.sum() / config.lips[name])
-
-            config.weights[name] = (C / (2 ** b - 1)**2).sum() / config.lips[name]
-            config.dims[name] = input[0].numel()
+            # config.weights[name] = (C / (2 ** b - 1)**2).sum() / config.lips[name]
+            # config.dims[name] = input[0].numel()
 
             mask = 1.0
         else:   # DP. only work for convolution
@@ -252,21 +256,21 @@ class QF:
         output = MixedPrecisionQuantize().apply(input, b.cuda(), True, False) * mask
         return output
 
-    @staticmethod
-    def conv2d(input, weight, bias, stride, padding, dilation, groups, name):
-        assert(bias is None)
-        # Correct output, and correct L'input, incorrect L'weight
-        output = F.conv2d(input, weight.detach(), bias, stride, padding, dilation, groups)
-        if not QF.training:
-            return output
-
-        qinput = QF.quantize(input, name)
-        # Incorrect output, incorrect L'input, correct L'weight
-        fake_output = F.conv2d(qinput.detach(), weight, bias, stride, padding, dilation, groups)
-        fake_output = GradRecorder().apply(fake_output, name)
-        # output = GradRecorder().apply(output, name)
-
-        return output + fake_output - fake_output.detach()
+    # @staticmethod
+    # def conv2d(input, weight, bias, stride, padding, dilation, groups, name):
+    #     assert(bias is None)
+    #     # Correct output, and correct L'input, incorrect L'weight
+    #     output = F.conv2d(input, weight.detach(), bias, stride, padding, dilation, groups)
+    #     if not QF.training:
+    #         return output
+    #
+    #     qinput = QF.quantize(input, name)
+    #     # Incorrect output, incorrect L'input, correct L'weight
+    #     fake_output = F.conv2d(qinput.detach(), weight, bias, stride, padding, dilation, groups)
+    #     fake_output = GradRecorder().apply(fake_output, name)
+    #     # output = GradRecorder().apply(output, name)
+    #
+    #     return output + fake_output - fake_output.detach()
 
 ##############
 class MyLinear_apply(torch.autograd.Function):
@@ -304,39 +308,39 @@ class MyLinear_apply(torch.autograd.Function):
         return grad_input, grad_weight, grad_bias, None # The name does not need gradient.
 
 
-class conv2d(Function):
-    @staticmethod
-    def forward(ctx, input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1, name=None):
-        qinput = QF.quantize(input.detach(), name)
-        ctx.name = name
-        ctx.save_for_backward(qinput, weight, bias)
-        ctx.other_args = (stride, padding, dilation, groups)
-        return F.conv2d(input, weight, bias, stride, padding, dilation, groups)
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        # Record gradient
-        scale = (grad_output.view(grad_output.shape[0], -1) ** 2).sum(1)
-        QF.set_scale(ctx.name, scale.detach().cpu())
-
-        qinput, weight, bias = ctx.saved_tensors
-
-        if ctx.needs_input_grad[0]:
-            grad_input = torch.nn.grad.conv2d_input(qinput.shape, weight, grad_output, *ctx.other_args)
-        else:
-            grad_input = None
-
-        if ctx.needs_input_grad[1]:
-            grad_weight = torch.nn.grad.conv2d_weight(qinput, weight.shape, grad_output, *ctx.other_args)
-        else:
-            grad_weight = None
-
-        if bias is not None and ctx.needs_input_grad[2]:
-            grad_bias = grad_output.sum(0).squeeze(0)
-        else:
-            grad_bias = None
-
-        return grad_input, grad_weight, grad_bias, None, None, None, None, None
+# class conv2d(Function):
+#     @staticmethod
+#     def forward(ctx, input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1, name=None):
+#         qinput = QF.quantize(input.detach(), name)
+#         ctx.name = name
+#         ctx.save_for_backward(qinput, weight, bias)
+#         ctx.other_args = (stride, padding, dilation, groups)
+#         return F.conv2d(input, weight, bias, stride, padding, dilation, groups)
+#
+#     @staticmethod
+#     def backward(ctx, grad_output):
+#         # Record gradient
+#         scale = (grad_output.view(grad_output.shape[0], -1) ** 2).sum(1)
+#         QF.set_scale(ctx.name, scale.detach().cpu())
+#
+#         qinput, weight, bias = ctx.saved_tensors
+#
+#         if ctx.needs_input_grad[0]:
+#             grad_input = torch.nn.grad.conv2d_input(qinput.shape, weight, grad_output, *ctx.other_args)
+#         else:
+#             grad_input = None
+#
+#         if ctx.needs_input_grad[1]:
+#             grad_weight = torch.nn.grad.conv2d_weight(qinput, weight.shape, grad_output, *ctx.other_args)
+#         else:
+#             grad_weight = None
+#
+#         if bias is not None and ctx.needs_input_grad[2]:
+#             grad_bias = grad_output.sum(0).squeeze(0)
+#         else:
+#             grad_bias = None
+#
+#         return grad_input, grad_weight, grad_bias, None, None, None, None, None
 
 
 class batch_norm(Function):

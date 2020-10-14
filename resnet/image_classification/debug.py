@@ -994,7 +994,7 @@ def get_var_2(model_and_loss, optimizer, val_loader, num_batches=20):
     else:
         m = model_and_loss.model
 
-    m.set_debug(True)
+    # m.set_debug(True)
     m.set_name()
     weight_names = [layer.layer_name for layer in m.linear_layers]
 
@@ -1097,8 +1097,67 @@ def get_var_2(model_and_loss, optimizer, val_loader, num_batches=20):
         v = total_var[k].sum()
         b = total_bias[k].sum()
         e = total_error[k].sum()
+        avg_v = v / total_var[k].numel()
 
         all_qg +=v
-        print('{}, grad norm = {}, bias = {}, var = {}, error = {}'.format(k, g, b, v, e))
+        print('{}, grad norm = {}, bias = {}, var = {}, avg_var = {}, error = {}'.format(k, g, b, v, avg_v, e))
 
     print('Overall Var = {}'.format(all_qg))
+
+
+def get_var_3(model_and_loss, optimizer, val_loader, num_batches=20):
+    model_and_loss.train()
+    if hasattr(model_and_loss.model, 'module'):
+        m = model_and_loss.model.module
+    else:
+        m = model_and_loss.model
+
+    params = m.named_parameters()
+    param_cnt = [0 for i in range(54)]
+    for i, (name, param) in enumerate(params):
+        param_cnt[i//3] += param.numel()
+        print(i, name)
+
+    for i in range(54):
+        print(param_cnt[i])
+
+
+    m.set_name()
+    data_iter = enumerate(val_loader)
+
+    params = {layer.layer_name: layer.weight for layer in m.linear_layers}
+    total_trace = None
+    for i, (input, target, index) in tqdm(data_iter):
+        if i == 80:
+            break
+
+        trace = trace_Hessian(model_and_loss, params, (input, target), num_samples=10)
+        total_trace = dict_add(total_trace, trace)
+
+    total_trace = dict_mul(total_trace, 0.0125)
+    for k in total_trace:
+        print(k, total_trace[k])
+
+
+def get_var_4(model_and_loss, optimizer, val_loader, num_batches=20):
+    model_and_loss.train()
+    if hasattr(model_and_loss.model, 'module'):
+        m = model_and_loss.model.module
+    else:
+        m = model_and_loss.model
+
+    m.set_name()
+    data_iter = enumerate(val_loader)
+
+    params = {layer.layer_name: layer.weight for layer in m.linear_layers}
+    total_trace = None
+    for i, (input, target, index) in tqdm(data_iter):
+        if i == 80:
+            break
+
+        trace = trace_Hessian(model_and_loss, params, (input, target), num_samples=10)
+        total_trace = dict_add(total_trace, trace)
+
+    total_trace = dict_mul(total_trace, 0.0125)
+    for k in total_trace:
+        print(k, total_trace[k])

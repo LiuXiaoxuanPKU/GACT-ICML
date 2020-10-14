@@ -6,8 +6,8 @@ from matplotlib import pyplot as plt
 # for epochs in [10, 70]:
 #     file_name = '../resnet/resnet50_{}epochs.txt'.format(epochs)
 
-for model in ['resnet56', 'preact_resnet56']:
-    file_name = '../resnet/{}_190epochs.txt'.format(model)
+for model in ['preact_resnet164']:
+    file_name = '../resnet/{}.txt'.format(model)
     grad_norm = []
     bias = []
     var = []

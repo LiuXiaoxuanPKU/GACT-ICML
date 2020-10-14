@@ -230,7 +230,58 @@ def main(args):
 
     # optionally resume from a checkpoint
     if args.resume:
-        if os.path.isfile(args.resume):
+        if args.resume.find('npz') != -1: # blpa checkpoint
+            print("=> loading checkpoint '{}'".format(args.resume))
+            args.start_epoch = 0
+            best_prec1 = 0
+            state = np.load(args.resume)
+            state = {k: torch.Tensor(state[k]).cuda(args.gpu) for k in state}
+            model_state = {'conv1.weight': state['0'].permute([3, 2, 0, 1])}
+
+            cnt = 1
+            for layer in range(3):
+                for block in range(18):
+                    for i in range(3):
+                        # BN weight
+                        data = state[str(cnt)]
+                        prefix = 'layer{}.{}.bn{}'.format(layer + 1, block, i + 1)
+                        model_state[prefix + '.weight'] = data
+                        model_state[prefix + '.running_mean'] = torch.zeros_like(data)
+                        model_state[prefix + '.running_var'] = torch.zeros_like(data)
+                        cnt += 1
+                        # BN bias
+                        data = state[str(cnt)]
+                        model_state[prefix + '.bias'] = data
+                        cnt += 1
+                        # conv weight
+                        data = state[str(cnt)]
+                        model_state['layer{}.{}.conv{}.weight'.format(layer + 1, block, i + 1)] = data.permute([3, 2, 0, 1])
+                        cnt += 1
+
+            # BN weight
+            data = state[str(cnt)]
+            model_state['bn.weight'] = data
+            model_state['bn.running_mean'] = torch.zeros_like(data)
+            model_state['bn.running_var'] = torch.zeros_like(data)
+            cnt += 1
+            # BN bias
+            data = state[str(cnt)]
+            model_state['bn.bias'] = data
+            cnt += 1
+            # FC weight
+            data = state[str(cnt)]
+            model_state['fc.weight'] = data.view(256, 100).transpose(0, 1)
+            cnt += 1
+            data = state[str(cnt)]
+            model_state['fc.bias'] = data
+            cnt += 1
+
+            for k in model_state:
+                print(k, model_state[k].shape)
+
+            # exit(0)
+            print('Finished')
+        elif os.path.isfile(args.resume):
             print("=> loading checkpoint '{}'".format(args.resume))
             checkpoint = torch.load(args.resume, map_location = lambda storage, loc: storage.cuda(args.gpu))
             args.start_epoch = checkpoint['epoch']

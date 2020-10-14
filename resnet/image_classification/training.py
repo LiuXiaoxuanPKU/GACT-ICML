@@ -6,8 +6,9 @@ from torch.autograd import Variable
 from . import logger as log
 from . import resnet as models
 from . import utils
-from .debug import get_var, tune, get_var_2
+from .debug import get_var, tune, get_var_2, get_var_3
 from quantize import QF
+from .torch_resnet import resnet50
 
 try:
     from apex.parallel import DistributedDataParallel as DDP
@@ -24,9 +25,15 @@ class ModelAndLoss(nn.Module):
 
         print("=> creating model '{}'".format(arch))
         model = models.build_resnet(arch[0], arch[1])
+
         if pretrained_weights is not None:
             print("=> using pre-trained model from a file '{}'".format(arch))
             model.load_state_dict(pretrained_weights)
+
+        # TODO hack
+        # print('Loading ResNet50 from torch hub')
+        # model = resnet50(True)
+
 
         if cuda:
             model = model.cuda()
@@ -293,8 +300,9 @@ def validate(val_loader, model_and_loss, fp16, logger, epoch, prof=-1, register_
     step = get_val_step(model_and_loss)
 
     top1 = log.AverageMeter()
-    # switch to evaluate mode
-    model_and_loss.eval()
+    # switch to evaluate mode   # TODO hack
+    # model_and_loss.eval()
+    model_and_loss.train()
 
     end = time.time()
 
@@ -380,6 +388,7 @@ def train_loop(model_and_loss, optimizer, new_optimizer, lr_scheduler, train_loa
         # variance_profile(model_and_loss, optimizer, debug_loader)
         # get_var(model_and_loss, optimizer, train_loader)
         get_var_2(model_and_loss, optimizer, train_loader, 1000)
+        # get_var_3(model_and_loss, optimizer, train_loader, 100)
         # get_var(model_and_loss, optimizer, new_optimizer, train_loader)
         # plot_weight_hist(model_and_loss, optimizer, train_loader)
         # tune(model_and_loss, optimizer, train_loader, start_epoch, lr_scheduler)

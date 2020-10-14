@@ -1,6 +1,7 @@
 import torch.nn as nn
 from quantize import QConv2d, QLinear, QBatchNorm2D
 from .preact_resnet import PreActBlock, PreActBottleneck, PreActResNet
+from .blpa_resnet import BLPABottleneck, BLPAResNet
 
 __all__ = ['ResNet', 'build_resnet', 'resnet_versions', 'resnet_configs']
 
@@ -421,7 +422,7 @@ resnet_versions = {
             'net' : PreActResNet,
             'block' : PreActBlock,
             'layers' : [9, 9, 9],
-            'num_classes' : 10,
+            'num_classes' : 100,
             },
         'preact_resnet110' : {
             'net' : PreActResNet,
@@ -433,7 +434,13 @@ resnet_versions = {
             'net' : PreActResNet,
             'block' : PreActBottleneck,
             'layers' : [18, 18, 18],
-            'num_classes' : 10,
+            'num_classes' : 100,
+            },
+        'blpa_resnet164' : {
+            'net' : BLPAResNet,
+            'block' : BLPABottleneck,
+            'layers' : [18, 18, 18],
+            'num_classes' : 100,
             },
         'preact_resnet1001' : {
             'net' : PreActResNet,

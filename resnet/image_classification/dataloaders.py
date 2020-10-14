@@ -205,7 +205,7 @@ class PrefetchedWrapper(object):
         for next_indices, next_data in loader:
             next_input, next_target = next_data
 
-            # for next_input, next_target in loader:
+        # for next_input, next_target in loader:
             with torch.cuda.stream(stream):
                 next_input = next_input.cuda(non_blocking=True)
                 next_target = next_target.cuda(non_blocking=True)
@@ -218,7 +218,11 @@ class PrefetchedWrapper(object):
                     if one_hot:
                         next_target = expand(num_classes, torch.float, next_target)
 
-                next_input = next_input.sub_(mean).div_(std)
+                # TODO hack
+                next_input = next_input / 255
+                next_input -= next_input.mean((1,2,3), keepdim=True)
+                # next_input = next_input.sub_(mean).div_(std)
+                # print(next_input.min(), next_input.max())
 
             if not first:
                 yield input, target, indices

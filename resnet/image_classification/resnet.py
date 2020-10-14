@@ -1,7 +1,6 @@
 import torch.nn as nn
-from quantize import QConv2d, QLinear, QBatchNorm2D
+from quantize import QConv2d, QLinear, QBatchNorm2d
 from .preact_resnet import PreActBlock, PreActBottleneck, PreActResNet
-from .blpa_resnet import BLPABottleneck, BLPAResNet
 
 __all__ = ['ResNet', 'build_resnet', 'resnet_versions', 'resnet_configs']
 
@@ -356,7 +355,7 @@ resnet_configs = {
         'quantize' : {
             'conv' : QConv2d,
             'linear' : QLinear,
-            'bn' : QBatchNorm2D, # TODO
+            'bn' : QBatchNorm2d, # TODO
             'conv_init' : 'fan_in',
             'nonlinearity' : 'relu',
             'last_bn_0_init' : False,
@@ -410,7 +409,7 @@ resnet_versions = {
             'net' : ResNetCifar,
             'block' : BasicBlock,
             'layers' : [9, 9, 9],
-            'num_classes' : 100,
+            'num_classes' : 10,
             },
         'preact_resnet20' : {
             'net' : PreActResNet,
@@ -422,7 +421,7 @@ resnet_versions = {
             'net' : PreActResNet,
             'block' : PreActBlock,
             'layers' : [9, 9, 9],
-            'num_classes' : 100,
+            'num_classes' : 10,
             },
         'preact_resnet110' : {
             'net' : PreActResNet,
@@ -434,13 +433,7 @@ resnet_versions = {
             'net' : PreActResNet,
             'block' : PreActBottleneck,
             'layers' : [18, 18, 18],
-            'num_classes' : 100,
-            },
-        'blpa_resnet164' : {
-            'net' : BLPAResNet,
-            'block' : BLPABottleneck,
-            'layers' : [18, 18, 18],
-            'num_classes' : 100,
+            'num_classes' : 10,
             },
         'preact_resnet1001' : {
             'net' : PreActResNet,

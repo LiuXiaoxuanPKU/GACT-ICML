@@ -1,7 +1,9 @@
 from collections import namedtuple
 import torch
 import torch.nn.functional as F
-from torch.autograd.function import InplaceFunction, Function
+from torch.nn.modules.utils import _pair
+from torch.utils.cpp_extension import load
+from torch.autograd.function import Function
 import pytorch_minimax
 
 from quantize.conf import config
@@ -10,376 +12,236 @@ from C import calc_precision_dp, calc_precision, calc_avg_bits
 
 QParams = namedtuple('QParams', ['range', 'zero_point', 'num_bits'])
 
-_DEFAULT_FLATTEN = (1, -1)
-_DEFAULT_FLATTEN_GRAD = (0, -1)
+
+ext_backward_func = load(name="ext_backward_func", sources=["ext_backward_func.cc"], verbose=True)
+ext_quantization = load(name="ext_quantization",
+        sources=["ext_quantization.cc", "ext_quantization_cuda_kernel.cu"], verbose=True)
 
 
-class UniformQuantize(InplaceFunction):
+def quantize_mixed_precision(data, bits, mn, mx, stochastic=True):
+    assert stochastic
+    if not config.compress_activation:
+        return data, None, None, None
 
-    @staticmethod
-    def forward(ctx, input, Preconditioner, stochastic=False, inplace=False):
+    raw_shape = data.shape
+    output = data.view(raw_shape[0], -1)
 
-        ctx.inplace = inplace
+    if config.simulate:
+        bits = bits.cuda()
+        B = (2 ** bits - 1).unsqueeze(1)
+        mn = mn - 1e-8
+        mx = mx + 1e-8
+        scale = B / (mx - mn)
+        output = (output - mn) * scale
 
-        if ctx.inplace:
-            ctx.mark_dirty(input)
-            output = input
-        else:
-            output = input.clone()
+        if stochastic:
+            noise = output.new(output.shape).uniform_(-0.5, 0.5)
+            output.add_(noise)
 
-        # if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
-        #     print('---')
-        #     print(input.view(-1)[:10], input.min(), input.max())
-        with torch.no_grad():
-            preconditioner = Preconditioner(output)
-            output = preconditioner.forward()
-
-            if stochastic:
-                noise = output.new(output.shape).uniform_(-0.5, 0.5)
-                output.add_(noise)
-            # quantize
-            output.clamp_(0.0, preconditioner.num_bins).round_()
-
-            output = preconditioner.inverse(output)
-
-        # if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
-        #     print(output.view(-1)[:10])
-        return output
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        # straight-through estimator
-        grad_input = grad_output
-        return grad_input, None, None, None
-
-
-class UniformQuantizeGrad(InplaceFunction):
-    @staticmethod
-    def forward(ctx, input, Preconditioner, stochastic=True):
-        ctx.stochastic = stochastic
-        ctx.inplace = False
-        ctx.Preconditioner = Preconditioner
-        return input
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        with torch.no_grad():
-            if config.grads is not None:
-                config.grads.append(grad_output.detach())
-
-            grad_input = quantize(grad_output, ctx.Preconditioner, stochastic=ctx.stochastic, inplace=False)
-
-        return grad_input, None, None
-
-
-def quantize(x, Preconditioner, stochastic=False, inplace=False):
-    return UniformQuantize().apply(x, Preconditioner, stochastic, inplace)
-
-
-def quantize_grad(x, Preconditoner, stochastic=True):
-    return UniformQuantizeGrad().apply(x, Preconditoner, stochastic)
-
-
-def conv2d_biprec(input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1):
-    if config.quantize_gradient:
-        out1 = F.conv2d(input.detach(), weight, bias,
-                        stride, padding, dilation, groups)
-        out2 = F.conv2d(input, weight.detach(), bias.detach() if bias is not None else None,
-                        stride, padding, dilation, groups)
-        out1 = quantize_grad(out1, config.weight_gradient_preconditioner())
-        out2 = quantize_grad(out2, config.activation_gradient_preconditioner())
-        return out1 + out2 - out1.detach()
+        output = F.relu(output)
+        output = torch.min(output, B.float()).round_().int()
     else:
-        out = F.conv2d(input, weight, bias,
-                        stride, padding, dilation, groups)
-        return out
+        bits = bits.cuda()
+        output, scale = ext_quantization.pack_mixed_precision(output, mn, mx, bits)
+
+    return output, raw_shape, bits, scale
 
 
-def linear_biprec(input, weight, bias=None):
-    if config.quantize_gradient:
-        out1 = F.linear(input.detach(), weight, bias)
-        out2 = F.linear(input, weight.detach(), bias.detach()
-                        if bias is not None else None)
-        out1 = quantize_grad(out1, config.weight_gradient_preconditioner())
-        out2 = quantize_grad(out2, config.activation_gradient_preconditioner())
-        return out1 + out2 - out1.detach()
+def dequantize_mixed_precision(data, shape, bits, scale, mn):
+    if not config.compress_activation:
+        return data
+
+    if config.simulate:
+        data = data.float() / scale + mn
     else:
-        out = F.linear(input, weight, bias)
-        return out
+        assert config.quantize_activation
+        data = ext_quantization.unpack_mixed_precision(data, bits,
+                scale, mn, shape[0], np.prod(shape) // shape[0])
+    return data.view(*shape)
 
 
-class GradRecorder(InplaceFunction):
-    @staticmethod
-    def forward(ctx, input, name):
-        ctx.name = name
-        return input
+class QScheme:
 
-    @staticmethod
-    def backward(ctx, grad):
-        scale = (grad.view(grad.shape[0], -1) ** 2).sum(1)
-        QF.set_scale(ctx.name, scale.detach().cpu())
-        return grad, None
+    num_samples = 0
+    batch = None
+    update_scale = True
+    layers = []
 
+    def __init__(self):
+        self.initial_bits = config.initial_bits
+        self.bits = config.activation_compression_bits  # Temporarily only allow integer
+        assert QScheme.num_samples > 0
+        self.scales = torch.ones(QScheme.num_samples)
+        QScheme.layers.append(self)
 
-class MixedPrecisionQuantize(InplaceFunction):
+    def get_scale(self):
+        assert QScheme.batch is not None
+        return self.scales[QScheme.batch]
 
-    @staticmethod
-    def forward(ctx, input, bits, stochastic=False, inplace=False):
+    def set_scale(self, grad):
+        if QScheme.update_scale:
+            assert QScheme.batch is not None
+            scale = (grad.view(grad.shape[0], -1) ** 2).sum(1).detach().cpu()
+            self.scales[QScheme.batch] = scale
 
-        ctx.inplace = inplace
-
-        if ctx.inplace:
-            ctx.mark_dirty(input)
-            output = input
-        else:
-            output = input.clone()
-
-        with torch.no_grad():
-            B = (2 ** bits - 1).unsqueeze(1)
-            x_shape = output.shape
-            output = output.view(x_shape[0], -1)
-            # print(x_shape, output.shape)
-            mn = pytorch_minimax.min(output).unsqueeze(1) - 1e-8
-            mx = pytorch_minimax.max(output).unsqueeze(1) + 1e-8
-            # print(mn[:5], mx[:5], B[:5])
-            scale = B / (mx - mn)
-            output = (output - mn) * scale
-
-            if stochastic:
-                noise = output.new(output.shape).uniform_(-0.5, 0.5)
-                output.add_(noise)
-
-            output = F.relu(output)
-            output = torch.min(output, B).round_()
-
-            if QF.debug:
-                print(calc_avg_bits(output.detach().cpu(), bits.int().detach().cpu()))
-
-            output = output / scale + mn
-            output = output.view(*x_shape)
-
-        return output
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        # straight-through estimator
-        grad_input = grad_output
-        return grad_input, None, None, None
-
-
-# Quantized Activation Layers
-class QF:
-    @staticmethod
-    def init(num_samples):
-        # print('Initialized batch size ', num_samples)
-        QF.num_samples = num_samples
-        QF.scales = {}
-        QF.update_scale = True
-        QF.training = True
-        QF.debug = False
-
-    @staticmethod
-    def set_current_batch(ids):
-        # print('Set current batch ', ids)
-        QF.ids = ids
-
-    @staticmethod
-    def get_scale(name):
-        if not name in QF.scales:
-            QF.scales[name] = torch.ones(QF.num_samples)
-
-        return QF.scales[name][QF.ids]
-
-    @staticmethod
-    def set_scale(name, scale):
-        if QF.update_scale and QF.training:
-            if not name in QF.scales:
-                QF.scales[name] = torch.ones(QF.num_samples)
-
-            QF.scales[name][QF.ids] = scale
-            # print('Set scale ', name, scale)
-
-    @staticmethod
-    def quantize(input, name):
-        # if type(config.activation_compression_bits) == int:
-        #     return input
-
-        # if config.activation_compression_bits[name] >= 32 or not QF.training:
-        #     # print('Skipping')
-        #     return input
-
-        if config.activation_compression_bits >= 32 or not QF.training:
-            return input
-
+    def compute_quantization_bits(self, input):
         N = input.shape[0]
         D = input.shape[1]
         input_flatten = input.view(N, -1)
 
-        if config.alg == 'greedy':
-            # print('Quantizing ', config.activation_compression_bits[name])
-            grad_sum = QF.get_scale(name).cpu()
-            mn = pytorch_minimax.min(input_flatten).cpu()
-            mx = pytorch_minimax.max(input_flatten).cpu()
-            Range = mx - mn
-            C = D / 4 * Range ** 2 * grad_sum
-            # print(name, 'Range ', (mx-mn).sum(), ' grad ', grad_sum.sum())
-            b = (torch.ones(N) * config.initial_bits).int()
-            total_bits = int(config.activation_compression_bits * N)
-            b = calc_precision(b, C, total_bits).float()
+        # greedy
+        grad_sum = self.get_scale().cuda()
+        mn = pytorch_minimax.min(input_flatten)
+        mx = pytorch_minimax.max(input_flatten)
+        Range = mx - mn
+        C = D / 4 * Range ** 2 * grad_sum
+        b = torch.ones(N, dtype=torch.int32) * self.initial_bits
+        b = calc_precision(b, C.cpu(), self.bits * N)
 
-            # print(name, 'variance = ', C.sum(), 'weight = ', C.sum() / config.lips[name])
-            # config.weights[name] = (C / (2 ** b - 1)**2).sum() / config.lips[name]
-            # config.dims[name] = input[0].numel()
+        if config.simulate:
+            mn = mn.unsqueeze(1)
+            mx = mx.unsqueeze(1)
 
-            mask = 1.0
-        else:   # DP. only work for convolution
-            grad_sum = QF.get_scale(name).cpu()
-            input_sum = (input_flatten ** 2).sum(1).cpu()
+        return b, mn, mx
 
-            mn = pytorch_minimax.min(input_flatten).cpu()
-            mx = pytorch_minimax.max(input_flatten).cpu()
-            Range = mx - mn
 
-            C = D / 4 * Range ** 2 * grad_sum
-            A = input_sum * grad_sum
+##################################
 
-            b, keep_prob = calc_precision_dp(A, C, config.initial_bits, config.activation_compression_bits, 2)
-            mask = torch.distributions.Bernoulli(probs=keep_prob).sample() / keep_prob
 
-            with torch.no_grad():
-                mask = mask.cuda()
-                if len(input.shape) == 2:
-                    mask = mask.unsqueeze(1)
-                else:
-                    mask = mask.view(N, 1, 1, 1)
-
-        output = MixedPrecisionQuantize().apply(input, b.cuda(), True, False) * mask
-        return output
-
-    # @staticmethod
-    # def conv2d(input, weight, bias, stride, padding, dilation, groups, name):
-    #     assert(bias is None)
-    #     # Correct output, and correct L'input, incorrect L'weight
-    #     output = F.conv2d(input, weight.detach(), bias, stride, padding, dilation, groups)
-    #     if not QF.training:
-    #         return output
-    #
-    #     qinput = QF.quantize(input, name)
-    #     # Incorrect output, incorrect L'input, correct L'weight
-    #     fake_output = F.conv2d(qinput.detach(), weight, bias, stride, padding, dilation, groups)
-    #     fake_output = GradRecorder().apply(fake_output, name)
-    #     # output = GradRecorder().apply(output, name)
-    #
-    #     return output + fake_output - fake_output.detach()
-
-##############
-class MyLinear_apply(torch.autograd.Function):
-
+class conv2d(Function):
     @staticmethod
-    def forward(ctx, input, weight, bias=None, name=None):
-
-        output = input.mm(weight.t())
-        if bias is not None:
-            output += bias.unsqueeze(0).expand_as(output)
-        
-        _input = QF.quantize(input.detach(), name)
-        ctx.save_for_backward(_input, weight, bias)
-        ctx.name = name
-
-        # output = GradRecorder().apply(output, name)
+    def forward(ctx, input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1, scheme=None):
+        with torch.no_grad():
+            q_bits, q_min, mx = scheme.compute_quantization_bits(input)
+            q_input, q_input_shape, q_bits, q_scale =\
+                quantize_mixed_precision(input, q_bits, q_min, mx, True)
+            output = F.conv2d(input, weight, bias, stride, padding, dilation, groups)
+        ctx.scheme = scheme
+        if config.swap:
+            ctx.save_for_backward(*[x.cpu() if x is not None else None for x in [q_input, q_bits, q_scale, q_min, weight, bias]])
+        else:
+            ctx.save_for_backward(q_input, q_bits, q_scale, q_min, weight, bias)
+        ctx.other_args = (q_input_shape, stride, padding, dilation, groups)
         return output
 
     @staticmethod
     def backward(ctx, grad_output):
-        input, weight, bias = ctx.saved_tensors
+        ctx.scheme.set_scale(grad_output)
 
-        # Record gradient
-        scale = (grad_output ** 2).sum(1)
-        QF.set_scale(ctx.name, scale.detach().cpu())
+        if config.swap:
+            q_input, q_bits, q_scale, q_min, weight, bias = [x.cuda() if x is not None else x for x in ctx.saved_tensors]
+        else:
+            q_input, q_bits, q_scale, q_min, weight, bias = ctx.saved_tensors
+        q_input_shape, stride, padding, dilation, groups = ctx.other_args
+        padding = _pair(padding)
+        stride = _pair(stride)
+        dilation = _pair(dilation)
 
-        grad_input = grad_weight = grad_bias = None
+        input = dequantize_mixed_precision(q_input, q_input_shape, q_bits, q_scale, q_min)
 
+        grad_input, grad_weight = ext_backward_func.cudnn_convolution_backward(
+                input, grad_output, weight, padding, stride, dilation, groups,
+                False, False, [ctx.needs_input_grad[0], ctx.needs_input_grad[1]])
+
+        if bias is not None and ctx.needs_input_grad[2]:
+            grad_bias = grad_output.sum([0, 2, 3])
+        else:
+            grad_bias = None
+
+        return grad_input, grad_weight, grad_bias, None, None, None, None, None
+
+
+class linear(Function):
+    @staticmethod
+    def forward(ctx, input, weight, bias=None, scheme=None):
+        with torch.no_grad():
+            q_bits, q_min, mx = scheme.compute_quantization_bits(input)
+            q_input, q_input_shape, q_bits, q_scale = \
+                quantize_mixed_precision(input, q_bits, q_min, mx, True)
+            # q_bits, q_min, mx = None, None, None
+            # q_input, q_input_shape, q_bits, q_scale = \
+            #     input, None, None, None
+
+            # TODO: the following implementation might not be optimal
+            output = input.mm(weight.t())
+            if bias is not None:
+                output += bias.unsqueeze(0).expand_as(output)
+
+        ctx.scheme = scheme
+        if config.swap:
+            ctx.save_for_backward(*[x.cpu() if x is not None else None for x in [q_input, q_bits, q_scale, q_min, weight, bias]])
+        else:
+            ctx.save_for_backward(q_input, q_bits, q_scale, q_min, weight, bias)
+        ctx.other_args = q_input_shape
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        ctx.scheme.set_scale(grad_output)
+
+        if config.swap:
+            q_input, q_bits, q_scale, q_min, weight, bias = [x.cuda() if x is not None else x for x in ctx.saved_tensors]
+        else:
+            q_input, q_bits, q_scale, q_min, weight, bias = ctx.saved_tensors
+        q_input_shape = ctx.other_args
+        input = dequantize_mixed_precision(q_input, q_input_shape, q_bits, q_scale, q_min)
+
+        # TODO: the following implementation might not be optimal
         grad_input = grad_output.mm(weight)
-
         grad_weight = grad_output.t().mm(input)
         if bias is not None:
             grad_bias = grad_output.sum(0)
+        else:
+            grad_bias = None
 
-        return grad_input, grad_weight, grad_bias, None # The name does not need gradient.
-
-
-# class conv2d(Function):
-#     @staticmethod
-#     def forward(ctx, input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1, name=None):
-#         qinput = QF.quantize(input.detach(), name)
-#         ctx.name = name
-#         ctx.save_for_backward(qinput, weight, bias)
-#         ctx.other_args = (stride, padding, dilation, groups)
-#         return F.conv2d(input, weight, bias, stride, padding, dilation, groups)
-#
-#     @staticmethod
-#     def backward(ctx, grad_output):
-#         # Record gradient
-#         scale = (grad_output.view(grad_output.shape[0], -1) ** 2).sum(1)
-#         QF.set_scale(ctx.name, scale.detach().cpu())
-#
-#         qinput, weight, bias = ctx.saved_tensors
-#
-#         if ctx.needs_input_grad[0]:
-#             grad_input = torch.nn.grad.conv2d_input(qinput.shape, weight, grad_output, *ctx.other_args)
-#         else:
-#             grad_input = None
-#
-#         if ctx.needs_input_grad[1]:
-#             grad_weight = torch.nn.grad.conv2d_weight(qinput, weight.shape, grad_output, *ctx.other_args)
-#         else:
-#             grad_weight = None
-#
-#         if bias is not None and ctx.needs_input_grad[2]:
-#             grad_bias = grad_output.sum(0).squeeze(0)
-#         else:
-#             grad_bias = None
-#
-#         return grad_input, grad_weight, grad_bias, None, None, None, None, None
+        return grad_input, grad_weight, grad_bias, None
 
 
 class batch_norm(Function):
     @staticmethod
     def forward(ctx, input, running_mean, running_var, weight, bias,
-                training, exponential_average_factor, eps, name):
-        output = F.batch_norm(
-            input, running_mean, running_var, weight, bias,
-            training, exponential_average_factor, eps)
+                training, exponential_average_factor, eps, scheme):
+        with torch.no_grad():
+            # TODO: fused batch_norm
+            output = F.batch_norm(
+                input, running_mean, running_var, weight, bias,
+                training, exponential_average_factor, eps)
 
-        batch_mean = input.mean((0, 2, 3), keepdim=True)
-        batch_std = torch.sqrt(input.var((0, 2, 3), keepdim=True) + eps)
+            batch_mean = input.mean((0, 2, 3), keepdim=True)
+            batch_std = torch.sqrt(input.var((0, 2, 3), keepdim=True) + eps)
+            normalized = (input - batch_mean) / batch_std
+            weight = weight.view(1, -1, 1, 1)
 
-        normalized = (input - batch_mean) / batch_std
+            q_bits, q_min, mx = scheme.compute_quantization_bits(normalized)
+            q_input, q_input_shape, q_bits, q_scale = \
+                quantize_mixed_precision(normalized, q_bits, q_min, mx, True)
 
-        weight = weight.view(1, -1, 1, 1)
-        bias = bias.view(1, -1, 1, 1)
+        ctx.scheme = scheme
+        # TODO save_for_backward is not working, get RuntimeError: No grad accumulator for a saved leaf!
+        # if config.swap:
+        #     ctx.save_for_backward(
+        #         *[x.cpu() if x is not None else None for x in [q_input, q_bits, q_scale, q_min, weight, batch_std]])
+        # else:
+        #     ctx.save_for_backward(q_input, q_bits, q_scale, q_min, weight, batch_std)
+        ctx.other_args = q_input_shape
+        ctx.saved = (q_input, q_bits, q_scale, q_min, weight, batch_std)
 
-        # ctx.save_for_backward(batch_std, weight, normalized)
-        ctx.batch_std = batch_std
-        ctx.weight = weight
-        ctx.normalized = QF.quantize(normalized, name)
-        ctx.name = name
-
-        # my_output = normalized * weight + bias
-        # print(my_output.norm())
         return output
 
     @staticmethod
     def backward(ctx, grad_output):
-        # Record gradient
-        scale = (grad_output.view(grad_output.shape[0], -1) ** 2).sum(1)
-        QF.set_scale(ctx.name, scale.detach().cpu())
+        ctx.scheme.set_scale(grad_output)
 
-        # batch_std, weight, normalized = ctx.saved_tensors
-        batch_std = ctx.batch_std
-        weight = ctx.weight
-        normalized = ctx.normalized
+        # TODO save_for_backward is not working, get RuntimeError: No grad accumulator for a saved leaf!
+        # if config.swap:
+        #     q_input, q_bits, q_scale, q_min, weight, batch_std = [x.cuda() if x is not None else x for x in ctx.saved_tensors]
+        # else:
+        #     q_input, q_bits, q_scale, q_min, weight, batch_std = ctx.saved_tensors
+        q_input, q_bits, q_scale, q_min, weight, batch_std = ctx.saved
+        q_input_shape = ctx.other_args
+        normalized = dequantize_mixed_precision(q_input, q_input_shape, q_bits, q_scale, q_min)
 
+        # TODO: fused batch_norm
         grad_weight = (grad_output * normalized).sum((0, 2, 3))
         grad_bias = grad_output.sum((0, 2, 3))
         grad_normalized = grad_output * weight
@@ -389,53 +251,6 @@ class batch_norm(Function):
                      (normalized * grad_normalized).mean((0, 2, 3), keepdim=True)
         grad_input = grad_input / batch_std
         return grad_input, None, None, grad_weight, grad_bias, None, None, None, None
-
-
-class my_layer_norm(Function):
-    @staticmethod
-    def forward(ctx, input, normalized_shape, weight, bias, eps, name):
-        mean = input.mean(dim=-1, keepdim=True)
-        var = ((input - mean) ** 2).mean(dim=-1, keepdim=True)
-        std = var.sqrt().add_(eps)
-
-        normalized = (input - mean) / std 
-        ctx.mean = mean
-        ctx.std = std 
-        ctx.normalized = QF.quantize(normalized.detach(), name)
-        ctx.weight = weight
-        ctx.name = name
-
-
-        output = normalized * output + bias 
-
-        return output 
-
-    def backward(ctx, grad_output):
-        # we may do not need scale here
-        scale = (grad_output.view(grad_output.shape[0], -1) ** 2).sum(1) # for NLP, input is seq_length * batch_size * token_size, this one is wrong.
-        QF.set_scale(ctx.name, scale.detach().cpu())
-
-        std = ctx.std 
-
-
-class qsoftmax(Function):
-    @staticmethod
-    def forward(ctx, input, dim, name):
-        output = F.softmax(input)
-        ctx.dim = dim
-        ctx.name = name
-        ctx.output = QF.quantize(output, name)
-        return output
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        # Record gradient
-        scale = (grad_output.view(grad_output.shape[0], -1) ** 2).sum(1)
-        QF.set_scale(ctx.name, scale.detach().cpu())
-
-        output = ctx.output
-        grad = output * (grad_output - (output * grad_output).sum(ctx.dim, keepdim=True))
-        return grad, None, None
 
 
 if __name__ == '__main__':

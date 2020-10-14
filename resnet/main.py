@@ -7,7 +7,7 @@ import torch.distributed as dist
 import torch.optim
 import torch.utils.data
 import torch.utils.data.distributed
-from quantize import config
+from quantize import config, QScheme
 
 try:
     from apex.parallel import DistributedDataParallel as DDP
@@ -130,19 +130,6 @@ def add_parser_arguments(parser):
         else:
             raise argparse.ArgumentTypeError('Boolean value expected.')
 
-    parser.add_argument('--qa', type=str2bool, default=True, help='quantize activation')
-    parser.add_argument('--qw', type=str2bool, default=True, help='quantize weights')
-    parser.add_argument('--qg', type=str2bool, default=True, help='quantize gradients')
-    parser.add_argument('--biased', type=str2bool, default=False, help='biased quantization')
-    parser.add_argument('--abits', type=int, default=8, help='activation number of bits')
-    parser.add_argument('--wbits', type=int, default=8, help='weight number of bits')
-    parser.add_argument('--biasbits', type=int, default=16, help='bias number of bits')
-    parser.add_argument('--bbits', type=int, default=8, help='backward number of bits')
-    parser.add_argument('--bwbits', type=int, default=8, help='backward weight number of bits')
-    parser.add_argument('--persample', type=str2bool, default=False, help='per-sample quantization of gradients')
-    parser.add_argument('--hadamard', type=str2bool, default=False, help='apply Hadamard transformation on gradients')
-    parser.add_argument('--biprecision', type=str2bool, default=True, help='Gradient bifurcation')
-
     parser.add_argument('--ca', type=str2bool, default=True, help='compress activation')
     parser.add_argument('--cabits', type=int, default=8, help='activation number of bits')
     parser.add_argument('--ibits', type=int, default=8, help='Initial precision for the allocation algorithm')
@@ -150,24 +137,10 @@ def add_parser_arguments(parser):
 
 
 def main(args):
-    config.quantize_activation = args.qa
-    config.quantize_weights = args.qw
-    config.quantize_gradient = args.qg
-    config.activation_num_bits = args.abits
-    config.weight_num_bits = args.wbits
-    config.bias_num_bits = args.biasbits
-    config.backward_num_bits = args.bbits
-    config.bweight_num_bits = args.bwbits
-    config.backward_persample = args.persample
-    config.hadamard = args.hadamard
-    config.biased = args.biased
-    config.biprecision = args.biprecision
-
     config.compress_activation = args.ca
     config.activation_compression_bits = args.cabits
     config.initial_bits = args.ibits
     config.alg = args.calg
-    # init(args.batch_size)
 
     exp_start_time = time.time()
     global best_prec1
@@ -230,58 +203,7 @@ def main(args):
 
     # optionally resume from a checkpoint
     if args.resume:
-        if args.resume.find('npz') != -1: # blpa checkpoint
-            print("=> loading checkpoint '{}'".format(args.resume))
-            args.start_epoch = 0
-            best_prec1 = 0
-            state = np.load(args.resume)
-            state = {k: torch.Tensor(state[k]).cuda(args.gpu) for k in state}
-            model_state = {'conv1.weight': state['0'].permute([3, 2, 0, 1])}
-
-            cnt = 1
-            for layer in range(3):
-                for block in range(18):
-                    for i in range(3):
-                        # BN weight
-                        data = state[str(cnt)]
-                        prefix = 'layer{}.{}.bn{}'.format(layer + 1, block, i + 1)
-                        model_state[prefix + '.weight'] = data
-                        model_state[prefix + '.running_mean'] = torch.zeros_like(data)
-                        model_state[prefix + '.running_var'] = torch.zeros_like(data)
-                        cnt += 1
-                        # BN bias
-                        data = state[str(cnt)]
-                        model_state[prefix + '.bias'] = data
-                        cnt += 1
-                        # conv weight
-                        data = state[str(cnt)]
-                        model_state['layer{}.{}.conv{}.weight'.format(layer + 1, block, i + 1)] = data.permute([3, 2, 0, 1])
-                        cnt += 1
-
-            # BN weight
-            data = state[str(cnt)]
-            model_state['bn.weight'] = data
-            model_state['bn.running_mean'] = torch.zeros_like(data)
-            model_state['bn.running_var'] = torch.zeros_like(data)
-            cnt += 1
-            # BN bias
-            data = state[str(cnt)]
-            model_state['bn.bias'] = data
-            cnt += 1
-            # FC weight
-            data = state[str(cnt)]
-            model_state['fc.weight'] = data.view(256, 100).transpose(0, 1)
-            cnt += 1
-            data = state[str(cnt)]
-            model_state['fc.bias'] = data
-            cnt += 1
-
-            for k in model_state:
-                print(k, model_state[k].shape)
-
-            # exit(0)
-            print('Finished')
-        elif os.path.isfile(args.resume):
+        if os.path.isfile(args.resume):
             print("=> loading checkpoint '{}'".format(args.resume))
             checkpoint = torch.load(args.resume, map_location = lambda storage, loc: storage.cuda(args.gpu))
             args.start_epoch = checkpoint['epoch']
@@ -298,6 +220,23 @@ def main(args):
         model_state = None
         optimizer_state = None
 
+    # Create data loaders and optimizers as needed
+    if args.dataset == 'cifar10':
+        get_train_loader = get_pytorch_train_loader_cifar10
+        get_val_loader = get_pytorch_val_loader_cifar10
+        get_debug_loader = get_pytorch_debug_loader_cifar10
+        QScheme.num_samples = 50000
+    elif args.data_backend == 'pytorch':
+        get_train_loader = get_pytorch_train_loader
+        get_val_loader = get_pytorch_val_loader
+        get_debug_loader = get_pytorch_val_loader
+        QScheme.num_samples = 1300000
+    elif args.data_backend == 'dali-gpu':
+        get_train_loader = get_dali_train_loader(dali_cpu=False)
+        get_val_loader = get_dali_val_loader()
+    elif args.data_backend == 'dali-cpu':
+        get_train_loader = get_dali_train_loader(dali_cpu=True)
+        get_val_loader = get_dali_val_loader()
 
     loss = nn.CrossEntropyLoss
     if args.mixup > 0.0:
@@ -310,22 +249,6 @@ def main(args):
             loss,
             pretrained_weights=pretrained_weights,
             cuda = True, fp16 = args.fp16)
-
-    # Create data loaders and optimizers as needed
-    if args.dataset == 'cifar10':
-        get_train_loader = get_pytorch_train_loader_cifar10
-        get_val_loader = get_pytorch_val_loader_cifar10
-        get_debug_loader = get_pytorch_debug_loader_cifar10
-    elif args.data_backend == 'pytorch':
-        get_train_loader = get_pytorch_train_loader
-        get_val_loader = get_pytorch_val_loader
-        get_debug_loader = get_pytorch_val_loader
-    elif args.data_backend == 'dali-gpu':
-        get_train_loader = get_dali_train_loader(dali_cpu=False)
-        get_val_loader = get_dali_val_loader()
-    elif args.data_backend == 'dali-cpu':
-        get_train_loader = get_dali_train_loader(dali_cpu=True)
-        get_val_loader = get_dali_val_loader()
 
     train_loader, train_loader_len = get_train_loader(args.data, args.batch_size, args.num_classes, args.mixup > 0.0, workers=args.workers, fp16=args.fp16)
     if args.mixup != 0.0:

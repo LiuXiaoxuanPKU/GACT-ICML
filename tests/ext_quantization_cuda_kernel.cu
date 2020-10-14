@@ -19,6 +19,7 @@ __global__ void compute_scale_kernel(const int32_t* __restrict__ bits,
   }
 }
 
+// Pack float32 data into int32 bit stream
 __global__ void pack_mixed_precision_kernel(const int32_t* __restrict__ bits,
                                             const int32_t* __restrict__ prefix_sum,
                                             const float* __restrict__ data,
@@ -43,6 +44,7 @@ __global__ void pack_mixed_precision_kernel(const int32_t* __restrict__ bits,
   }
 }
 
+// Pack float32 data into int32 bit stream
 std::pair<torch::Tensor, torch::Tensor> pack_mixed_precision_cuda(torch::Tensor data,
                                                                   torch::Tensor min,
                                                                   torch::Tensor max,
@@ -77,6 +79,7 @@ std::pair<torch::Tensor, torch::Tensor> pack_mixed_precision_cuda(torch::Tensor 
   return std::make_pair(packed, scale);
 }
 
+// Unpack int32 bit stream to float32 data
 __global__ void unpack_mixed_precision_kernel(const int32_t* __restrict__ bits,
                                               const int32_t* __restrict__ prefix_sum,
                                               const int32_t* __restrict__ data,
@@ -102,6 +105,7 @@ __global__ void unpack_mixed_precision_kernel(const int32_t* __restrict__ bits,
   }
 }
 
+// Unpack int32 bit stream to float32 data
 torch::Tensor unpack_mixed_precision_cuda(torch::Tensor data,
                                           torch::Tensor bits,
                                           torch::Tensor scale,
@@ -110,11 +114,11 @@ torch::Tensor unpack_mixed_precision_cuda(torch::Tensor data,
                                           int D) {
   torch::Tensor prefix_sum = torch::cumsum(bits, 0, torch::kInt32);
 
-  int threads = 128;
-  int blocks = (N * D + threads - 1) / threads;
-
   auto options = torch::TensorOptions().dtype(torch::kFloat32).device(data.device());
   torch::Tensor unpacked = torch::empty({N, D}, options);
+
+  int threads = 128;
+  int blocks = (N * D + threads - 1) / threads;
 
   unpack_mixed_precision_kernel<<<blocks, threads>>>(
     bits.data_ptr<int32_t>(), prefix_sum.data_ptr<int32_t>(),
@@ -125,3 +129,70 @@ torch::Tensor unpack_mixed_precision_cuda(torch::Tensor data,
 
   return unpacked;
 }
+
+// Unpack int32 bit stream to float32 data
+__global__ void act_quantized_relu_forward_kernel(const float* __restrict__ data,
+                                                  int32_t* __restrict__ mask,
+                                                  float* __restrict__ output,
+                                                  int N) {
+  int id = blockIdx.x * blockDim.x + threadIdx.x;
+
+  if (id < N) {
+    int bit = data[id] > 0;
+
+    atomicOr(mask + id / 32, bit << (id % 32));
+    output[id] = fmax(data[id], 0.0f);
+  }
+}
+
+std::pair<torch::Tensor, torch::Tensor> act_quantized_relu_forward_cuda(torch::Tensor data) {
+  int n_elements = 1;
+  for (size_t i = 0; i < data.dim(); ++i) {
+    n_elements *= data.size(i);
+  }
+
+  auto options = torch::TensorOptions().dtype(torch::kInt32).device(data.device());
+  torch::Tensor mask = torch::zeros({(n_elements + 31) / 32}, options);
+  torch::Tensor output = torch::empty_like(data);
+
+  int threads = 256;
+  int blocks = (n_elements + threads - 1) / threads;
+
+  act_quantized_relu_forward_kernel<<<blocks, threads>>>(
+    data.data_ptr<float>(), mask.data_ptr<int32_t>(), output.data_ptr<float>(),
+    n_elements);
+
+  return std::make_pair(output, mask);
+}
+
+__global__ void act_quantized_relu_backward_kernel(const float* __restrict__ data,
+                                                   int32_t* __restrict__ mask,
+                                                   float* __restrict__ output,
+                                                   int N) {
+  int id = blockIdx.x * blockDim.x + threadIdx.x;
+
+  if (id < N) {
+    if ((mask[id / 32] >> (id % 32)) & 1) {
+      output[id] = data[id];
+    }
+  }
+}
+
+torch::Tensor act_quantized_relu_backward_cuda(torch::Tensor mask, torch::Tensor data) {
+  int n_elements = 1;
+  for (size_t i = 0; i < data.dim(); ++i) {
+    n_elements *= data.size(i);
+  }
+
+  int threads = 256;
+  int blocks = (n_elements + threads - 1) / threads;
+
+  torch::Tensor output = torch::zeros_like(data);
+
+  act_quantized_relu_backward_kernel<<<blocks, threads>>>(
+    data.data_ptr<float>(), mask.data_ptr<int32_t>(), output.data_ptr<float>(),
+    n_elements);
+
+  return output;
+}
+

@@ -20,6 +20,7 @@ ext_quantization = load(name="ext_quantization",
         sources=["ext_quantization.cc", "ext_quantization_cuda_kernel.cu"], verbose=True)
 
 SIMULATE = False
+SWAP = False
 
 def compute_tensor_bytes(x):
     assert x.dtype in [torch.float32, torch.int]
@@ -84,6 +85,26 @@ def dequantize_mixed_precision(data, shape, bits, scale, mn):
                 scale, mn, shape[0], np.prod(shape) // shape[0])
     return data.view(*shape)
 
+def test_relu_correctness():
+    data_np = np.random.randn(128, 56, 56, 32).astype('float32')
+
+    for device in ['cuda']:
+        def test_implementation(func):
+            data = torch.tensor(data_np).to(torch.device(device)).requires_grad_()
+
+            output = func(data)
+            output.backward(torch.ones_like(output))
+
+            return [x.detach().cpu().numpy() for x in [output, data.grad]]
+
+        output_ref, grad_data_ref =  test_implementation(F.relu)
+        output_us, grad_data_us = test_implementation(ext_quantization.act_quantized_relu)
+
+        print("========== ReLU Correctness Test ==========")
+        np.testing.assert_allclose(output_ref, output_us)
+        np.testing.assert_allclose(grad_data_ref, grad_data_us)
+
+
 class act_quantized_conv2d(autograd.Function):
     @staticmethod
     def forward(ctx, input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1, name=None):
@@ -93,13 +114,19 @@ class act_quantized_conv2d(autograd.Function):
                 quantize_mixed_precision(input, q_bits, q_min, mx, False)
             output = F.conv2d(input, weight, bias, stride, padding, dilation, groups)
         ctx.name = name
-        ctx.save_for_backward(q_input, q_bits, q_scale, q_min, weight, bias)
+        if SWAP:
+            ctx.save_for_backward(*[x.cpu() if x is not None else None for x in [q_input, q_bits, q_scale, q_min, weight, bias]])
+        else:
+            ctx.save_for_backward(q_input, q_bits, q_scale, q_min, weight, bias)
         ctx.other_args = (q_input_shape, stride, padding, dilation, groups)
         return output
 
     @staticmethod
     def backward(ctx, grad_output):
-        q_input, q_bits, q_scale, q_min, weight, bias = ctx.saved_tensors
+        if SWAP:
+            q_input, q_bits, q_scale, q_min, weight, bias = [x.cuda() if x is not None else x for x in ctx.saved_tensors]
+        else:
+            q_input, q_bits, q_scale, q_min, weight, bias = ctx.saved_tensors
         q_input_shape, stride, padding, dilation, groups = ctx.other_args
         padding = _pair(padding)
         stride = _pair(stride)
@@ -117,7 +144,6 @@ class act_quantized_conv2d(autograd.Function):
             grad_bias = None
 
         return grad_input, grad_weight, grad_bias, None, None, None, None, None
-
 
 def test_conv2d_correctness():
     """Test the correctness of computation results"""
@@ -200,16 +226,26 @@ def test_conv2d_memory_analytical():
     bias_np = np.random.randn(CO).astype('float32')
 
     for device in ['cuda']:
-        def test_implementation(func):
+        def test_implementation(func, n_layers):
             data = torch.tensor(data_np).to(torch.device(device)).requires_grad_()
             weight = torch.tensor(weight_np).to(torch.device(device)).requires_grad_()
             bias = torch.tensor(bias_np).to(torch.device(device)).requires_grad_()
 
+            # allocate input and weights
+            data = torch.tensor(data_np).to(torch.device(device)).requires_grad_(False)
+            weights = []
+            for i in range(n_layers):
+                weight = torch.tensor(weight_np).to(torch.device(device)).requires_grad_()
+                weights.append(weight)
+
             before_size = get_memory_usage(False)
 
-            output = func(data, weight, bias, stride, padding, dilation, groups)
-            output = func(output, weight, bias, stride, padding, dilation, groups)
-            output = func(output, weight, bias, stride, padding, dilation, groups)
+            # forward n convolution layers
+            output = data
+            for i in range(n_layers):
+                output = func(output, weights[i], None, stride, padding, dilation, groups)
+                output = F.relu(output, inplace=True)
+                #output = ext_quantization.act_quantized_relu(output)
             output = output.sum()
 
             after_size = get_memory_usage(False)
@@ -217,9 +253,8 @@ def test_conv2d_memory_analytical():
 
             return after_size / 1024**2, (after_size - before_size - output_size) / 1024**2
 
-        
-        total_size_ref, act_size_ref = test_implementation(F.conv2d)
-        total_size_us, act_size_us = test_implementation(act_quantized_conv2d.apply)
+        total_size_ref, act_size_ref = test_implementation(F.conv2d, 1)
+        total_size_us, act_size_us = test_implementation(act_quantized_conv2d.apply, 1)
 
         print("========== Conv2d Activation Memory Test (bits = %d) ==========" % (config.activation_compression_bits))
         print("Reference. Total: %7.2f MB\tAct: %7.2f MB" % (total_size_ref, act_size_ref))
@@ -236,7 +271,7 @@ def test_conv2d_memory_max_batch_size():
                 data_np = np.random.uniform(size=(N, CI, H, W)).astype('float32')
                 weight_np = np.random.uniform(size=(CO, CI // groups, kernel_size, kernel_size)).astype('float32')
                 bias_np = np.random.uniform(size=(CO,)).astype('float32')
-    
+
                 # allocate input and weights
                 data = torch.tensor(data_np).to(torch.device(device)).requires_grad_(False)
                 weights = []
@@ -275,15 +310,17 @@ def test_conv2d_memory_max_batch_size():
         test_implementation(act_quantized_conv2d.apply, n_layers=50, batch_sizes=[100, 200, 250, 500, 1000, 2200, 2300, 2400, 3000, 4000])
 
 if __name__ == "__main__":
-    config.activation_compression_bits = 8
-    test_conv2d_correctness()
+    #test_relu_correctness()
 
-    config.activation_compression_bits = 2
-    test_conv2d_speed()
+    #config.activation_compression_bits = 8
+    #test_conv2d_correctness()
 
-    config.activation_compression_bits = 2
+    #config.activation_compression_bits = 2
+    #test_conv2d_speed()
+
+    #config.activation_compression_bits = 2
     test_conv2d_memory_analytical()
 
-    config.activation_compression_bits = 2
-    test_conv2d_memory_max_batch_size()
+    #config.activation_compression_bits = 2
+    #test_conv2d_memory_max_batch_size()
 

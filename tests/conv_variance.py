@@ -3,7 +3,7 @@ from tqdm import tqdm
 from quantize import config, QScheme, QConv2d, quantize_mixed_precision, dequantize_mixed_precision
 import pytorch_minimax
 
-input, weight, grad_output, grad_weight = torch.load('../resnet/layer_1.pt')
+input, weight, grad_output, grad_weight = torch.load('../resnet/layer_0.pt')
 N, C_in, H, W = input.shape
 _, C_out, _, _ = grad_output.shape
 
@@ -11,12 +11,12 @@ config.activation_compression_bits = 2
 config.initial_bits = 2
 config.compress_activation = True
 num_bins = 3
-num_locations = 9
+num_locations = 7 * 7
 QScheme.num_samples = N
 QScheme.update_scale = False
-QScheme.batch = torch.arange(0, 128)
+QScheme.batch = torch.arange(0, 32)
 
-model = QConv2d(C_in, C_out, 3, padding=1, bias=False).cuda()
+model = QConv2d(C_in, C_out, 7, stride=2, padding=3, bias=False).cuda()
 with torch.no_grad():
     model.weight.copy_(weight)
 

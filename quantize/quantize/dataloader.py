@@ -16,7 +16,7 @@ from torch._utils import ExceptionWrapper
 from torch._six import queue, string_classes
 
 from torch.utils.data import IterableDataset, Sampler, SequentialSampler, RandomSampler, BatchSampler
-from torch.utils.data import _utils
+from quantize import _utils
 
 
 get_worker_info = _utils.worker.get_worker_info
@@ -273,11 +273,11 @@ class DataLoader(object):
         super(DataLoader, self).__setattr__(attr, val)
 
     def __iter__(self):
-        return _SingleProcessDataLoaderIter(self)
-        # if self.num_workers == 0:
-        #     return _SingleProcessDataLoaderIter(self)
-        # else:
-        #     return _MultiProcessingDataLoaderIter(self)
+        # return _SingleProcessDataLoaderIter(self)
+        if self.num_workers == 0:
+            return _SingleProcessDataLoaderIter(self)
+        else:
+            return _MultiProcessingDataLoaderIter(self)
 
     @property
     def _auto_collation(self):
@@ -773,7 +773,7 @@ class _MultiProcessingDataLoaderIter(_BaseDataLoaderIter):
                     self._shutdown_worker(worker_id)
             if len(failed_workers) > 0:
                 pids_str = ', '.join(str(w.pid) for w in failed_workers)
-                raise RuntimeError('DataLoader worker (pid(s) {}) exited unexpectedly'.format(pids_str))
+                raise RuntimeError('DataLoader  qworker (pid(s) {}) exited unexpectedly'.format(pids_str))
             if isinstance(e, queue.Empty):
                 return (False, None)
             raise
@@ -837,7 +837,7 @@ class _MultiProcessingDataLoaderIter(_BaseDataLoaderIter):
             # Check if the next sample has already been generated
             if len(self._task_info[self._rcvd_idx]) == 2:
                 data = self._task_info.pop(self._rcvd_idx)[1]
-                return self._process_data(data)
+                return data[0], self._process_data(data[1])
 
             assert not self._shutdown and self._tasks_outstanding > 0
             idx, data = self._get_data()
@@ -855,7 +855,7 @@ class _MultiProcessingDataLoaderIter(_BaseDataLoaderIter):
                 self._task_info[idx] += (data,)
             else:
                 del self._task_info[idx]
-                return self._process_data(data)
+                return data[0], self._process_data(data[1])
 
     def _try_put_index(self):
         assert self._tasks_outstanding < 2 * self._num_workers

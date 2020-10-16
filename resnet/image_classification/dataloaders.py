@@ -204,6 +204,9 @@ class PrefetchedWrapper(object):
 
         for next_indices, next_data in loader:
             next_input, next_target = next_data
+            # print(next_indices)
+            # print(next_input.shape)
+            # print(next_target.shape)
 
             with torch.cuda.stream(stream):
                 next_input = next_input.cuda(non_blocking=True)
@@ -262,7 +265,7 @@ def get_pytorch_train_loader(data_path, batch_size, num_classes, one_hot, worker
     else:
         train_sampler = None
 
-    train_loader = torch.utils.data.DataLoader(
+    train_loader = dataloader.DataLoader(
             train_dataset, batch_size=batch_size, shuffle=(train_sampler is None),
             num_workers=workers, worker_init_fn=_worker_init_fn, pin_memory=True, sampler=train_sampler, collate_fn=fast_collate, drop_last=True)
 
@@ -281,7 +284,7 @@ def get_pytorch_val_loader(data_path, batch_size, num_classes, one_hot, workers=
     else:
         val_sampler = None
 
-    val_loader = torch.utils.data.DataLoader(
+    val_loader = dataloader.DataLoader(
             val_dataset,
             sampler=val_sampler,
             batch_size=batch_size, shuffle=False,

@@ -43,6 +43,7 @@ def get_var(model_and_loss, optimizer, val_loader, num_batches=20):
     cnt = 0
     batch_grad = None
     for i, (input, target, index) in tqdm(data_iter):
+        print(QScheme.num_samples, index)
         QScheme.batch = index
         cnt += 1
 
@@ -54,16 +55,17 @@ def get_var(model_and_loss, optimizer, val_loader, num_batches=20):
 
         if cnt == num_batches:
             break
+        exit(0)
 
     num_batches = cnt
     batch_grad = dict_mul(batch_grad, 1.0 / num_batches)
     QScheme.update_scale = False
 
-    # New strategy
-    config.compress_activation = True
-    QScheme.batch = indices[0]
-    grad = bp(inputs[0].cuda(), targets[0].cuda())
-    QScheme.allocate_perlayer()
+    if config.perlayer:
+        config.compress_activation = True
+        QScheme.batch = indices[0]
+        grad = bp(inputs[0].cuda(), targets[0].cuda())
+        QScheme.allocate_perlayer()
 
     total_var = None
     total_error = None
@@ -72,6 +74,7 @@ def get_var(model_and_loss, optimizer, val_loader, num_batches=20):
     for i, input, target, index in tqdm(zip(range(num_batches), inputs, targets, indices)):
         input = input.cuda()
         target = target.cuda()
+        print(index)
         QScheme.batch = index
         config.compress_activation = False
         exact_grad = bp(input, target)

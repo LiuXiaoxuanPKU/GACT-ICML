@@ -113,7 +113,7 @@ std::vector<torch::Tensor> get_transform(torch::Tensor mvec,
 }
 
 // Greedy algorithm
-torch::Tensor calc_precision(torch::Tensor b, torch::Tensor C, torch::Tensor w, int target) {
+torch::Tensor calc_precision(torch::Tensor b, torch::Tensor C, torch::Tensor w, double target) {
     TORCH_CHECK(!b.type().is_cuda(), "b must be a CPU tensor!");
     TORCH_CHECK(b.is_contiguous(), "b must be contiguous!");
     TORCH_CHECK(!C.type().is_cuda(), "C must be a CPU tensor!");
@@ -135,7 +135,7 @@ torch::Tensor calc_precision(torch::Tensor b, torch::Tensor C, torch::Tensor w, 
     };
 
     int N = b.size(0);
-    int b_sum = 0;
+    double b_sum = 0;
     for (int i = 0; i < N; i++) {
         auto delta = get_obj(C_data[i], b_data[i]) / w_data[i];
         q.push(std::make_pair(delta, i));

@@ -113,17 +113,20 @@ std::vector<torch::Tensor> get_transform(torch::Tensor mvec,
 }
 
 // Greedy algorithm
-torch::Tensor calc_precision(torch::Tensor b, torch::Tensor C, int target) {
+torch::Tensor calc_precision(torch::Tensor b, torch::Tensor C, torch::Tensor w, int target) {
     TORCH_CHECK(!b.type().is_cuda(), "b must be a CPU tensor!");
     TORCH_CHECK(b.is_contiguous(), "b must be contiguous!");
     TORCH_CHECK(!C.type().is_cuda(), "C must be a CPU tensor!");
     TORCH_CHECK(C.is_contiguous(), "C must be contiguous!");
+    TORCH_CHECK(!w.type().is_cuda(), "w must be a CPU tensor!");
+    TORCH_CHECK(w.is_contiguous(), "w must be contiguous!");
 
     // min \sum_i C_i / (2^b_i - 1)^2, s.t., \sum_i b_i = N b
     std::priority_queue<std::pair<float, int>> q;
 
     auto *b_data = b.data_ptr<int>();
     auto *C_data = C.data_ptr<float>();
+    auto *w_data = w.data_ptr<int>();
 
     auto get_obj = [&](float C, int b) {
         int coeff_1 = ((1 << b) - 1) * ((1 << b) - 1);
@@ -134,18 +137,19 @@ torch::Tensor calc_precision(torch::Tensor b, torch::Tensor C, int target) {
     int N = b.size(0);
     int b_sum = 0;
     for (int i = 0; i < N; i++) {
-        auto delta = get_obj(C_data[i], b_data[i]);
+        auto delta = get_obj(C_data[i], b_data[i]) / w_data[i];
         q.push(std::make_pair(delta, i));
-        b_sum += b_data[i];
+        b_sum += b_data[i] * w_data[i];
     }
 
-    while (b_sum > target) {
+    while (b_sum > target) {        // Pick up the smallest increment (largest decrement)
+        assert(!q.empty());
         auto i = q.top().second;
         q.pop();
         b_data[i] -= 1;
-        b_sum--;
+        b_sum -= w_data[i];
         if (b_data[i] > 1) {
-            auto delta = get_obj(C_data[i], b_data[i]);
+            auto delta = get_obj(C_data[i], b_data[i]) / w_data[i];
             q.push(std::make_pair(delta, i));
         }
     }

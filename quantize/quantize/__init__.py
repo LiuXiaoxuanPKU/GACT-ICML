@@ -1,5 +1,5 @@
 from . import dataloader
 from . import ops
 from .conf import config
-from .ops import QScheme
+from .ops import QScheme, quantize_mixed_precision, dequantize_mixed_precision
 from .layers import QConv2d, QBatchNorm2d, QLinear

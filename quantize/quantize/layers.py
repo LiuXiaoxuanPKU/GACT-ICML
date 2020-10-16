@@ -11,7 +11,7 @@ class QConv2d(nn.Conv2d):
                  stride=1, padding=0, dilation=1, groups=1, bias=True):
         super(QConv2d, self).__init__(in_channels, out_channels, kernel_size,
                                       stride, padding, dilation, groups, bias)
-        self.scheme = QScheme()
+        self.scheme = QScheme(num_locations=kernel_size**2)
 
     def _conv_forward(self, input, weight):
         if self.padding_mode != 'zeros':

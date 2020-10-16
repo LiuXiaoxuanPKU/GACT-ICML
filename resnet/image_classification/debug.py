@@ -59,6 +59,12 @@ def get_var(model_and_loss, optimizer, val_loader, num_batches=20):
     batch_grad = dict_mul(batch_grad, 1.0 / num_batches)
     QScheme.update_scale = False
 
+    # New strategy
+    config.compress_activation = True
+    QScheme.batch = indices[0]
+    grad = bp(inputs[0].cuda(), targets[0].cuda())
+    QScheme.allocate_perlayer()
+
     total_var = None
     total_error = None
     total_bias = None
@@ -76,6 +82,7 @@ def get_var(model_and_loss, optimizer, val_loader, num_batches=20):
         config.compress_activation = True
         for iter in range(num_samples):
             grad = bp(input, target)
+
             mean_grad = dict_add(mean_grad, grad)
             total_error = dict_add(total_error, dict_sqr(dict_minus(exact_grad, grad)))
             second_momentum = dict_add(second_momentum, dict_sqr(grad))

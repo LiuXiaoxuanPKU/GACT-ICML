@@ -63,16 +63,24 @@ def dequantize_mixed_precision(data, shape, bits, scale, mn):
 class QScheme:
 
     num_samples = 0
+    num_layers = 0
     batch = None
     update_scale = True
     layers = []
 
-    def __init__(self):
+    def __init__(self, num_locations=1):
         self.initial_bits = config.initial_bits
-        self.bits = config.activation_compression_bits  # Temporarily only allow integer
+        self.bits = config.activation_compression_bits
         assert QScheme.num_samples > 0
         self.scales = torch.ones(QScheme.num_samples)
         QScheme.layers.append(self)
+        self.C = None
+        self.dim = None
+        self.num_locations = num_locations
+
+        # debug
+        self.name = 'layer_{}'.format(QScheme.num_layers)
+        QScheme.num_layers += 1
 
     def get_scale(self):
         assert QScheme.batch is not None
@@ -82,6 +90,7 @@ class QScheme:
         if QScheme.update_scale:
             assert QScheme.batch is not None
             scale = (grad.view(grad.shape[0], -1) ** 2).sum(1).detach().cpu()
+            # print(scale)
             self.scales[QScheme.batch] = scale
 
     def compute_quantization_bits(self, input):
@@ -91,18 +100,48 @@ class QScheme:
 
         # greedy
         grad_sum = self.get_scale().cuda()
+        # print('grad sum', grad_sum)
         mn = pytorch_minimax.min(input_flatten)
         mx = pytorch_minimax.max(input_flatten)
         Range = mx - mn
-        C = D / 4 * Range ** 2 * grad_sum
+        C = self.num_locations * D / 4 * Range ** 2 * grad_sum
+        # print(C)
+        self.C = C.cpu()
+        self.dim = input.numel() // N
         b = torch.ones(N, dtype=torch.int32) * self.initial_bits
-        b = calc_precision(b, C.cpu(), self.bits * N)
+        w = torch.ones(N, dtype=torch.int32)
+        b = calc_precision(b, self.C, w, int(self.bits * N))
+
+        # TODO hack
+        B = 2 ** b - 1
+        self.var = (self.C / B**2).sum()
 
         if config.simulate:
             mn = mn.unsqueeze(1)
             mx = mx.unsqueeze(1)
 
         return b, mn, mx
+
+    @staticmethod
+    def allocate_perlayer():
+        layers = QScheme.layers
+        L = len(layers)
+
+        Cs = [layer.C for layer in layers]
+        C = torch.cat(Cs, 0)
+
+        N = Cs[0].shape[0]
+
+        Ws = [torch.ones(N, dtype=torch.int32) * layer.dim for layer in layers]
+        w = torch.cat(Ws, 0)
+
+        total_bits = w.sum() * config.activation_compression_bits
+        b = torch.ones(N * L, dtype=torch.int32) * config.initial_bits
+        b = calc_precision(b, C, w, total_bits)
+        for i in range(L):
+            bs = b[i*N : (i+1)*N]
+            print(i, w[i*N], Cs[i].mean(), bs.float().mean(), bs)
+            layers[i].bits = bs.float().mean()
 
 
 ##################################
@@ -147,6 +186,10 @@ class conv2d(Function):
             grad_bias = grad_output.sum([0, 2, 3])
         else:
             grad_bias = None
+
+        # TODO debug
+        # print('Saving')
+        # torch.save([input, weight, grad_output, grad_weight], ctx.scheme.name + '.pt')
 
         return grad_input, grad_weight, grad_bias, None, None, None, None, None
 

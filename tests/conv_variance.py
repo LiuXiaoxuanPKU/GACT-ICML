@@ -14,7 +14,7 @@ num_bins = 3
 num_locations = 7 * 7
 QScheme.num_samples = N
 QScheme.update_scale = False
-QScheme.batch = torch.arange(0, 32)
+QScheme.batch = torch.arange(0, 50)
 
 model = QConv2d(C_in, C_out, 7, stride=2, padding=3, bias=False).cuda()
 with torch.no_grad():
@@ -24,6 +24,7 @@ config.compress_activation = False
 output = model(input)
 grad = torch.autograd.grad(output, model.weight, grad_output)[0]
 exact_grad = grad.detach().clone()
+print(exact_grad[0,0,0])
 
 config.compress_activation = True
 grads = []
@@ -37,6 +38,9 @@ grad_std = grads.std(0)
 grad_var = (grad_std ** 2).sum()
 print((exact_grad**2).sum())
 print(grad_var)
+
+print((grads.mean(0))[0,0,0])
+print((grad_std**2)[0,0,0])
 
 grad_sum = (grad_output.view(N, -1) ** 2).sum(1)
 input_flatten = input.view(N, -1)

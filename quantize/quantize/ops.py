@@ -111,6 +111,7 @@ class QScheme:
         b = torch.ones(N, dtype=torch.int32) * self.initial_bits
         w = torch.ones(N, dtype=torch.int32)
         b = calc_precision(b, self.C, w, int(self.bits * N))
+        # print(self.initial_bits, b, self.C, w, int(self.bits * N))
 
         # TODO hack
         B = 2 ** b - 1
@@ -267,20 +268,18 @@ class batch_norm(Function):
         # else:
         #     ctx.save_for_backward(q_input, q_bits, q_scale, q_min, weight, batch_std)
         ctx.other_args = q_input_shape
-        ctx.saved = (q_input, q_bits, q_scale, q_min, weight, batch_std)
+        ctx.saved = (q_input, q_bits, q_scale, q_min, weight, bias, batch_std, input)
 
         return output
 
     @staticmethod
     def backward(ctx, grad_output):
-        ctx.scheme.set_scale(grad_output)
-
         # TODO save_for_backward is not working, get RuntimeError: No grad accumulator for a saved leaf!
         # if config.swap:
         #     q_input, q_bits, q_scale, q_min, weight, batch_std = [x.cuda() if x is not None else x for x in ctx.saved_tensors]
         # else:
         #     q_input, q_bits, q_scale, q_min, weight, batch_std = ctx.saved_tensors
-        q_input, q_bits, q_scale, q_min, weight, batch_std = ctx.saved
+        q_input, q_bits, q_scale, q_min, weight, bias, batch_std, input = ctx.saved
         q_input_shape = ctx.other_args
         normalized = dequantize_mixed_precision(q_input, q_input_shape, q_bits, q_scale, q_min)
 
@@ -290,9 +289,15 @@ class batch_norm(Function):
         grad_normalized = grad_output * weight
 
         mean_grad_normalized = grad_normalized.mean((0, 2, 3), keepdim=True)
-        grad_input = grad_normalized - mean_grad_normalized - normalized * \
-                     (normalized * grad_normalized).mean((0, 2, 3), keepdim=True)
+        mean_grad = (normalized * grad_normalized).mean((0, 2, 3), keepdim=True)
+        grad_input = grad_normalized - mean_grad_normalized - normalized * mean_grad
         grad_input = grad_input / batch_std
+
+        ctx.scheme.set_scale(mean_grad)
+
+        # print('Saving')
+        # torch.save([input, weight, bias, grad_output, grad_input], ctx.scheme.name + '.pt')
+
         return grad_input, None, None, grad_weight, grad_bias, None, None, None, None
 
 

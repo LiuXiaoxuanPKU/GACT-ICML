@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from quantize.ops import linear, batch_norm, conv2d, QScheme
+from quantize.qbnscheme import QBNScheme
 
 
 class QConv2d(nn.Conv2d):
@@ -39,7 +40,8 @@ class QLinear(nn.Linear):
 class QBatchNorm2d(nn.BatchNorm2d):
     def __init__(self, num_features):
         super(QBatchNorm2d, self).__init__(num_features)
-        self.scheme = QScheme()
+        self.scheme = QBNScheme()
+        # self.scheme.initial_bits = self.scheme.bits # TODO hack
 
     def forward(self, input):
         self._check_input_dim(input)

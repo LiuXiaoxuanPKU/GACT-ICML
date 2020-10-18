@@ -1,4 +1,4 @@
-from quantize import config, QScheme
+from quantize import config, QScheme, QBNScheme
 from .utils import *
 import matplotlib
 matplotlib.use('Agg')
@@ -64,6 +64,7 @@ def get_var(model_and_loss, optimizer, val_loader, num_batches=20):
         QScheme.batch = indices[0]
         grad = bp(inputs[0].cuda(), targets[0].cuda())
         QScheme.allocate_perlayer()
+        # QBNScheme.allocate_perlayer()
 
     total_var = None
     total_error = None
@@ -114,17 +115,3 @@ def get_var(model_and_loss, optimizer, val_loader, num_batches=20):
 
     print('Overall Var = {}'.format(all_qg))
 
-
-# TODO
-# def get_trace
-    # params = {layer.name: layer.weight for layer in m.linear_layers}
-    # total_trace = None
-    # for b in range(80):
-    #     input = inputs[b].cuda()
-    #     target = targets[b].cuda()
-    #     trace = trace_Hessian(model_and_loss, params, (input, target), num_samples=10)
-    #     total_trace = dict_add(total_trace, trace)
-    # #
-    # total_trace = dict_mul(total_trace, 0.0125)
-    # for k in total_trace:
-    #     print(k, total_trace[k])

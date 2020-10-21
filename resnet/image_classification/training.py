@@ -7,7 +7,7 @@ from . import logger as log
 from . import resnet as models
 from . import utils
 from .debug import get_var
-from quantize import QScheme
+from quantize import config, QScheme, QBNScheme
 
 try:
     from apex.parallel import DistributedDataParallel as DDP
@@ -229,6 +229,8 @@ def train(train_loader, model_and_loss, optimizer, lr_scheduler, fp16, logger, e
 
     for i, (input, target, index) in data_iter:
         QScheme.batch = index
+        QBNScheme.batch = index
+
         bs = input.size(0)
         lr_scheduler(optimizer, i, epoch)
         data_time = time.time() - end
@@ -252,7 +254,11 @@ def train(train_loader, model_and_loss, optimizer, lr_scheduler, fp16, logger, e
             logger.log_metric('train.compute_time', it_time - data_time)
 
         end = time.time()
+        if epoch > 0 and config.perlayer:
+            QScheme.allocate_perlayer()
 
+    for layer in QScheme.layers:
+        print(layer.name, layer.bits)
 
 
 def get_val_step(model_and_loss):
@@ -281,6 +287,7 @@ def get_val_step(model_and_loss):
 
 def validate(val_loader, model_and_loss, fp16, logger, epoch, prof=-1, register_metrics=True):
     QScheme.update_scale = False
+    QBNScheme.update_scale = False
     if register_metrics and logger is not None:
         logger.register_metric('val.top1',         log.AverageMeter(), log_level = 0)
         logger.register_metric('val.top5',         log.AverageMeter(), log_level = 0)
@@ -303,7 +310,9 @@ def validate(val_loader, model_and_loss, fp16, logger, epoch, prof=-1, register_
     if not logger is None:
         data_iter = logger.iteration_generator_wrapper(data_iter, val=True)
 
-    for i, (input, target, _) in data_iter:
+    for i, (input, target, index) in data_iter:
+        QScheme.batch = index
+        QBNScheme.batch = index
         bs = input.size(0)
         data_time = time.time() - end
         if prof > 0:
@@ -339,6 +348,7 @@ def train_loop(model_and_loss, optimizer, new_optimizer, lr_scheduler, train_loa
                batch_size_multiplier = 1,
                best_prec1 = 0, start_epoch = 0, prof = -1, skip_training = False, skip_validation = False, save_checkpoints = True, checkpoint_dir='./'):
     QScheme.update_scale = True
+    QBNScheme.update_scale = True
     prec1 = -1
 
     epoch_iter = range(start_epoch, epochs)
@@ -349,8 +359,8 @@ def train_loop(model_and_loss, optimizer, new_optimizer, lr_scheduler, train_loa
         if not skip_training:
             train(train_loader, model_and_loss, optimizer, lr_scheduler, fp16, logger, epoch, use_amp = use_amp, prof = prof, register_metrics=epoch==start_epoch, batch_size_multiplier=batch_size_multiplier)
 
-        # if not skip_validation:
-        #     prec1 = validate(val_loader, model_and_loss, fp16, logger, epoch, prof = prof, register_metrics=epoch==start_epoch)
+        if not skip_validation:
+            prec1 = validate(val_loader, model_and_loss, fp16, logger, epoch, prof = prof, register_metrics=epoch==start_epoch)
 
         if save_checkpoints and (not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0):
             if not skip_training:
@@ -373,4 +383,4 @@ def train_loop(model_and_loss, optimizer, new_optimizer, lr_scheduler, train_loa
             logger.end()
 
     if skip_training:
-        get_var(model_and_loss, optimizer, train_loader, 10)
+        get_var(model_and_loss, optimizer, train_loader, 100)

@@ -3,7 +3,7 @@ from tqdm import tqdm
 from quantize import config, QScheme, QBatchNorm2d, quantize_mixed_precision, dequantize_mixed_precision
 import pytorch_minimax
 
-inp, weight, bias, grad_output, grad_input = torch.load('../resnet/layer_1.pt')
+inp, weight, bias, grad_output, grad_input = torch.load('../resnet/bn_layer_0.pt')
 weight = weight.view(-1)
 inp.requires_grad_()
 N, C, H, W = inp.shape

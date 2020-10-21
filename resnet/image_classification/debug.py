@@ -30,6 +30,7 @@ def get_var(model_and_loss, optimizer, val_loader, num_batches=20):
     indices = []
     config.compress_activation = False
     QScheme.update_scale = True
+    QBNScheme.update_scale = True
 
     def bp(input, target):
         optimizer.zero_grad()
@@ -44,6 +45,7 @@ def get_var(model_and_loss, optimizer, val_loader, num_batches=20):
     batch_grad = None
     for i, (input, target, index) in tqdm(data_iter):
         QScheme.batch = index
+        QBNScheme.batch = index
         cnt += 1
 
         inputs.append(input.clone().cpu())
@@ -52,16 +54,19 @@ def get_var(model_and_loss, optimizer, val_loader, num_batches=20):
         mean_grad = bp(input, target)
         batch_grad = dict_add(batch_grad, mean_grad)
 
+        exit(0)
         if cnt == num_batches:
             break
 
     num_batches = cnt
     batch_grad = dict_mul(batch_grad, 1.0 / num_batches)
     QScheme.update_scale = False
+    QBNScheme.update_scale = False
 
     if config.perlayer:
         config.compress_activation = True
         QScheme.batch = indices[0]
+        QBNScheme.batch = indices[0]
         grad = bp(inputs[0].cuda(), targets[0].cuda())
         QScheme.allocate_perlayer()
         # QBNScheme.allocate_perlayer()
@@ -74,6 +79,7 @@ def get_var(model_and_loss, optimizer, val_loader, num_batches=20):
         input = input.cuda()
         target = target.cuda()
         QScheme.batch = index
+        QBNScheme.batch = index
         config.compress_activation = False
         exact_grad = bp(input, target)
         sample_var = dict_add(sample_var, dict_sqr(dict_minus(exact_grad, batch_grad)))
@@ -102,6 +108,8 @@ def get_var(model_and_loss, optimizer, val_loader, num_batches=20):
     total_var = dict_mul(total_var, 1.0 / num_batches)
 
     all_qg = 0
+    all_b = 0
+    all_s = 0
     for k in total_var:
         g = (batch_grad[k]**2).sum()
         sv = sample_var[k].sum()
@@ -111,7 +119,9 @@ def get_var(model_and_loss, optimizer, val_loader, num_batches=20):
         avg_v = v / total_var[k].numel()
 
         all_qg += v
+        all_b += b
+        all_s += sv
         print('{}, grad norm = {}, sample var = {}, bias = {}, var = {}, avg_var = {}, error = {}'.format(k, g, sv, b, v, avg_v, e))
 
-    print('Overall Var = {}'.format(all_qg))
+    print('Overall Bias = {}, Var = {}, SampleVar = {}'.format(all_b, all_qg, all_s))
 

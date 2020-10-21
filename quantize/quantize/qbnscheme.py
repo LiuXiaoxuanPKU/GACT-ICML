@@ -6,33 +6,46 @@ import pytorch_minimax
 
 class QBNScheme:
 
+    num_samples = 0
     num_layers = 0
     layers = []
+    batch = None
     update_scale = True
 
     def __init__(self):
         self.initial_bits = config.initial_bits
         self.bits = config.activation_compression_bits
-        self.scale = 1.0
+        self.scales = torch.ones(QBNScheme.num_samples)
         QBNScheme.layers.append(self)
 
         # debug
         self.name = 'bn_layer_{}'.format(QBNScheme.num_layers)
         QBNScheme.num_layers += 1
 
-    def set_scale(self, mean_grad):
+    # def set_scale(self, mean_grad):
+    #     if QBNScheme.update_scale:
+    #         self.scale = (mean_grad ** 2).sum().detach()
+
+    def get_scale(self):
+        assert QBNScheme.batch is not None
+        return self.scales[QBNScheme.batch]
+
+    def set_scale(self, grad):
         if QBNScheme.update_scale:
-            self.scale = (mean_grad ** 2).sum().detach()
+            assert QBNScheme.batch is not None
+            scale = (grad.view(grad.shape[0], -1) ** 2).sum(1).detach().cpu()
+            self.scales[QBNScheme.batch] = scale
 
     def compute_quantization_bits(self, input):
         N, _, H, W = input.shape
         input_flatten = input.view(N, -1)
 
         # greedy
-        grad_sum = self.scale
+        grad_sum = self.get_scale().cuda()
         mn = pytorch_minimax.min(input_flatten)
         mx = pytorch_minimax.max(input_flatten)
         Range = mx - mn
+        # print(Range)
         C = H * W * Range ** 2 * grad_sum / 4
         self.C = C.cpu()
         self.dim = input.numel() // N
@@ -49,6 +62,12 @@ class QBNScheme:
         if config.simulate:
             mn = mn.unsqueeze(1)
             mx = mx.unsqueeze(1)
+
+        # mn *= 0.5
+        # mx *= 0.5
+        # new_mx = torch.max(-mn, mx)     # TODO hack
+        # mn = -new_mx
+        # mx = 2 * new_mx
 
         return b, mn, mx
 

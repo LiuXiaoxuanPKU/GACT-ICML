@@ -213,7 +213,7 @@ def train(train_loader, model_and_loss, optimizer, lr_scheduler, fp16, logger, e
         logger.register_metric('train.loss', log.AverageMeter(), log_level = 0)
         logger.register_metric('train.compute_ips', log.AverageMeter(), log_level=1)
         logger.register_metric('train.total_ips', log.AverageMeter(), log_level=0)
-        logger.register_metric('train.data_time', log.AverageMeter(), log_level=1)
+        logger.register_metric('train.data_time', log.AverageMeterv(), log_level=1)
         logger.register_metric('train.compute_time', log.AverageMeter(), log_level=1)
 
     step = get_train_step(model_and_loss, optimizer, fp16, use_amp = use_amp, batch_size_multiplier = batch_size_multiplier)
@@ -301,8 +301,8 @@ def validate(val_loader, model_and_loss, fp16, logger, epoch, prof=-1, register_
 
     top1 = log.AverageMeter()
     # switch to evaluate mode   # TODO hack
-    # model_and_loss.eval()
-    model_and_loss.train()
+    model_and_loss.eval()
+    # model_and_loss.train()
 
     end = time.time()
 

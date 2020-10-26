@@ -41,7 +41,7 @@ class QBatchNorm2d(nn.BatchNorm2d):
     def __init__(self, num_features):
         super(QBatchNorm2d, self).__init__(num_features)
         self.scheme = QBNScheme()
-        self.scheme.initial_bits = self.scheme.bits # TODO hack
+        #self.scheme.initial_bits = self.scheme.bits # TODO hack
 
     def forward(self, input):
         self._check_input_dim(input)

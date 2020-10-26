@@ -16,6 +16,8 @@ class QBNScheme:
         self.initial_bits = config.initial_bits
         self.bits = config.activation_compression_bits
         self.scales = torch.ones(QBNScheme.num_samples)
+        self.b = None
+        self.batch_std = 1.0
         QBNScheme.layers.append(self)
 
         # debug
@@ -30,11 +32,12 @@ class QBNScheme:
         assert QBNScheme.batch is not None
         return self.scales[QBNScheme.batch]
 
-    def set_scale(self, grad):
+    def set_scale(self, grad, batch_std):
         if QBNScheme.update_scale:
             assert QBNScheme.batch is not None
             scale = (grad.view(grad.shape[0], -1) ** 2).sum(1).detach().cpu()
             self.scales[QBNScheme.batch] = scale
+            self.batch_std = batch_std
 
     def compute_quantization_bits(self, input):
         N, _, H, W = input.shape
@@ -45,13 +48,21 @@ class QBNScheme:
         mn = pytorch_minimax.min(input_flatten)
         mx = pytorch_minimax.max(input_flatten)
         Range = mx - mn
+
+        H_s = (input / self.batch_std) ** 2
+        coef_1 = (H_s.sum((1, 2, 3)) * grad_sum).sum()
+        coef_2 = H_s.sum() * grad_sum
+
         # print(Range)
-        C = H * W * Range ** 2 * grad_sum / 4
+        C = Range ** 2 * (coef_1 + coef_2) / (4 * (N*H*W)**2)
         self.C = C.cpu()
         self.dim = input.numel() // N
         b = torch.ones(N, dtype=torch.int32) * self.initial_bits
         w = torch.ones(N, dtype=torch.int32)
         b = calc_precision(b, self.C, w, int(self.bits * N))
+        # if self.b is not None:
+        #     b = self.b # TODO hack
+            # print(b)
         # print(self.C, b)
 
         # TODO hack

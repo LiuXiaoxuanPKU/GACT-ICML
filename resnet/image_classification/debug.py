@@ -54,7 +54,7 @@ def get_var(model_and_loss, optimizer, val_loader, num_batches=20):
         mean_grad = bp(input, target)
         batch_grad = dict_add(batch_grad, mean_grad)
 
-        exit(0)
+        # exit(0)
         if cnt == num_batches:
             break
 
@@ -70,6 +70,7 @@ def get_var(model_and_loss, optimizer, val_loader, num_batches=20):
         grad = bp(inputs[0].cuda(), targets[0].cuda())
         QScheme.allocate_perlayer()
         # QBNScheme.allocate_perlayer()
+        m.set_precision()
 
     total_var = None
     total_error = None

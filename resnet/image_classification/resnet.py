@@ -233,6 +233,20 @@ class ResNet(nn.Module):
 
         return x
 
+    def set_precision(self):    # Hack
+        self.bn1.scheme.bits = self.conv1.scheme.bits
+        for block in [self.layer1, self.layer2, self.layer3, self.layer4]:
+            for layer in block:
+                layer.bn1.scheme.bits = layer.conv1.scheme.bits
+                layer.bn2.scheme.bits = layer.conv2.scheme.bits
+                layer.bn3.scheme.bits = layer.conv3.scheme.bits
+                layer.bn1.scheme.b = layer.conv1.scheme.b
+                layer.bn2.scheme.b = layer.conv2.scheme.b
+                layer.bn3.scheme.b = layer.conv3.scheme.b
+                if layer.downsample is not None:
+                    layer.downsample[1].scheme.bits = layer.downsample[0].scheme.bits
+                    layer.downsample[1].scheme.b = layer.downsample[0].scheme.b
+
     def set_debug(self, debug):
         self.debug = True
         for l in [self.layer1, self.layer2, self.layer3, self.layer4]:

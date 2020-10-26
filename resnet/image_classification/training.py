@@ -213,7 +213,7 @@ def train(train_loader, model_and_loss, optimizer, lr_scheduler, fp16, logger, e
         logger.register_metric('train.loss', log.AverageMeter(), log_level = 0)
         logger.register_metric('train.compute_ips', log.AverageMeter(), log_level=1)
         logger.register_metric('train.total_ips', log.AverageMeter(), log_level=0)
-        logger.register_metric('train.data_time', log.AverageMeterv(), log_level=1)
+        logger.register_metric('train.data_time', log.AverageMeter(), log_level=1)
         logger.register_metric('train.compute_time', log.AverageMeter(), log_level=1)
 
     step = get_train_step(model_and_loss, optimizer, fp16, use_amp = use_amp, batch_size_multiplier = batch_size_multiplier)
@@ -359,8 +359,8 @@ def train_loop(model_and_loss, optimizer, new_optimizer, lr_scheduler, train_loa
         if not skip_training:
             train(train_loader, model_and_loss, optimizer, lr_scheduler, fp16, logger, epoch, use_amp = use_amp, prof = prof, register_metrics=epoch==start_epoch, batch_size_multiplier=batch_size_multiplier)
 
-        if not skip_validation:
-            prec1 = validate(val_loader, model_and_loss, fp16, logger, epoch, prof = prof, register_metrics=epoch==start_epoch)
+        # if not skip_validation:
+        #     prec1 = validate(val_loader, model_and_loss, fp16, logger, epoch, prof = prof, register_metrics=epoch==start_epoch)
 
         if save_checkpoints and (not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0):
             if not skip_training:
@@ -383,4 +383,4 @@ def train_loop(model_and_loss, optimizer, new_optimizer, lr_scheduler, train_loa
             logger.end()
 
     if skip_training:
-        get_var(model_and_loss, optimizer, train_loader, 100)
+        get_var(model_and_loss, optimizer, train_loader, 10)

@@ -111,6 +111,7 @@ class QScheme:
         b = torch.ones(N, dtype=torch.int32) * self.initial_bits
         w = torch.ones(N, dtype=torch.int32)
         b = calc_precision(b, self.C, w, int(self.bits * N))
+        self.b = b.detach()
         # print(self.initial_bits, b, self.C, w, int(self.bits * N))
 
         # TODO hack
@@ -269,7 +270,7 @@ class batch_norm(Function):
         #     ctx.save_for_backward(q_input, q_bits, q_scale, q_min, weight, batch_std)
         ctx.other_args = q_input_shape
         # ctx.saved = (q_input, q_bits, q_scale, q_min, weight, bias, batch_std, input, normalized)
-        ctx.saved = (q_input, q_bits, q_scale, q_min, weight, batch_std)
+        ctx.saved = (q_input, q_bits, q_scale, q_min, weight, batch_std, normalized, bias, input)
 
         return output
 
@@ -281,7 +282,7 @@ class batch_norm(Function):
         # else:
         #     q_input, q_bits, q_scale, q_min, weight, batch_std = ctx.saved_tensors
         # q_input, q_bits, q_scale, q_min, weight, bias, batch_std, input, normalized_0 = ctx.saved
-        q_input, q_bits, q_scale, q_min, weight, batch_std = ctx.saved
+        q_input, q_bits, q_scale, q_min, weight, batch_std, normalized_0, bias, input = ctx.saved
         q_input_shape = ctx.other_args
         normalized = dequantize_mixed_precision(q_input, q_input_shape, q_bits, q_scale, q_min)
         # if ctx.scheme.name == 'bn_layer_0':
@@ -315,7 +316,7 @@ class batch_norm(Function):
         #     print(grad_input.norm(), (grad_input - grad_input_1).norm())
         #     print(normalized.norm(), (normalized - normalized_1).norm())
 
-        ctx.scheme.set_scale(grad_normalized)
+        ctx.scheme.set_scale(grad_normalized, batch_std)
 
         # print('Saving')
         # torch.save([input, weight, bias, grad_output, grad_input], ctx.scheme.name + '.pt')

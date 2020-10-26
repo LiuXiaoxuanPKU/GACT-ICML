@@ -15,6 +15,9 @@ class QConv2d(nn.Conv2d):
         self.scheme = QScheme(num_locations=kernel_size**2)
 
     def _conv_forward(self, input, weight):
+        with torch.no_grad():
+            self.conv_input_norm = (input**2).sum((1, 2, 3)) * self.kernel_size[0] * self.kernel_size[1]
+
         if self.padding_mode != 'zeros':
             return conv2d().apply(F.pad(input, self._reversed_padding_repeated_twice, mode=self.padding_mode),
                             weight, self.bias, self.stride,
@@ -41,7 +44,7 @@ class QBatchNorm2d(nn.BatchNorm2d):
     def __init__(self, num_features):
         super(QBatchNorm2d, self).__init__(num_features)
         self.scheme = QBNScheme()
-        #self.scheme.initial_bits = self.scheme.bits # TODO hack
+        # self.scheme.initial_bits = self.scheme.bits # TODO hack
 
     def forward(self, input):
         self._check_input_dim(input)

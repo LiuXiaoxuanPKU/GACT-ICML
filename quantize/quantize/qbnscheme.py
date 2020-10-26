@@ -18,6 +18,8 @@ class QBNScheme:
         self.scales = torch.ones(QBNScheme.num_samples)
         self.b = None
         self.batch_std = 1.0
+        self.conv_input_norm = torch.tensor(1.0)
+        self.mean_grad_norm = 1.0
         QBNScheme.layers.append(self)
 
         # debug
@@ -32,15 +34,17 @@ class QBNScheme:
         assert QBNScheme.batch is not None
         return self.scales[QBNScheme.batch]
 
-    def set_scale(self, grad, batch_std):
+    def set_scale(self, grad, batch_std, mean_grad_norm):
         if QBNScheme.update_scale:
             assert QBNScheme.batch is not None
-            scale = (grad.view(grad.shape[0], -1) ** 2).sum(1).detach().cpu()
-            self.scales[QBNScheme.batch] = scale
-            self.batch_std = batch_std
+            with torch.no_grad():
+                scale = (grad.view(grad.shape[0], -1) ** 2).sum(1).detach().cpu()
+                self.scales[QBNScheme.batch] = scale
+                self.batch_std = batch_std
+                self.mean_grad_norm = mean_grad_norm
 
     def compute_quantization_bits(self, input):
-        N, _, H, W = input.shape
+        N, num_channels, H, W = input.shape
         input_flatten = input.view(N, -1)
 
         # greedy
@@ -50,11 +54,12 @@ class QBNScheme:
         Range = mx - mn
 
         H_s = (input / self.batch_std) ** 2
-        coef_1 = (H_s.sum((1, 2, 3)) * grad_sum).sum()
-        coef_2 = H_s.sum() * grad_sum
+        coef_1 = self.mean_grad_norm * self.conv_input_norm
+        coef_2 = H_s.sum() * self.conv_input_norm.sum() * grad_sum / num_channels / (N*H*W)**2
+        # print('coef ', coef_1, coef_2)
 
         # print(Range)
-        C = Range ** 2 * (coef_1 + coef_2) / (4 * (N*H*W)**2)
+        C = Range ** 2 * (coef_1 + coef_2) / 4
         self.C = C.cpu()
         self.dim = input.numel() // N
         b = torch.ones(N, dtype=torch.int32) * self.initial_bits
@@ -68,7 +73,7 @@ class QBNScheme:
         # TODO hack
         B = 2 ** b - 1
         self.var = (self.C / B**2).sum()
-        self.stats = (grad_sum, (Range**2).sum(), H*W)
+        # self.stats = (grad_sum, (Range**2).sum(), H*W)
 
         if config.simulate:
             mn = mn.unsqueeze(1)

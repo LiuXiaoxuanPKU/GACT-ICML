@@ -316,7 +316,7 @@ class batch_norm(Function):
         #     print(grad_input.norm(), (grad_input - grad_input_1).norm())
         #     print(normalized.norm(), (normalized - normalized_1).norm())
 
-        ctx.scheme.set_scale(grad_normalized, batch_std)
+        ctx.scheme.set_scale(grad_normalized, batch_std, (mean_grad**2).sum())
 
         # print('Saving')
         # torch.save([input, weight, bias, grad_output, grad_input], ctx.scheme.name + '.pt')

@@ -240,12 +240,12 @@ class ResNet(nn.Module):
                 layer.bn1.scheme.bits = layer.conv1.scheme.bits
                 layer.bn2.scheme.bits = layer.conv2.scheme.bits
                 layer.bn3.scheme.bits = layer.conv3.scheme.bits
-                layer.bn1.scheme.b = layer.conv1.scheme.b
-                layer.bn2.scheme.b = layer.conv2.scheme.b
-                layer.bn3.scheme.b = layer.conv3.scheme.b
+                layer.bn1.scheme.conv_input_norm = layer.conv1.conv_input_norm
+                layer.bn2.scheme.conv_input_norm = layer.conv2.conv_input_norm
+                layer.bn3.scheme.conv_input_norm = layer.conv3.conv_input_norm
                 if layer.downsample is not None:
                     layer.downsample[1].scheme.bits = layer.downsample[0].scheme.bits
-                    layer.downsample[1].scheme.b = layer.downsample[0].scheme.b
+                    layer.downsample[1].scheme.conv_input_norm = layer.downsample[0].conv_input_norm
 
     def set_debug(self, debug):
         self.debug = True

@@ -7,7 +7,7 @@ import torch.distributed as dist
 import torch.optim
 import torch.utils.data
 import torch.utils.data.distributed
-from quantize import config, QScheme, QBNScheme
+from quantize import config, QScheme
 
 try:
     from apex.parallel import DistributedDataParallel as DDP
@@ -228,13 +228,11 @@ def main(args):
         get_val_loader = get_pytorch_val_loader_cifar10
         get_debug_loader = get_pytorch_debug_loader_cifar10
         QScheme.num_samples = 50000
-        QBNScheme.num_samples = 50000
     elif args.data_backend == 'pytorch':
         get_train_loader = get_pytorch_train_loader
         get_val_loader = get_pytorch_val_loader
         get_debug_loader = get_pytorch_val_loader
         QScheme.num_samples = 1300000
-        QBNScheme.num_samples = 1300000
     elif args.data_backend == 'dali-gpu':
         get_train_loader = get_dali_train_loader(dali_cpu=False)
         get_val_loader = get_dali_val_loader()

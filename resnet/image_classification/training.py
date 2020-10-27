@@ -229,7 +229,6 @@ def train(train_loader, model_and_loss, optimizer, lr_scheduler, fp16, logger, e
 
     for i, (input, target, index) in data_iter:
         QScheme.batch = index
-        QBNScheme.batch = index
 
         bs = input.size(0)
         lr_scheduler(optimizer, i, epoch)
@@ -256,6 +255,7 @@ def train(train_loader, model_and_loss, optimizer, lr_scheduler, fp16, logger, e
         end = time.time()
         if epoch > 0 and config.perlayer:
             QScheme.allocate_perlayer()
+            QBNScheme.allocate_perlayer()
 
     for layer in QScheme.layers:
         print(layer.name, layer.bits)
@@ -287,7 +287,6 @@ def get_val_step(model_and_loss):
 
 def validate(val_loader, model_and_loss, fp16, logger, epoch, prof=-1, register_metrics=True):
     QScheme.update_scale = False
-    QBNScheme.update_scale = False
     if register_metrics and logger is not None:
         logger.register_metric('val.top1',         log.AverageMeter(), log_level = 0)
         logger.register_metric('val.top5',         log.AverageMeter(), log_level = 0)
@@ -312,7 +311,6 @@ def validate(val_loader, model_and_loss, fp16, logger, epoch, prof=-1, register_
 
     for i, (input, target, index) in data_iter:
         QScheme.batch = index
-        QBNScheme.batch = index
         bs = input.size(0)
         data_time = time.time() - end
         if prof > 0:
@@ -348,7 +346,6 @@ def train_loop(model_and_loss, optimizer, new_optimizer, lr_scheduler, train_loa
                batch_size_multiplier = 1,
                best_prec1 = 0, start_epoch = 0, prof = -1, skip_training = False, skip_validation = False, save_checkpoints = True, checkpoint_dir='./'):
     QScheme.update_scale = True
-    QBNScheme.update_scale = True
     prec1 = -1
 
     epoch_iter = range(start_epoch, epochs)

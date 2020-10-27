@@ -3,7 +3,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from quantize.ops import linear, batch_norm, conv2d, QScheme
+from quantize.ops import linear, batch_norm, conv2d
+from quantize.qscheme import QScheme
 from quantize.qbnscheme import QBNScheme
 
 
@@ -15,9 +16,6 @@ class QConv2d(nn.Conv2d):
         self.scheme = QScheme(num_locations=kernel_size**2)
 
     def _conv_forward(self, input, weight):
-        with torch.no_grad():
-            self.conv_input_norm = (input**2).sum((1, 2, 3)) * self.kernel_size[0] * self.kernel_size[1]
-
         if self.padding_mode != 'zeros':
             return conv2d().apply(F.pad(input, self._reversed_padding_repeated_twice, mode=self.padding_mode),
                             weight, self.bias, self.stride,

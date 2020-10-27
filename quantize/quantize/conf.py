@@ -7,5 +7,6 @@ class QuantizationConfig:
         self.initial_bits = 8
         self.simulate = True
         self.swap = False
+        self.training = True
 
 config = QuantizationConfig()

@@ -24,8 +24,8 @@ class QScheme(object):
         self.conv_input_norm = torch.tensor(1.0)
 
         # debug
-        # self.name = 'layer_{}'.format(QScheme.num_layers)
-        # QScheme.num_layers += 1
+        self.name = 'layer_{}'.format(QScheme.num_layers)
+        QScheme.num_layers += 1
 
     def get_scale(self):
         assert QScheme.batch is not None

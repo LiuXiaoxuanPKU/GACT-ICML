@@ -287,6 +287,7 @@ def get_val_step(model_and_loss):
 
 def validate(val_loader, model_and_loss, fp16, logger, epoch, prof=-1, register_metrics=True):
     QScheme.update_scale = False
+    config.training = False    # Hack
     if register_metrics and logger is not None:
         logger.register_metric('val.top1',         log.AverageMeter(), log_level = 0)
         logger.register_metric('val.top5',         log.AverageMeter(), log_level = 0)
@@ -299,9 +300,8 @@ def validate(val_loader, model_and_loss, fp16, logger, epoch, prof=-1, register_
     step = get_val_step(model_and_loss)
 
     top1 = log.AverageMeter()
-    # switch to evaluate mode   # TODO hack
+    # switch to evaluate mode
     model_and_loss.eval()
-    # model_and_loss.train()
 
     end = time.time()
 
@@ -333,6 +333,7 @@ def validate(val_loader, model_and_loss, fp16, logger, epoch, prof=-1, register_
 
         end = time.time()
 
+    config.training = True
     return top1.get_val()
 
 # Train loop {{{
@@ -356,8 +357,8 @@ def train_loop(model_and_loss, optimizer, new_optimizer, lr_scheduler, train_loa
         if not skip_training:
             train(train_loader, model_and_loss, optimizer, lr_scheduler, fp16, logger, epoch, use_amp = use_amp, prof = prof, register_metrics=epoch==start_epoch, batch_size_multiplier=batch_size_multiplier)
 
-        # if not skip_validation:
-        #     prec1 = validate(val_loader, model_and_loss, fp16, logger, epoch, prof = prof, register_metrics=epoch==start_epoch)
+        if not skip_validation:
+            prec1 = validate(val_loader, model_and_loss, fp16, logger, epoch, prof = prof, register_metrics=epoch==start_epoch)
 
         if save_checkpoints and (not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0):
             if not skip_training:

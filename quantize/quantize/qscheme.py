@@ -45,6 +45,10 @@ class QScheme(object):
         grad_sum = self.get_scale().cuda()
         mn = pytorch_minimax.min(input_flatten)
         mx = pytorch_minimax.max(input_flatten)
+        if not config.persample:
+            mn = torch.ones_like(mn) * mn.min()
+            mx = torch.ones_like(mx) * mx.max()
+
         Range = mx - mn
         C = (self.num_locations * D / 4 * Range ** 2 * grad_sum).cpu()
         b = torch.ones(N, dtype=torch.int32) * self.initial_bits

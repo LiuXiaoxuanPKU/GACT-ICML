@@ -40,6 +40,10 @@ class QBNScheme(QScheme):
         grad_sum = self.get_scale().cuda()
         mn = pytorch_minimax.min(input_flatten)
         mx = pytorch_minimax.max(input_flatten)
+        if not config.persample:
+            mn = torch.ones_like(mn) * mn.min()
+            mx = torch.ones_like(mx) * mx.max()
+            
         Range = mx - mn
 
         H_s = (input / self.batch_std) ** 2

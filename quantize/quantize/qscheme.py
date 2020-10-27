@@ -21,6 +21,7 @@ class QScheme(object):
         self.C = None
         self.dim = None
         self.num_locations = num_locations
+        self.conv_input_norm = torch.tensor(1.0)
 
         # debug
         # self.name = 'layer_{}'.format(QScheme.num_layers)

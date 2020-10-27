@@ -380,4 +380,4 @@ def train_loop(model_and_loss, optimizer, new_optimizer, lr_scheduler, train_loa
             logger.end()
 
     if skip_training:
-        get_var(model_and_loss, optimizer, train_loader, 10)
+        get_var(model_and_loss, optimizer, train_loader, 1000)

@@ -19,7 +19,7 @@ configs = [
 ]
 tasks = []
 for tid, params in configs:
-    for seed in range(5):
+    for seed in range(3):
         tasks.append((tid, seed, params))
 
 

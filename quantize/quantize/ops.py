@@ -60,9 +60,6 @@ def dequantize_mixed_precision(data, shape, bits, scale, mn):
 class conv2d(Function):
     @staticmethod
     def forward(ctx, input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1, scheme=None):
-        if not config.training:
-            return F.conv2d(input, weight, bias, stride, padding, dilation, groups)
-
         with torch.no_grad():
             q_bits, q_min, mx = scheme.compute_quantization_bits(input)
             q_input, q_input_shape, q_bits, q_scale =\
@@ -110,12 +107,6 @@ class conv2d(Function):
 class linear(Function):
     @staticmethod
     def forward(ctx, input, weight, bias=None, scheme=None):
-        if not config.training:
-            output = input.mm(weight.t())
-            if bias is not None:
-                output += bias.unsqueeze(0).expand_as(output)
-            return output
-
         with torch.no_grad():
             q_bits, q_min, mx = scheme.compute_quantization_bits(input)
             q_input, q_input_shape, q_bits, q_scale = \
@@ -163,11 +154,6 @@ class batch_norm(Function):
     @staticmethod
     def forward(ctx, input, running_mean, running_var, weight, bias,
                 training, exponential_average_factor, eps, scheme):
-        if not config.training:
-            return F.batch_norm(
-                input, running_mean, running_var, weight, bias,
-                training, exponential_average_factor, eps)
-
         with torch.no_grad():
             # TODO: fused batch_norm
             output = F.batch_norm(

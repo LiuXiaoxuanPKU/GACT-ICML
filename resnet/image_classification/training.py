@@ -286,8 +286,7 @@ def get_val_step(model_and_loss):
 
 
 def validate(val_loader, model_and_loss, fp16, logger, epoch, prof=-1, register_metrics=True):
-    QScheme.update_scale = False
-    config.training = False    # Hack
+    config.training = False    # TODO Hack
     if register_metrics and logger is not None:
         logger.register_metric('val.top1',         log.AverageMeter(), log_level = 0)
         logger.register_metric('val.top5',         log.AverageMeter(), log_level = 0)
@@ -309,8 +308,7 @@ def validate(val_loader, model_and_loss, fp16, logger, epoch, prof=-1, register_
     if not logger is None:
         data_iter = logger.iteration_generator_wrapper(data_iter, val=True)
 
-    for i, (input, target, index) in data_iter:
-        QScheme.batch = index
+    for i, (input, target, _) in data_iter:
         bs = input.size(0)
         data_time = time.time() - end
         if prof > 0:

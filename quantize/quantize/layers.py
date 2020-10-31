@@ -6,6 +6,7 @@ import torch.nn.functional as F
 from quantize.ops import linear, batch_norm, conv2d
 from quantize.qscheme import QScheme
 from quantize.qbnscheme import QBNScheme
+from quantize.conf import config
 
 
 class QConv2d(nn.Conv2d):
@@ -15,16 +16,16 @@ class QConv2d(nn.Conv2d):
                                       stride, padding, dilation, groups, bias)
         self.scheme = QScheme(num_locations=kernel_size**2)
 
-    def _conv_forward(self, input, weight):
-        if self.padding_mode != 'zeros':
-            return conv2d().apply(F.pad(input, self._reversed_padding_repeated_twice, mode=self.padding_mode),
-                            weight, self.bias, self.stride,
-                            _pair(0), self.dilation, self.groups, self.scheme)
-        return conv2d().apply(input, weight, self.bias, self.stride,
-                        self.padding, self.dilation, self.groups, self.scheme)
-
     def forward(self, input):
-        return self._conv_forward(input, self.weight)
+        if config.training:
+            if self.padding_mode != 'zeros':
+                return conv2d().apply(F.pad(input, self._reversed_padding_repeated_twice, mode=self.padding_mode),
+                                      self.weight, self.bias, self.stride,
+                                      _pair(0), self.dilation, self.groups, self.scheme)
+            return conv2d().apply(input, self.weight, self.bias, self.stride,
+                                  self.padding, self.dilation, self.groups, self.scheme)
+        else:
+            return super(QConv2d, self).forward(input)
 
 
 class QLinear(nn.Linear):
@@ -35,7 +36,10 @@ class QLinear(nn.Linear):
         self.scheme = QScheme()
 
     def forward(self, input):
-        return linear().apply(input, self.weight, self.bias, self.scheme)
+        if config.training:
+            return linear().apply(input, self.weight, self.bias, self.scheme)
+        else:
+            return super(QLinear, self).forward(input)
 
 
 class QBatchNorm2d(nn.BatchNorm2d):
@@ -45,6 +49,9 @@ class QBatchNorm2d(nn.BatchNorm2d):
         # self.scheme.initial_bits = self.scheme.bits # TODO hack
 
     def forward(self, input):
+        if not config.training:
+            return super(QBatchNorm2d, self).forward(input)
+
         self._check_input_dim(input)
 
         # exponential_average_factor is set to self.momentum

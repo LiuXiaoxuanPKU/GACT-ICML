@@ -2,12 +2,8 @@ from multiprocessing import Pool, Queue
 import os
 
 host_queue = Queue()
-# for i in range(0, 8):
-#     host_queue.put(i)
-host_queue.put(0)
-host_queue.put(2)
-host_queue.put(3)
-host_queue.put(4)
+for i in range(0, 8):
+    host_queue.put(i)
 
 
 configs = [
@@ -23,7 +19,7 @@ configs = [
 ]
 tasks = []
 for tid, params in configs:
-    for seed in range(1):
+    for seed in range(2):
         tasks.append((tid, seed, params))
 
 
@@ -40,11 +36,11 @@ def launch(task):
     {params} ~/data/cifar10 | tee {tid}.log'.format(hid=host_id, work_dir=work_dir,
                                                     params=params, tid=tid, seed=seed)
     print(cmd)
-    # os.system(cmd)
+    os.system(cmd)
 
     host_queue.put(host_id)
 
 
 if __name__ == '__main__':
-    with Pool(4) as p:
+    with Pool(8) as p:
         p.map(launch, tasks)

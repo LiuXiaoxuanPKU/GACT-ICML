@@ -35,7 +35,8 @@ class QScheme(object):
         if QScheme.update_scale:
             assert QScheme.batch is not None
             scale = (grad.view(grad.shape[0], -1) ** 2).sum(1).detach().cpu()
-            self.scales[QScheme.batch] = scale
+            # TODO new
+            self.scales[QScheme.batch] = scale / scale.sum()
 
     def compute_quantization_bits(self, input):
         N = input.shape[0]

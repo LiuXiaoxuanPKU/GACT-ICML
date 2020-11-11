@@ -6,8 +6,9 @@ from torch.autograd import Variable
 from . import logger as log
 from . import resnet as models
 from . import utils
-from .debug import get_var
+from .debug import get_var, get_var_during_training
 from quantize import config, QScheme, QBNScheme
+from copy import copy
 
 try:
     from apex.parallel import DistributedDataParallel as DDP
@@ -227,7 +228,14 @@ def train(train_loader, model_and_loss, optimizer, lr_scheduler, fp16, logger, e
     if logger is not None:
         data_iter = logger.iteration_generator_wrapper(data_iter)
 
+    input1 = None
+    target1 = None
+    index1 = None
+
     for i, (input, target, index) in data_iter:
+        if i == 0:
+            input1, target1, index1 = input.clone(), target.clone(), copy(index)
+
         QScheme.batch = index
 
         bs = input.size(0)
@@ -239,7 +247,21 @@ def train(train_loader, model_and_loss, optimizer, lr_scheduler, fp16, logger, e
                 break
 
         optimizer_step = ((i + 1) % batch_size_multiplier) == 0
-        loss, prec1, prec5 = step(input, target, optimizer_step = optimizer_step)
+        # loss, prec1, prec5 = step(input, target, optimizer_step = optimizer_step)
+
+        # TODO hack
+        QScheme.update_scale = True
+        loss, prec1, prec5 = step(input, target, optimizer_step=False)
+        QScheme.update_scale = False
+        optimizer.zero_grad()
+        assert(optimizer_step is True)
+        loss, prec1, prec5 = step(input, target, optimizer_step=optimizer_step)
+        QScheme.update_scale = True
+        if i % 100 == 0:
+            QScheme.batch = index1
+            loss, prec1, prec5 = step(input1, target1, optimizer_step=False)
+            torch.save(model_and_loss.model.conv1.scheme.scales[index1], '{}_{}.scale'.format(epoch, i))
+            optimizer.zero_grad()
 
         it_time = time.time() - end
 
@@ -355,8 +377,8 @@ def train_loop(model_and_loss, optimizer, new_optimizer, lr_scheduler, train_loa
         if not skip_training:
             train(train_loader, model_and_loss, optimizer, lr_scheduler, fp16, logger, epoch, use_amp = use_amp, prof = prof, register_metrics=epoch==start_epoch, batch_size_multiplier=batch_size_multiplier)
 
-        if not skip_validation:
-            prec1 = validate(val_loader, model_and_loss, fp16, logger, epoch, prof = prof, register_metrics=epoch==start_epoch)
+        # if not skip_validation:
+        #     prec1 = validate(val_loader, model_and_loss, fp16, logger, epoch, prof = prof, register_metrics=epoch==start_epoch)
 
         if save_checkpoints and (not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0):
             if not skip_training:
@@ -378,5 +400,11 @@ def train_loop(model_and_loss, optimizer, new_optimizer, lr_scheduler, train_loa
         if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
             logger.end()
 
-    if skip_training:
-        get_var(model_and_loss, optimizer, train_loader, 1000)
+        if epoch == 2:
+            print('Procedure 1')
+            get_var_during_training(model_and_loss, optimizer, train_loader, 20)
+
+        # if skip_training:
+            print('Procedure 2')
+            get_var(model_and_loss, optimizer, train_loader, 20)
+            exit(0)

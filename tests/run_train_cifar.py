@@ -36,7 +36,7 @@ def launch(task):
     {params} ~/data/cifar10 | tee {tid}.log'.format(hid=host_id, work_dir=work_dir,
                                                     params=params, tid=tid, seed=seed)
     print(cmd)
-    os.system(cmd)
+    # os.system(cmd)
 
     host_queue.put(host_id)
 

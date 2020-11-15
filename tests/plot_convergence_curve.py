@@ -5,7 +5,7 @@ matplotlib.use('Agg')
 from matplotlib import pyplot as plt
 import seaborn as sns
 
-num_seeds = 3
+num_seeds = 2
 configs = ['4bit', #'exact', '4bit', '2bit',
            # '2bit_psr', '2bit_ps', '2bit_pl',
            '2bit_psr_nobn', '2bit_ps_nobn', '2bit_pl_nobn']

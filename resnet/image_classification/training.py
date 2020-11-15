@@ -202,7 +202,7 @@ def get_train_step(model_and_loss, optimizer, fp16, use_amp = False, batch_size_
 
         torch.cuda.synchronize()
 
-        return reduced_loss, prec1, prec5
+        return reduced_loss, output, prec1, prec5
 
     return _step
 
@@ -247,20 +247,23 @@ def train(train_loader, model_and_loss, optimizer, lr_scheduler, fp16, logger, e
                 break
 
         optimizer_step = ((i + 1) % batch_size_multiplier) == 0
-        # loss, prec1, prec5 = step(input, target, optimizer_step = optimizer_step)
+        loss, _, prec1, prec5 = step(input, target, optimizer_step = optimizer_step)
 
         # TODO hack
-        QScheme.update_scale = True
-        loss, prec1, prec5 = step(input, target, optimizer_step=False)
-        QScheme.update_scale = False
-        optimizer.zero_grad()
-        assert(optimizer_step is True)
-        loss, prec1, prec5 = step(input, target, optimizer_step=optimizer_step)
-        QScheme.update_scale = True
+        # QScheme.update_scale = True
+        # loss, prec1, prec5 = step(input, target, optimizer_step=False)
+        # QScheme.update_scale = False
+        # optimizer.zero_grad()
+        # assert(optimizer_step is True)
+        # loss, prec1, prec5 = step(input, target, optimizer_step=optimizer_step)
+        # QScheme.update_scale = True
         if i % 100 == 0:
+            optimizer.zero_grad()
             QScheme.batch = index1
-            loss, prec1, prec5 = step(input1, target1, optimizer_step=False)
-            torch.save(model_and_loss.model.conv1.scheme.scales[index1], '{}_{}.scale'.format(epoch, i))
+            loss, output, prec1, prec5 = step(input1, target1, optimizer_step=False)
+            torch.save(model_and_loss.model.conv1.scheme.scales[index1], 'conv1_{}_{}.scale'.format(epoch, i))
+            torch.save(model_and_loss.model.fc.scheme.scales[index1], 'fc_{}_{}.scale'.format(epoch, i))
+            torch.save(output.detach().cpu(), 'pred_{}_{}.scale'.format(epoch, i))
             optimizer.zero_grad()
 
         it_time = time.time() - end
@@ -400,7 +403,7 @@ def train_loop(model_and_loss, optimizer, new_optimizer, lr_scheduler, train_loa
         if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
             logger.end()
 
-        if epoch == 2:
+        if epoch == 10:
             print('Procedure 1')
             get_var_during_training(model_and_loss, optimizer, train_loader, 20)
 

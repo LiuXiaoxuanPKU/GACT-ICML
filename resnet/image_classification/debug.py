@@ -12,7 +12,7 @@ from quantize.weights import get_precision
 from copy import deepcopy
 
 
-def get_var(model_and_loss, optimizer, val_loader, num_batches=20):
+def get_var(model_and_loss, optimizer, val_loader, num_batches=20, model_state=None):
     num_samples = 3
     # print(QF.num_samples, QF.update_scale, QF.training)
     model_and_loss.train()
@@ -37,7 +37,11 @@ def get_var(model_and_loss, optimizer, val_loader, num_batches=20):
         loss.backward()
         torch.cuda.synchronize()
         grad = {layer.layer_name: layer.weight.grad.detach().cpu() for layer in m.linear_layers}
-        return grad
+        return grad, output
+
+    def save_scale(prefix, index):
+        scales = [layer.scheme.scales[index] for layer in m.linear_layers]
+        torch.save(scales, prefix + '_scale.pt')
 
     # First pass
     cnt = 0
@@ -50,18 +54,26 @@ def get_var(model_and_loss, optimizer, val_loader, num_batches=20):
             print(index)
             print('Old scale: ')
             scale = m.linear_layers[0].scheme.scales[index]
-            print(scale / scale.sum())
+            print(scale)
+            save_scale('old', index)
 
         inputs.append(input.clone().cpu())
         targets.append(target.clone().cpu())
         indices.append(index.copy())
-        mean_grad = bp(input, target)
+        mean_grad, output = bp(input, target)
         batch_grad = dict_add(batch_grad, mean_grad)
 
         if i == 0:
             print('New scale: ')
             scale = m.linear_layers[0].scheme.scales[index]
-            print(scale / scale.sum())
+            print(scale)
+            save_scale('new', index)
+
+            schemes = [layer.scheme for layer in m.linear_layers]
+            data = [(s.input, s.output, s.grad_input, s.grad_output)
+                    for s in schemes[:-1]]
+            torch.save([data, output], 'data.pt')
+            exit(0)
 
         # exit(0)
         if cnt == num_batches:
@@ -74,6 +86,9 @@ def get_var(model_and_loss, optimizer, val_loader, num_batches=20):
     print('=======')
     print(m.linear_layers[0].scheme.scales)
     print('=======')
+
+    if model_state is not None:
+        model_and_loss.load_model_state(model_state)
 
     if config.perlayer:
         config.compress_activation = True
@@ -196,3 +211,4 @@ def get_var_during_training(model_and_loss, optimizer, val_loader, num_batches=2
         print('{}, var = {}, avg_var = {}'.format(k, v, avg_v))
 
     print('Overall Var = {}'.format(all_qg))
+

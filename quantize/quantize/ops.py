@@ -71,6 +71,11 @@ class conv2d(Function):
         else:
             ctx.save_for_backward(q_input, q_bits, q_scale, q_min, weight, bias)
         ctx.other_args = (q_input_shape, stride, padding, dilation, groups)
+
+        # TODO debug
+        scheme.input = input
+        scheme.output = output
+
         return output
 
     @staticmethod
@@ -100,6 +105,10 @@ class conv2d(Function):
         # TODO debug
         # print('Saving')
         # torch.save([input, weight, grad_output, grad_weight], ctx.scheme.name + '.pt')
+
+        # TODO debug
+        ctx.scheme.grad_output = grad_output
+        ctx.scheme.grad_input = grad_input
 
         return grad_input, grad_weight, grad_bias, None, None, None, None, None
 

@@ -84,6 +84,8 @@ def add_parser_arguments(parser):
                         metavar='N', help='print frequency (default: 10)')
     parser.add_argument('--resume', default='', type=str, metavar='PATH',
                         help='path to latest checkpoint (default: none)')
+    parser.add_argument('--resume2', default='', type=str, metavar='PATH',
+                        help='path to latest checkpoint (default: none)')
     parser.add_argument('--pretrained-weights', default='', type=str, metavar='PATH',
                         help='load weights from here')
 
@@ -224,6 +226,15 @@ def main(args):
         model_state = None
         optimizer_state = None
 
+    if args.resume2:
+        if os.path.isfile(args.resume2):
+            print("=> loading checkpoint '{}'".format(args.resume2))
+            checkpoint2 = torch.load(args.resume2, map_location=lambda storage, loc: storage.cuda(args.gpu))
+            model_state2 = checkpoint2['state_dict']
+        else:
+            model_state2 = None
+
+
     # Create data loaders and optimizers as needed
     if args.dataset == 'cifar10':
         get_train_loader = get_pytorch_train_loader_cifar10
@@ -321,7 +332,8 @@ def main(args):
         batch_size_multiplier = batch_size_multiplier,
         start_epoch = args.start_epoch, best_prec1 = best_prec1, prof=args.prof,
         skip_training = args.evaluate, skip_validation = args.training_only,
-        save_checkpoints=args.save_checkpoints and not args.evaluate, checkpoint_dir=args.workspace)
+        save_checkpoints=args.save_checkpoints and not args.evaluate, checkpoint_dir=args.workspace,
+        model_state=model_state2)
     exp_duration = time.time() - exp_start_time
     if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
         logger.end()

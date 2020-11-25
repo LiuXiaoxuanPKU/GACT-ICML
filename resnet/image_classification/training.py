@@ -368,7 +368,8 @@ def calc_ips(batch_size, time):
 def train_loop(model_and_loss, optimizer, new_optimizer, lr_scheduler, train_loader, val_loader, debug_loader, epochs, fp16, logger,
                should_backup_checkpoint, use_amp=False,
                batch_size_multiplier = 1,
-               best_prec1 = 0, start_epoch = 0, prof = -1, skip_training = False, skip_validation = False, save_checkpoints = True, checkpoint_dir='./'):
+               best_prec1 = 0, start_epoch = 0, prof = -1, skip_training = False, skip_validation = False, save_checkpoints = True, checkpoint_dir='./',
+               model_state = None):
     QScheme.update_scale = True
     prec1 = -1
 
@@ -403,11 +404,13 @@ def train_loop(model_and_loss, optimizer, new_optimizer, lr_scheduler, train_loa
         if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
             logger.end()
 
-        if epoch == 10:
-            print('Procedure 1')
-            get_var_during_training(model_and_loss, optimizer, train_loader, 20)
+        # if epoch == 2:
+        #     print('Procedure 1')
+        #     get_var_during_training(model_and_loss, optimizer, train_loader, 20)
+        #
+        # # if skip_training:
+        #     print('Procedure 2')
+        #     get_var(model_and_loss, optimizer, train_loader, 20)
+        #     exit(0)
 
-        # if skip_training:
-            print('Procedure 2')
-            get_var(model_and_loss, optimizer, train_loader, 20)
-            exit(0)
+    get_var(model_and_loss, optimizer, train_loader, 1, model_state)

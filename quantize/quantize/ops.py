@@ -135,6 +135,11 @@ class linear(Function):
         else:
             ctx.save_for_backward(q_input, q_bits, q_scale, q_min, weight, bias)
         ctx.other_args = q_input_shape
+
+        # TODO debug
+        scheme.input = input
+        scheme.output = output
+
         return output
 
     @staticmethod
@@ -155,6 +160,10 @@ class linear(Function):
             grad_bias = grad_output.sum(0)
         else:
             grad_bias = None
+
+        # TODO debug
+        ctx.scheme.grad_output = grad_output
+        ctx.scheme.grad_input = grad_input
 
         return grad_input, grad_weight, grad_bias, None
 

@@ -79,19 +79,37 @@ class QScheme(object):
         layers = QScheme.layers
         L = len(layers)
 
-        Cs = [layer.C for layer in layers]
-        C = torch.cat(Cs, 0)
+        if config.activation_compression_bits == config.initial_bits:
+            C = torch.tensor([layer.C.sum() for layer in layers])
+            w = torch.tensor([layer.dim for layer in layers], dtype=torch.int)
+            total_bits = w.sum() * config.activation_compression_bits
+            b = torch.ones(L, dtype=torch.int32) * 8
+            b = calc_precision(b, C, w, total_bits)
 
-        N = Cs[0].shape[0]
+            # print('=====')
+            # print(b)
+            # print(C)
+            # print(w)
+            # print(C / w)
+            # print('=====')
 
-        Ws = [torch.ones(N, dtype=torch.int32) * layer.dim for layer in layers]
-        w = torch.cat(Ws, 0)
+            for i in range(L):
+                layers[i].bits = layers[i].initial_bits = b[i]
+        else:
+            Cs = [layer.C for layer in layers]
+            C = torch.cat(Cs, 0)
 
-        total_bits = w.sum() * config.activation_compression_bits
-        b = torch.ones(N * L, dtype=torch.int32) * config.initial_bits
-        b = calc_precision(b, C, w, total_bits)
-        for i in range(L):
-            bs = b[i*N : (i+1)*N]
-            # print(i, w[i*N], Cs[i].mean(), bs.float().mean(), bs)
-            layers[i].bits = bs.float().mean()
+            N = Cs[0].shape[0]
+
+            # TODO ???
+            # Ws = [torch.ones(N, dtype=torch.int32) * layer.dim for layer in layers]
+            Ws = [torch.ones(N, dtype=torch.int32) for layer in layers]
+            w = torch.cat(Ws, 0)
+
+            total_bits = w.sum() * config.activation_compression_bits
+            b = torch.ones(N * L, dtype=torch.int32) * config.initial_bits
+            b = calc_precision(b, C, w, total_bits)
+            for i in range(L):
+                bs = b[i*N : (i+1)*N]
+                layers[i].bits = bs.float().mean()
 

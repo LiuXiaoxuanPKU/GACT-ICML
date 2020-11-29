@@ -228,13 +228,7 @@ def train(train_loader, model_and_loss, optimizer, lr_scheduler, fp16, logger, e
     if logger is not None:
         data_iter = logger.iteration_generator_wrapper(data_iter)
 
-    input1 = None
-    target1 = None
-    index1 = None
-
     for i, (input, target, index) in data_iter:
-        if i == 0:
-            input1, target1, index1 = input.clone(), target.clone(), copy(index)
 
         QScheme.batch = index
 
@@ -248,23 +242,6 @@ def train(train_loader, model_and_loss, optimizer, lr_scheduler, fp16, logger, e
 
         optimizer_step = ((i + 1) % batch_size_multiplier) == 0
         loss, _, prec1, prec5 = step(input, target, optimizer_step = optimizer_step)
-
-        # TODO hack
-        # QScheme.update_scale = True
-        # loss, prec1, prec5 = step(input, target, optimizer_step=False)
-        # QScheme.update_scale = False
-        # optimizer.zero_grad()
-        # assert(optimizer_step is True)
-        # loss, prec1, prec5 = step(input, target, optimizer_step=optimizer_step)
-        # QScheme.update_scale = True
-        if i % 100 == 0:
-            optimizer.zero_grad()
-            QScheme.batch = index1
-            loss, output, prec1, prec5 = step(input1, target1, optimizer_step=False)
-            torch.save(model_and_loss.model.conv1.scheme.scales[index1], 'conv1_{}_{}.scale'.format(epoch, i))
-            torch.save(model_and_loss.model.fc.scheme.scales[index1], 'fc_{}_{}.scale'.format(epoch, i))
-            torch.save(output.detach().cpu(), 'pred_{}_{}.scale'.format(epoch, i))
-            optimizer.zero_grad()
 
         it_time = time.time() - end
 
@@ -311,7 +288,7 @@ def get_val_step(model_and_loss):
 
 
 def validate(val_loader, model_and_loss, fp16, logger, epoch, prof=-1, register_metrics=True):
-    config.training = False    # TODO Hack
+    config.training = False
     if register_metrics and logger is not None:
         logger.register_metric('val.top1',         log.AverageMeter(), log_level = 0)
         logger.register_metric('val.top5',         log.AverageMeter(), log_level = 0)

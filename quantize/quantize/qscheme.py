@@ -102,8 +102,8 @@ class QScheme(object):
             N = Cs[0].shape[0]
 
             # TODO ???
-            # Ws = [torch.ones(N, dtype=torch.int32) * layer.dim for layer in layers]
-            Ws = [torch.ones(N, dtype=torch.int32) for layer in layers]
+            Ws = [torch.ones(N, dtype=torch.int32) * layer.dim for layer in layers]
+            # Ws = [torch.ones(N, dtype=torch.int32) for layer in layers]
             w = torch.cat(Ws, 0)
 
             total_bits = w.sum() * config.activation_compression_bits

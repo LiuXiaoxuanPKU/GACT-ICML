@@ -233,6 +233,8 @@ def main(args):
             model_state2 = checkpoint2['state_dict']
         else:
             model_state2 = None
+    else:
+        model_state2 = None
 
 
     # Create data loaders and optimizers as needed

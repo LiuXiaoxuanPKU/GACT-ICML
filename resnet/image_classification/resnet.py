@@ -369,7 +369,7 @@ resnet_configs = {
         'quantize' : {
             'conv' : QConv2d,
             'linear' : QLinear,
-            'bn' : QBatchNorm2d, # TODO
+            'bn' : QBatchNorm2d,
             'conv_init' : 'fan_in',
             'nonlinearity' : 'relu',
             'last_bn_0_init' : False,

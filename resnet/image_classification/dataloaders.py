@@ -265,14 +265,9 @@ def get_pytorch_train_loader(data_path, batch_size, num_classes, one_hot, worker
     else:
         train_sampler = None
 
-    # train_loader = dataloader.DataLoader(
-    #         train_dataset, batch_size=batch_size, shuffle=(train_sampler is None),
-    #         num_workers=workers, worker_init_fn=_worker_init_fn, pin_memory=True, sampler=train_sampler, collate_fn=fast_collate, drop_last=True)
-    # TODO hack
     train_loader = dataloader.DataLoader(
-        train_dataset, batch_size=batch_size, shuffle=False,
-        num_workers=workers, worker_init_fn=_worker_init_fn, pin_memory=True, sampler=train_sampler,
-        collate_fn=fast_collate, drop_last=True)
+            train_dataset, batch_size=batch_size, shuffle=(train_sampler is None),
+            num_workers=workers, worker_init_fn=_worker_init_fn, pin_memory=True, sampler=train_sampler, collate_fn=fast_collate, drop_last=True)
 
     return PrefetchedWrapper(train_loader, num_classes, fp16, one_hot), len(train_loader)
 

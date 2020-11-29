@@ -73,8 +73,8 @@ class conv2d(Function):
         ctx.other_args = (q_input_shape, stride, padding, dilation, groups)
 
         # TODO debug
-        scheme.input = input
-        scheme.output = output
+        # scheme.input = input
+        # scheme.output = output
 
         return output
 
@@ -107,8 +107,8 @@ class conv2d(Function):
         # torch.save([input, weight, grad_output, grad_weight], ctx.scheme.name + '.pt')
 
         # TODO debug
-        ctx.scheme.grad_output = grad_output
-        ctx.scheme.grad_input = grad_input
+        # ctx.scheme.grad_output = grad_output
+        # ctx.scheme.grad_input = grad_input
 
         return grad_input, grad_weight, grad_bias, None, None, None, None, None
 
@@ -137,8 +137,8 @@ class linear(Function):
         ctx.other_args = q_input_shape
 
         # TODO debug
-        scheme.input = input
-        scheme.output = output
+        # scheme.input = input
+        # scheme.output = output
 
         return output
 
@@ -162,8 +162,8 @@ class linear(Function):
             grad_bias = None
 
         # TODO debug
-        ctx.scheme.grad_output = grad_output
-        ctx.scheme.grad_input = grad_input
+        # ctx.scheme.grad_output = grad_output
+        # ctx.scheme.grad_input = grad_input
 
         return grad_input, grad_weight, grad_bias, None
 

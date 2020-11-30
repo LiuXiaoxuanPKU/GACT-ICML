@@ -435,7 +435,7 @@ resnet_versions = {
             'net' : PreActResNet,
             'block' : PreActBlock,
             'layers' : [9, 9, 9],
-            'num_classes' : 10,
+            'num_classes' : 100,
             },
         'preact_resnet110' : {
             'net' : PreActResNet,

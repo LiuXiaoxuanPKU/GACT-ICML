@@ -1,5 +1,6 @@
 from collections import namedtuple
 import torch
+import pytorch_minimax
 import torch.nn.functional as F
 from torch.nn.modules.utils import _pair
 from torch.utils.cpp_extension import load
@@ -15,17 +16,45 @@ ext_quantization = load(name="ext_quantization",
         sources=["ext_quantization.cc", "ext_quantization_cuda_kernel.cu"], verbose=True)
 
 
+def quantize(data, bits):
+    raw_shape = data.shape
+    output = data
+
+    output = data.view(raw_shape[0], -1)
+    mn = pytorch_minimax.min(output).unsqueeze(1)
+    mx = pytorch_minimax.max(output).unsqueeze(1)
+
+    mn = mn - 1e-8
+    mx = mx + 1e-8
+
+    B = 2 ** bits - 1
+    scale = B / (mx - mn)
+    output = (output - mn) * scale
+
+    noise = output.new(output.shape).uniform_(-0.5, 0.5)
+    output.add_(noise)
+
+    output = F.relu(output)
+    output = torch.min(output, torch.tensor(B, dtype=torch.float32).cuda()).round_()
+    # dequant
+    output = output / scale + mn
+
+    return output.view(*raw_shape)
+
+
 def quantize_mixed_precision(data, bits, mn, mx, stochastic=True):
     assert stochastic
     if not config.compress_activation:
         return data, None, None, None
 
     raw_shape = data.shape
-    output = data.view(raw_shape[0], -1)
+    # output = data.view(raw_shape[0], -1)
+    output = data
 
     if config.simulate:
         bits = bits.cuda()
-        B = (2 ** bits - 1).unsqueeze(1)
+        B = 2 ** bits - 1
+        # B = (2 ** bits - 1).unsqueeze(1)
         mn = mn - 1e-8
         mx = mx + 1e-8
         scale = B / (mx - mn)
@@ -60,6 +89,10 @@ def dequantize_mixed_precision(data, shape, bits, scale, mn):
 class conv2d(Function):
     @staticmethod
     def forward(ctx, input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1, scheme=None):
+        # QAT
+        if config.qat > 0:
+            input = quantize(input, config.qat)
+
         with torch.no_grad():
             q_bits, q_min, mx = scheme.compute_quantization_bits(input)
             q_input, q_input_shape, q_bits, q_scale =\

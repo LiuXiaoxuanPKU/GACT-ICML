@@ -134,6 +134,7 @@ def add_parser_arguments(parser):
 
     parser.add_argument('--ca', type=str2bool, default=True, help='compress activation')
     parser.add_argument('--cabits', type=int, default=8, help='activation number of bits')
+    parser.add_argument('--qat', type=int, default=8, help='quantization aware training bits')
     parser.add_argument('--ibits', type=int, default=8, help='Initial precision for the allocation algorithm')
     parser.add_argument('--calg', type=str, default='greedy', help='Precision allocation algorithm: greedy or dp')
     parser.add_argument('--persample', type=str2bool, default=True, help='Per-sample range')
@@ -147,6 +148,7 @@ def main(args):
     config.alg = args.calg
     config.persample = args.persample
     config.perlayer = args.perlayer
+    config.qat = args.qat
 
     exp_start_time = time.time()
     global best_prec1

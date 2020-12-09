@@ -32,3 +32,4 @@ Estimate the Lipschitz constant of the gradient
     def update_all():
         for estimator in instances:
             estimator.update()
+

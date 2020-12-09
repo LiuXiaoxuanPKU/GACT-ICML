@@ -2,20 +2,24 @@ from multiprocessing import Pool, Queue
 import os
 
 host_queue = Queue()
-for i in range(0, 8):
+for i in range(1, 7):
     host_queue.put(i)
 
 
 configs = [
-    ('exact', '-c fanin'),
-    ('4bit', '-c quantize --ca=True --cabits=4 --ibits=4 --persample=False --perlayer=False'),
-    ('2bit', '-c quantize --ca=True --cabits=2 --ibits=2 --persample=False --perlayer=False'),
-    # ('2bit_psr', '-c quantize --ca=True --cabits=2 --ibits=2 --persample=True --perlayer=False'),
-    ('2bit_ps', '-c quantize --ca=True --cabits=2 --ibits=8 --persample=True --perlayer=False'),
-    ('2bit_pl', '-c quantize --ca=True --cabits=2 --ibits=8 --persample=True --perlayer=True'),
-    ('2bit_psr_nobn', '-c qlinear --ca=True --cabits=2 --ibits=2 --persample=True --perlayer=False'),
-    ('2bit_ps_nobn', '-c qlinear --ca=True --cabits=2 --ibits=8 --persample=True --perlayer=False'),
-    ('2bit_pl_nobn', '-c qlinear --ca=True --cabits=2 --ibits=8 --persample=True --perlayer=True'),
+    # ('exact', '-c fanin'),
+    # ('4bit', '-c quantize --ca=True --cabits=4 --ibits=4 --persample=False --perlayer=False'),
+    # ('2bit', '-c quantize --ca=True --cabits=2 --ibits=2 --persample=False --perlayer=False'),
+    # # ('2bit_psr', '-c quantize --ca=True --cabits=2 --ibits=2 --persample=True --perlayer=False'),
+    # ('2bit_ps', '-c quantize --ca=True --cabits=2 --ibits=8 --persample=True --perlayer=False'),
+    # ('2bit_pl', '-c quantize --ca=True --cabits=2 --ibits=8 --persample=True --perlayer=True'),
+    # ('2bit_psr_nobn', '-c qlinear --ca=True --cabits=2 --ibits=2 --persample=True --perlayer=False'),
+    # ('2bit_ps_nobn', '-c qlinear --ca=True --cabits=2 --ibits=8 --persample=True --perlayer=False'),
+    # ('2bit_pl_nobn', '-c qlinear --ca=True --cabits=2 --ibits=8 --persample=True --perlayer=True'),
+    ('exact_qat', '-c qlinear --qat=8 --ca=True --cabits=8 --ibits=8 --persample=False --perlayer=False'),
+    ('4bit_nobn_qat', '-c qlinear --ca=True --cabits=4 --ibits=4 --persample=False --perlayer=False --qat=8'),
+    ('2bit_nobn_qat', '-c qlinear --ca=True --cabits=2 --ibits=2 --persample=False --perlayer=False --qat=8'),
+    ('2bit_psr_nobn_qat', '-c qlinear --ca=True --cabits=2 --ibits=2 --persample=True --perlayer=False --qat=8'),
 ]
 tasks = []
 for tid, params in configs:

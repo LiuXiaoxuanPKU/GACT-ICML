@@ -43,6 +43,33 @@ class QScheme(object):
     def compute_quantization_bits(self, input):
         N = input.shape[0]
         D = input.shape[1]
+
+        R = len(input.shape)
+        ranks = range(R)
+        group_dims = [i if i != -1 else R - 1 for i in config.group_dims]
+        reduce_dims = list(filter(lambda i: not (i in group_dims), ranks))
+
+        mn = input
+        mx = input
+        for dim in reduce_dims:
+            mn = torch.min(mn, dim, keepdim=True)[0]
+            mx = torch.max(mx, dim, keepdim=True)[0]
+
+        # Fine-grained mixed precision
+        b = torch.ones(mn.shape, dtype=torch.int32) * self.initial_bits
+        # Range = mx - mn
+        # C = (Range ** 2).cpu().view(-1)
+        # b = b.view(-1)
+        # w = torch.ones_like(b)
+        # b = calc_precision(b, C, w, int(self.bits * len(b)))
+        # b = b.view(*mn.shape)
+        # print(C.shape)
+        # for i in range(128):
+        #     print(C[i*16 : (i+1)*16])
+        # print(b)
+
+        return b, mn, mx        # TODO hack
+
         input_flatten = input.view(N, -1)
 
         # greedy

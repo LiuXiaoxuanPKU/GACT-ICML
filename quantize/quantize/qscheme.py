@@ -49,38 +49,21 @@ class QScheme(object):
         group_dims = [i if i != -1 else R - 1 for i in config.group_dims]
         reduce_dims = list(filter(lambda i: not (i in group_dims), ranks))
 
+        # Compute the range by groups
         mn = input
         mx = input
         for dim in reduce_dims:
             mn = torch.min(mn, dim, keepdim=True)[0]
             mx = torch.max(mx, dim, keepdim=True)[0]
 
-        # Fine-grained mixed precision
-        b = torch.ones(mn.shape, dtype=torch.int32) * self.initial_bits
-        # Range = mx - mn
-        # C = (Range ** 2).cpu().view(-1)
-        # b = b.view(-1)
-        # w = torch.ones_like(b)
-        # b = calc_precision(b, C, w, int(self.bits * len(b)))
-        # b = b.view(*mn.shape)
-        # print(C.shape)
-        # for i in range(128):
-        #     print(C[i*16 : (i+1)*16])
-        # print(b)
-
-        return b, mn, mx        # TODO hack
-
         input_flatten = input.view(N, -1)
 
         # greedy
         grad_sum = self.get_scale().cuda()
-        mn = pytorch_minimax.min(input_flatten)
-        mx = pytorch_minimax.max(input_flatten)
-        if not config.persample:
-            mn = torch.ones_like(mn) * mn.min()
-            mx = torch.ones_like(mx) * mx.max()
 
-        Range = mx - mn
+        mn2 = pytorch_minimax.min(input_flatten)
+        mx2 = pytorch_minimax.max(input_flatten)
+        Range = mx2 - mn2
         C = (self.num_locations * D / 4 * Range ** 2 * grad_sum).cpu()
         b = torch.ones(N, dtype=torch.int32) * self.initial_bits
         w = torch.ones(N, dtype=torch.int32)
@@ -91,13 +74,6 @@ class QScheme(object):
             self.dim = input.numel() // N
             self.b = b.detach()
             self.conv_input_norm = (input_flatten ** 2).sum(1) * self.num_locations
-
-        # B = 2 ** b - 1
-        # self.var = (self.C / B**2).sum()
-
-        if config.simulate:
-            mn = mn.unsqueeze(1)
-            mx = mx.unsqueeze(1)
 
         return b, mn, mx
 

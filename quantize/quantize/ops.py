@@ -45,20 +45,24 @@ def quantize(data, bits):
 def quantize_mixed_precision(data, bits, mn, mx, stochastic=True):
     assert stochastic
     if not config.compress_activation:
-        return data, None, None, None
+        return data, None, None, None, None
 
     raw_shape = data.shape
     # output = data.view(raw_shape[0], -1)
     output = data
 
     if config.simulate:
+        # Transform
         bits = bits.cuda()
-        B = 2 ** bits - 1
-        # B = (2 ** bits - 1).unsqueeze(1)
         mn = mn - 1e-8
         mx = mx + 1e-8
-        scale = B / (mx - mn)
+        scale = 1 / (mx - mn)
         output = (output - mn) * scale
+
+        # B
+        B = (2 ** bits - 1).unsqueeze(1)
+        output = output.view(raw_shape[0], -1)
+        output = output * B
 
         if stochastic:
             noise = output.new(output.shape).uniform_(-0.5, 0.5)
@@ -70,15 +74,17 @@ def quantize_mixed_precision(data, bits, mn, mx, stochastic=True):
         bits = bits.cuda()
         output, scale = ext_quantization.pack_mixed_precision(output, mn, mx, bits)
 
-    return output, raw_shape, bits, scale
+    return output, raw_shape, bits, scale, B
 
 
-def dequantize_mixed_precision(data, shape, bits, scale, mn):
+def dequantize_mixed_precision(data, shape, bits, scale, mn, B):
     if not config.compress_activation:
         return data
 
-    if config.simulate:
-        data = data.float() / scale + mn
+    if config.simulate: # TODO hack
+        data = data.float() / B
+        data = data.view(*shape)
+        data = data / scale + mn
     else:
         assert config.quantize_activation
         data = ext_quantization.unpack_mixed_precision(data, bits,
@@ -89,20 +95,16 @@ def dequantize_mixed_precision(data, shape, bits, scale, mn):
 class conv2d(Function):
     @staticmethod
     def forward(ctx, input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1, scheme=None):
-        # QAT
-        if config.qat > 0:
-            input = quantize(input, config.qat)
-
         with torch.no_grad():
             q_bits, q_min, mx = scheme.compute_quantization_bits(input)
-            q_input, q_input_shape, q_bits, q_scale =\
+            q_input, q_input_shape, q_bits, q_scale, q_B =\
                 quantize_mixed_precision(input, q_bits, q_min, mx, True)
             output = F.conv2d(input, weight, bias, stride, padding, dilation, groups)
         ctx.scheme = scheme
         if config.swap:
-            ctx.save_for_backward(*[x.cpu() if x is not None else None for x in [q_input, q_bits, q_scale, q_min, weight, bias]])
+            ctx.save_for_backward(*[x.cpu() if x is not None else None for x in [q_input, q_bits, q_scale, q_B, q_min, weight, bias]])
         else:
-            ctx.save_for_backward(q_input, q_bits, q_scale, q_min, weight, bias)
+            ctx.save_for_backward(q_input, q_bits, q_scale, q_B, q_min, weight, bias)
         ctx.other_args = (q_input_shape, stride, padding, dilation, groups)
 
         # TODO debug
@@ -116,15 +118,15 @@ class conv2d(Function):
         ctx.scheme.set_scale(grad_output)
 
         if config.swap:
-            q_input, q_bits, q_scale, q_min, weight, bias = [x.cuda() if x is not None else x for x in ctx.saved_tensors]
+            q_input, q_bits, q_scale, q_B, q_min, weight, bias = [x.cuda() if x is not None else x for x in ctx.saved_tensors]
         else:
-            q_input, q_bits, q_scale, q_min, weight, bias = ctx.saved_tensors
+            q_input, q_bits, q_scale, q_B, q_min, weight, bias = ctx.saved_tensors
         q_input_shape, stride, padding, dilation, groups = ctx.other_args
         padding = _pair(padding)
         stride = _pair(stride)
         dilation = _pair(dilation)
 
-        input = dequantize_mixed_precision(q_input, q_input_shape, q_bits, q_scale, q_min)
+        input = dequantize_mixed_precision(q_input, q_input_shape, q_bits, q_scale, q_min, q_B)
 
         grad_input, grad_weight = ext_backward_func.cudnn_convolution_backward(
                 input, grad_output, weight, padding, stride, dilation, groups,
@@ -151,7 +153,7 @@ class linear(Function):
     def forward(ctx, input, weight, bias=None, scheme=None):
         with torch.no_grad():
             q_bits, q_min, mx = scheme.compute_quantization_bits(input)
-            q_input, q_input_shape, q_bits, q_scale = \
+            q_input, q_input_shape, q_bits, q_scale, q_B = \
                 quantize_mixed_precision(input, q_bits, q_min, mx, True)
             # q_bits, q_min, mx = None, None, None
             # q_input, q_input_shape, q_bits, q_scale = \
@@ -164,9 +166,9 @@ class linear(Function):
 
         ctx.scheme = scheme
         if config.swap:
-            ctx.save_for_backward(*[x.cpu() if x is not None else None for x in [q_input, q_bits, q_scale, q_min, weight, bias]])
+            ctx.save_for_backward(*[x.cpu() if x is not None else None for x in [q_input, q_bits, q_scale, q_B, q_min, weight, bias]])
         else:
-            ctx.save_for_backward(q_input, q_bits, q_scale, q_min, weight, bias)
+            ctx.save_for_backward(q_input, q_bits, q_scale, q_B, q_min, weight, bias)
         ctx.other_args = q_input_shape
 
         # TODO debug
@@ -180,11 +182,11 @@ class linear(Function):
         ctx.scheme.set_scale(grad_output)
 
         if config.swap:
-            q_input, q_bits, q_scale, q_min, weight, bias = [x.cuda() if x is not None else x for x in ctx.saved_tensors]
+            q_input, q_bits, q_scale, q_B, q_min, weight, bias = [x.cuda() if x is not None else x for x in ctx.saved_tensors]
         else:
-            q_input, q_bits, q_scale, q_min, weight, bias = ctx.saved_tensors
+            q_input, q_bits, q_scale, q_B, q_min, weight, bias = ctx.saved_tensors
         q_input_shape = ctx.other_args
-        input = dequantize_mixed_precision(q_input, q_input_shape, q_bits, q_scale, q_min)
+        input = dequantize_mixed_precision(q_input, q_input_shape, q_bits, q_scale, q_min, q_B)
 
         # TODO: the following implementation might not be optimal
         grad_input = grad_output.mm(weight)

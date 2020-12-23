@@ -185,50 +185,21 @@ class batch_norm(Function):
             normalized = (input - batch_mean) / batch_std
             weight = weight.view(1, -1, 1, 1)
 
-            q_bits, q_min, mx = scheme.compute_quantization_bits(normalized)
-            q_input, q_input_shape, q_bits, q_scale = \
-                quantize_mixed_precision(normalized, q_bits, q_min, mx, True)
+            quantized = quantize_activation(normalized, scheme)
 
         ctx.scheme = scheme
         # TODO save_for_backward is not working, get RuntimeError: No grad accumulator for a saved leaf!
-        # if config.swap:
-        #     ctx.save_for_backward(
-        #         *[x.cpu() if x is not None else None for x in [q_input, q_bits, q_scale, q_min, weight, batch_std]])
-        # else:
-        #     ctx.save_for_backward(q_input, q_bits, q_scale, q_min, weight, batch_std)
-        ctx.other_args = q_input_shape
-        # ctx.saved = (q_input, q_bits, q_scale, q_min, weight, bias, batch_std, input, normalized)
-        ctx.saved = (q_input, q_bits, q_scale, q_min, weight, batch_std, normalized, bias, input)
+        ctx.other_args = normalized.shape
+        ctx.saved = (quantized, weight, batch_std, bias)
 
         return output
 
     @staticmethod
     def backward(ctx, grad_output):
         # TODO save_for_backward is not working, get RuntimeError: No grad accumulator for a saved leaf!
-        # if config.swap:
-        #     q_input, q_bits, q_scale, q_min, weight, batch_std = [x.cuda() if x is not None else x for x in ctx.saved_tensors]
-        # else:
-        #     q_input, q_bits, q_scale, q_min, weight, batch_std = ctx.saved_tensors
-        # q_input, q_bits, q_scale, q_min, weight, bias, batch_std, input, normalized_0 = ctx.saved
-        q_input, q_bits, q_scale, q_min, weight, batch_std, normalized_0, bias, input = ctx.saved
+        quantized, weight, batch_std, bias = ctx.saved
         q_input_shape = ctx.other_args
-        normalized = dequantize_mixed_precision(q_input, q_input_shape, q_bits, q_scale, q_min)
-        # if ctx.scheme.name == 'bn_layer_0':
-        #     normalized = dequantize_mixed_precision(q_input, q_input_shape, q_bits, q_scale, q_min)
-        #     grad_weight = (grad_output * normalized).sum((0, 2, 3))
-        #     grad_bias = grad_output.sum((0, 2, 3))
-        #     grad_normalized = grad_output * weight
-        #
-        #     mean_grad_normalized = grad_normalized.mean((0, 2, 3), keepdim=True)
-        #     mean_grad = (normalized * grad_normalized).mean((0, 2, 3), keepdim=True)
-        #     grad_input = grad_normalized - mean_grad_normalized - normalized * mean_grad
-        #     grad_input_1 = (grad_input / batch_std).clone()
-        #     print((grad_normalized - mean_grad_normalized).norm(),
-        #           (normalized * mean_grad).norm(), grad_input_1.norm())
-        #     print(grad_input_1[0,0,0])
-        #     normalized_1 = normalized.clone()
-
-        # normalized = ctx.saved[-1]
+        normalized = dequantize_activation(quantized, q_input_shape)
 
         # TODO: fused batch_norm
         grad_weight = (grad_output * normalized).sum((0, 2, 3))
@@ -240,14 +211,7 @@ class batch_norm(Function):
         grad_input = grad_normalized - mean_grad_normalized - normalized * mean_grad
         grad_input = grad_input / batch_std
 
-        # if ctx.scheme.name == 'bn_layer_0':
-        #     print(grad_input.norm(), (grad_input - grad_input_1).norm())
-        #     print(normalized.norm(), (normalized - normalized_1).norm())
-
         ctx.scheme.set_scale(grad_normalized, batch_std, (mean_grad**2).sum())
-
-        # print('Saving')
-        # torch.save([input, weight, bias, grad_output, grad_input], ctx.scheme.name + '.pt')
 
         return grad_input, None, None, grad_weight, grad_bias, None, None, None, None
 

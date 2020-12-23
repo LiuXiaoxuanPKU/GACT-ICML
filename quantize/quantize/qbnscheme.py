@@ -33,34 +33,37 @@ class QBNScheme(QScheme):
                 self.mean_grad_norm = mean_grad_norm
 
     def compute_quantization_bits(self, input):
-        N, num_channels, H, W = input.shape
+        N, D, H, W = input.shape
         input_flatten = input.view(N, -1)
+        num_features = input_flatten.shape[1]
+        num_pixels = num_features // D
+
+        # Compute min, max by groups
+        if num_features % config.group_size != 0:
+            # Padding
+            new_num_features = (num_features // config.group_size + 1) * config.group_size
+            delta = new_num_features - num_features
+            input_flatten = torch.cat([input_flatten,
+                                       torch.zeros([N, delta], dtype=input.dtype, device=input.device)], 1)
+
+        input_groups = input_flatten.view(-1, config.group_size)
+        mn = pytorch_minimax.min(input_groups).view(N, -1, 1)  # N, num_groups, 1
+        mx = pytorch_minimax.max(input_groups).view(N, -1, 1)  # N, num_groups, 1
+        Range_sqr = ((mx - mn) ** 2).view(N, -1).sum(1) * config.group_size / num_pixels  # Average range over pixels
 
         # greedy
         grad_sum = self.get_scale().cuda()
-        mn = pytorch_minimax.min(input_flatten)
-        mx = pytorch_minimax.max(input_flatten)
-        if not config.persample:
-            mn = torch.ones_like(mn) * mn.min()
-            mx = torch.ones_like(mx) * mx.max()
-            
-        Range = mx - mn
-
         H_s = (input / self.batch_std) ** 2
         conv_input_norm = self.prev_linear.conv_input_norm
         coef_1 = self.mean_grad_norm * conv_input_norm
-        coef_2 = H_s.sum() * conv_input_norm.sum() * grad_sum / num_channels / (N*H*W)**2
+        coef_2 = H_s.sum() * conv_input_norm.sum() * grad_sum / D / (N*H*W)**2
 
-        C = (Range ** 2 * (coef_1 + coef_2) / 4).cpu()
+        C = (Range_sqr * (coef_1 + coef_2) / 4).cpu()
         b = torch.ones(N, dtype=torch.int32) * self.initial_bits
         w = torch.ones(N, dtype=torch.int32)
         b = calc_precision(b, C, w, int(self.bits * N))
 
-        if config.simulate:
-            mn = mn.unsqueeze(1)
-            mx = mx.unsqueeze(1)
-
-        return b, mn, mx
+        return input_groups.view(N, -1, config.group_size), b, mn, mx
 
     @staticmethod
     def allocate_perlayer():

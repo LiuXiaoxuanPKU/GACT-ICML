@@ -16,10 +16,13 @@ configs = [
     # ('2bit_psr_nobn', '-c qlinear --ca=True --cabits=2 --ibits=2 --persample=True --perlayer=False'),
     # ('2bit_ps_nobn', '-c qlinear --ca=True --cabits=2 --ibits=8 --persample=True --perlayer=False'),
     # ('2bit_pl_nobn', '-c qlinear --ca=True --cabits=2 --ibits=8 --persample=True --perlayer=True'),
-    ('exact_qat', '-c qlinear --qat=8 --ca=True --cabits=8 --ibits=8 --persample=False --perlayer=False'),
-    ('4bit_nobn_qat', '-c qlinear --ca=True --cabits=4 --ibits=4 --persample=False --perlayer=False --qat=8'),
-    ('2bit_nobn_qat', '-c qlinear --ca=True --cabits=2 --ibits=2 --persample=False --perlayer=False --qat=8'),
-    ('2bit_psr_nobn_qat', '-c qlinear --ca=True --cabits=2 --ibits=2 --persample=True --perlayer=False --qat=8'),
+    # ('exact_qat', '-c qlinear --qat=8 --ca=True --cabits=8 --ibits=8 --persample=False --perlayer=False'),
+    # ('4bit_nobn_qat', '-c qlinear --ca=True --cabits=4 --ibits=4 --persample=False --perlayer=False --qat=8'),
+    # ('2bit_nobn_qat', '-c qlinear --ca=True --cabits=2 --ibits=2 --persample=False --perlayer=False --qat=8'),
+    # ('2bit_psr_nobn_qat', '-c qlinear --ca=True --cabits=2 --ibits=2 --persample=True --perlayer=False --qat=8'),
+    ('2bit_g64_psr_nobn', '-c qlinear --ca=True --cabits=2 --ibits=2 --persample=True --perlayer=False'),
+    ('2bit_g64_ps_nobn', '-c qlinear --ca=True --cabits=2 --ibits=8 --persample=True --perlayer=False'),
+    ('2bit_g64_pl_nobn', '-c qlinear --ca=True --cabits=2 --ibits=8 --persample=True --perlayer=True'),
 ]
 tasks = []
 for tid, params in configs:

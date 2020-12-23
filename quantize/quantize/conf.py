@@ -8,7 +8,7 @@ class QuantizationConfig:
         self.simulate = True
         self.swap = False
         self.training = True
-        self.group_size = [0, 1, 2]
+        self.group_size = 64
         self.qat = 0
 
 config = QuantizationConfig()

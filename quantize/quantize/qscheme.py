@@ -43,31 +43,29 @@ class QScheme(object):
     def compute_quantization_bits(self, input):
         N = input.shape[0]
         D = input.shape[1]
-
-        R = len(input.shape)
-        ranks = range(R)
-        group_dims = [i if i != -1 else R - 1 for i in config.group_dims]
-        reduce_dims = list(filter(lambda i: not (i in group_dims), ranks))
-
-        # Compute the range by groups
-        mn = input
-        mx = input
-        for dim in reduce_dims:
-            mn = torch.min(mn, dim, keepdim=True)[0]
-            mx = torch.max(mx, dim, keepdim=True)[0]
-
         input_flatten = input.view(N, -1)
+        num_features = input_flatten.shape[1]
+        num_pixels = num_features // D
+
+        # Compute min, max by groups
+        if num_features % config.group_size != 0:
+            # Padding
+            new_num_features = (num_features // config.group_size + 1) * config.group_size
+            delta = new_num_features - num_features
+            input_flatten = torch.cat([input_flatten,
+                                       torch.zeros([N, delta], dtype=input.dtype, device=input.device)], 1)
+
+        input_groups = input_flatten.view(-1, config.group_size)
+        mn = pytorch_minimax.min(input_groups).view(N, -1, 1)       # N, num_groups, 1
+        mx = pytorch_minimax.max(input_groups).view(N, -1, 1)       # N, num_groups, 1
+        Range_sqr = ((mx - mn)**2).view(N, -1).sum(1) * config.group_size / num_pixels  # Average range over pixels
 
         # greedy
         grad_sum = self.get_scale().cuda()
-
-        mn2 = pytorch_minimax.min(input_flatten)
-        mx2 = pytorch_minimax.max(input_flatten)
-        Range = mx2 - mn2
-        C = (self.num_locations * D / 4 * Range ** 2 * grad_sum).cpu()
+        C = (self.num_locations / 4 * Range_sqr * grad_sum).cpu()
         b = torch.ones(N, dtype=torch.int32) * self.initial_bits
         w = torch.ones(N, dtype=torch.int32)
-        b = calc_precision(b, C, w, int(self.bits * N))
+        b = calc_precision(b, C, w, int(self.bits * N))         # N
 
         with torch.no_grad():
             self.C = C
@@ -75,7 +73,7 @@ class QScheme(object):
             self.b = b.detach()
             self.conv_input_norm = (input_flatten ** 2).sum(1) * self.num_locations
 
-        return b, mn, mx
+        return input_groups.view(N, -1, config.group_size), b, mn, mx
 
     @staticmethod
     def allocate_perlayer():

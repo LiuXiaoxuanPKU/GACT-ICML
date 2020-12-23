@@ -28,9 +28,10 @@ def quantize_mixed_precision(data, bits, mn, mx, stochastic=True):
     if config.simulate:
         bits = bits.cuda()
         B = (2 ** bits - 1).view(N, 1, 1)
-        mn = mn - 1e-8
-        mx = mx + 1e-8
+        mn = mn - 1e-6
+        mx = mx + 1e-6
         scale = B / (mx - mn)     # N, groups, 1
+        # print('scale ', scale, B)
         output = (output - mn) * scale
 
         if stochastic:
@@ -66,36 +67,21 @@ def quantize_activation(input, scheme):
     q_input, q_bits, q_scale = \
         quantize_mixed_precision(input_groups, q_bits, q_min, mx, True)
 
-    # if q_scale is None:
-    #     return q_input, q_bits
+    if q_scale is None:
+        return q_input, q_bits
 
-    # # Quantize recursively
-    # p_shape = q_scale.shape
-    # params = torch.stack([q_scale, q_min], 0)
-    # params = params.view(2*N, -1)
-    # mn = pytorch_minimax.min(params).view(2*N, 1, 1)
-    # mx = pytorch_minimax.max(params).view(2*N, 1, 1)
-    # params = params.view(2*N, 1, -1)
-    # b = torch.ones(2*N, dtype=torch.int32) * 8  # TODO hardcode
-    #
-    # p_input, p_bits, p_scale = \
-    #     quantize_mixed_precision(params, b, mn, mx, True)
-
-    return q_input, q_bits, q_scale, q_min    # TODO convert q_bits to int8
-    # return q_input, q_bits, p_input, p_bits, p_scale, mn, p_shape
+    return q_input, q_bits, q_scale.to(torch.bfloat16), q_min.to(torch.bfloat16)  # TODO convert q_bits to int8
 
 
 def dequantize_activation(quantized, q_input_shape):
     N = q_input_shape[0]
-    q_input, q_bits, q_scale, q_min = quantized
-    # if len(quantized) == 2:
-    #     q_input, q_bits = quantized
-    #     q_scale, q_min = None, None
-    # else:
-    #     q_input, q_bits, p_input, p_bits, p_scale, p_min, p_shape = quantized
-    #
-    #     params = dequantize_mixed_precision(p_input, p_shape, p_bits, p_scale, p_min)
-    #     q_scale, q_min = params[:N].view(*p_shape), params[N:].view(*p_shape)
+    if len(quantized) == 2:
+        q_input, q_bits = quantized
+        q_scale, q_min = None, None
+    else:
+        q_input, q_bits, q_scale, q_min = quantized
+        q_scale = q_scale.to(torch.float32)
+        q_min = q_min.to(torch.float32)
 
     input = dequantize_mixed_precision(q_input, q_input_shape, q_bits, q_scale, q_min)
 

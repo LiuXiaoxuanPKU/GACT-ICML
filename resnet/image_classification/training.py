@@ -390,4 +390,4 @@ def train_loop(model_and_loss, optimizer, new_optimizer, lr_scheduler, train_loa
         #     get_var(model_and_loss, optimizer, train_loader, 20)
         #     exit(0)
 
-    # get_var(model_and_loss, optimizer, train_loader, 10, model_state)
+    get_var(model_and_loss, optimizer, train_loader, 10, model_state)

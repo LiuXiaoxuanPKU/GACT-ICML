@@ -266,6 +266,7 @@ def main(args):
 
     model_and_loss = ModelAndLoss(
             (args.arch, args.model_config),
+            args.num_classes,
             loss,
             pretrained_weights=pretrained_weights,
             cuda = True, fp16 = args.fp16)

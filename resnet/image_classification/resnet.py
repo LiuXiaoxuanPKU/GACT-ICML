@@ -393,72 +393,61 @@ resnet_versions = {
             'net' : ResNet,
             'block' : BasicBlock,
             'layers' : [2, 2, 2, 2],
-            'num_classes' : 1000,
             },
          'resnet34' : {
             'net' : ResNet,
             'block' : BasicBlock,
             'layers' : [3, 4, 6, 3],
-            'num_classes' : 1000,
             },
          'resnet50' : {
             'net' : ResNet,
             'block' : Bottleneck,
             'layers' : [3, 4, 6, 3],
-            'num_classes' : 1000,
             },
         'resnet101' : {
             'net' : ResNet,
             'block' : Bottleneck,
             'layers' : [3, 4, 23, 3],
-            'num_classes' : 1000,
             },
         'resnet152' : {
             'net' : ResNet,
             'block' : Bottleneck,
             'layers' : [3, 8, 36, 3],
-            'num_classes' : 1000,
             },
         'resnet56' : {
             'net' : ResNetCifar,
             'block' : BasicBlock,
             'layers' : [9, 9, 9],
-            'num_classes' : 10,
             },
         'preact_resnet20' : {
             'net' : PreActResNet,
             'block' : PreActBlock,
             'layers' : [3, 3, 3],
-            'num_classes' : 10,
             },
         'preact_resnet56' : {
             'net' : PreActResNet,
             'block' : PreActBlock,
             'layers' : [9, 9, 9],
-            'num_classes' : 100,
             },
         'preact_resnet110' : {
             'net' : PreActResNet,
             'block' : PreActBlock,
             'layers' : [18, 18, 18],
-            'num_classes' : 10,
             },
         'preact_resnet164' : {
             'net' : PreActResNet,
             'block' : PreActBottleneck,
             'layers' : [18, 18, 18],
-            'num_classes' : 10,
             },
         'preact_resnet1001' : {
             'net' : PreActResNet,
             'block' : PreActBottleneck,
             'layers' : [111, 111, 111],
-            'num_classes' : 10,
             },
         }
 
 
-def build_resnet(version, config, model_state=None):
+def build_resnet(version, config, num_classes, model_state=None):
     version = resnet_versions[version]
     config = resnet_configs[config]
 
@@ -468,6 +457,6 @@ def build_resnet(version, config, model_state=None):
     model = version['net'](builder,
                            version['block'],
                            version['layers'],
-                           version['num_classes'])
+                           num_classes)
 
     return model

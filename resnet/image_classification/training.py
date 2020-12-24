@@ -19,12 +19,12 @@ except ImportError:
 
 
 class ModelAndLoss(nn.Module):
-    def __init__(self, arch, loss, pretrained_weights=None, cuda=True, fp16=False):
+    def __init__(self, arch, num_classes, loss, pretrained_weights=None, cuda=True, fp16=False):
         super(ModelAndLoss, self).__init__()
         self.arch = arch
 
         print("=> creating model '{}'".format(arch))
-        model = models.build_resnet(arch[0], arch[1])
+        model = models.build_resnet(arch[0], arch[1], num_classes)
 
         if pretrained_weights is not None:
             print("=> using pre-trained model from a file '{}'".format(arch))

@@ -137,7 +137,8 @@ def add_parser_arguments(parser):
     parser.add_argument('--qat', type=int, default=8, help='quantization aware training bits')
     parser.add_argument('--ibits', type=int, default=8, help='Initial precision for the allocation algorithm')
     parser.add_argument('--calg', type=str, default='greedy', help='Precision allocation algorithm: greedy or dp')
-    parser.add_argument('--persample', type=str2bool, default=True, help='Per-sample range')
+    parser.add_argument('--pergroup', type=str2bool, default=True, help='Per-group range')
+    parser.add_argument('--groupsize', type=int, default=256, help='Size for each quantization group')
     parser.add_argument('--perlayer', type=str2bool, default=True, help='Per layer quantization')
 
 
@@ -146,7 +147,7 @@ def main(args):
     config.activation_compression_bits = args.cabits
     config.initial_bits = args.ibits
     config.alg = args.calg
-    config.persample = args.persample
+    config.pergroup = args.pergroup
     config.perlayer = args.perlayer
     config.qat = args.qat
 

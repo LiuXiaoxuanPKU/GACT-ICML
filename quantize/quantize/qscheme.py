@@ -58,6 +58,12 @@ class QScheme(object):
         input_groups = input_flatten.view(-1, config.group_size)
         mn = pytorch_minimax.min(input_groups).view(N, -1, 1)       # N, num_groups, 1
         mx = pytorch_minimax.max(input_groups).view(N, -1, 1)       # N, num_groups, 1
+        if not config.pergroup:    # No per group quantization
+            min_scalar = mn.min()
+            mn = torch.ones_like(mn) * min_scalar
+            max_scalar = mx.max()
+            mx = torch.ones_like(mx) * max_scalar
+
         Range_sqr = ((mx - mn)**2).view(N, -1).sum(1) * config.group_size / num_pixels  # Average range over pixels
 
         # greedy

@@ -91,6 +91,7 @@ ImageNet
 # Testing
 ./dist-test 1 0 127.0.0.1 1 resnet50 "<quantize config>" tmp <imagenet path>
 # Training
+./dist-train 1 0 127.0.0.1 8 resnet50 "<quantize config>" tmp <imagenet path> 
 ```
 
 | *quantize config* | *Overall Var* | *Val Top1* |
@@ -100,8 +101,8 @@ ImageNet
 | -c qlinear --ca=True --cabits=2 --ibits=2 --pergroup=True --perlayer=False | 0.3763839602470398 | |
 | -c qlinear --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False | 0.22041866183280945 | |
 | -c qlinear --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True | 0.05691418796777725 | |
-| -c quantize --ca=True --cabits=4 --ibits=4 --pergroup=False --perlayer=False | 0.8921149969100952 | |
+| -c quantize --ca=True --cabits=4 --ibits=4 --pergroup=False --perlayer=False | 0.8921149969100952 | g15 |
 | -c quantize --ca=True --cabits=2 --ibits=2 --pergroup=False --perlayer=False | 47.97850799560547 | |
-| -c quantize --ca=True --cabits=2 --ibits=2 --pergroup=True --perlayer=False | 0.40297362208366394 | |
+| -c quantize --ca=True --cabits=2 --ibits=2 --pergroup=True --perlayer=False | 0.40297362208366394 | g26 |
 | -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False | 0.25603559613227844 |   |
-| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True | 0.06779336929321289 | |
+| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True | 0.06779336929321289 | g16 |

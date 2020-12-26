@@ -28,17 +28,24 @@ class QScheme(object):
         QScheme.num_layers += 1
 
     def get_scale(self):
-        assert QScheme.batch is not None
-        scale = self.scales[QScheme.batch].clone()
-        avg_scale = scale.mean()
-        scale[scale == 0] = avg_scale + 1e-9
-        return scale
+        if config.use_gradient:
+            assert QScheme.batch is not None
+            scale = self.scales[QScheme.batch].clone()
+            avg_scale = scale.mean()
+            scale[scale == 0] = avg_scale + 1e-9
+            return scale
+        else:
+            return self.scales
 
     def set_scale(self, grad):
         if QScheme.update_scale:
-            assert QScheme.batch is not None
-            scale = (grad.view(grad.shape[0], -1) ** 2).sum(1).detach().cpu()
-            self.scales[QScheme.batch] = self.scales[QScheme.batch] * 0.5 + scale * 0.5
+            if config.use_gradient:
+                assert QScheme.batch is not None
+                scale = (grad.view(grad.shape[0], -1) ** 2).sum(1).detach().cpu()
+                self.scales[QScheme.batch] = self.scales[QScheme.batch] * 0.5 + scale * 0.5
+            else:
+                scale = (grad.view(grad.shape[0], -1) ** 2).sum(1).detach().cpu()
+                self.scales = scale.mean()
 
     def compute_quantization_bits(self, input):
         N = input.shape[0]
@@ -92,13 +99,6 @@ class QScheme(object):
             total_bits = w.sum() * config.activation_compression_bits
             b = torch.ones(L, dtype=torch.int32) * 8
             b = calc_precision(b, C, w, total_bits)
-
-            # print('=====')
-            # print(b)
-            # print(C)
-            # print(w)
-            # print(C / w)
-            # print('=====')
 
             for i in range(L):
                 layers[i].bits = layers[i].initial_bits = b[i]

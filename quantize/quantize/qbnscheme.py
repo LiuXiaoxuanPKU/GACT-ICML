@@ -25,12 +25,17 @@ class QBNScheme(QScheme):
 
     def set_scale(self, grad, batch_std, mean_grad_norm):
         if QScheme.update_scale:
-            assert QScheme.batch is not None
             with torch.no_grad():
-                scale = (grad.view(grad.shape[0], -1) ** 2).sum(1).detach().cpu()
-                self.scales[QScheme.batch] = scale
                 self.batch_std = batch_std
                 self.mean_grad_norm = mean_grad_norm
+
+                scale = (grad.view(grad.shape[0], -1) ** 2).sum(1).detach().cpu()
+
+                if config.use_gradient:
+                    assert QScheme.batch is not None
+                    self.scales[QScheme.batch] = scale
+                else:
+                    self.scales = scale.mean()
 
     def compute_quantization_bits(self, input):
         N, D, H, W = input.shape

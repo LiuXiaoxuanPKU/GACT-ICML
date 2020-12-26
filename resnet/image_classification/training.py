@@ -228,9 +228,9 @@ def train(train_loader, model_and_loss, optimizer, lr_scheduler, fp16, logger, e
     if logger is not None:
         data_iter = logger.iteration_generator_wrapper(data_iter)
 
-    for i, (input, target, index) in data_iter:
+    for i, (input, target, index) in data_iter:     # NOTE: only needed for use_gradient
 
-        QScheme.batch = index
+        QScheme.batch = index                       # NOTE: only needed for use_gradient
 
         bs = input.size(0)
         lr_scheduler(optimizer, i, epoch)
@@ -288,7 +288,7 @@ def get_val_step(model_and_loss):
 
 
 def validate(val_loader, model_and_loss, fp16, logger, epoch, prof=-1, register_metrics=True):
-    config.training = False
+    config.training = False         # NOTE: only needed for use_gradient
     if register_metrics and logger is not None:
         logger.register_metric('val.top1',         log.AverageMeter(), log_level = 0)
         logger.register_metric('val.top5',         log.AverageMeter(), log_level = 0)
@@ -333,7 +333,7 @@ def validate(val_loader, model_and_loss, fp16, logger, epoch, prof=-1, register_
 
         end = time.time()
 
-    config.training = True
+    config.training = True          # NOTE: only needed for use_gradient
     return top1.get_val()
 
 # Train loop {{{
@@ -380,14 +380,5 @@ def train_loop(model_and_loss, optimizer, new_optimizer, lr_scheduler, train_loa
 
         if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
             logger.end()
-
-        # if epoch == 2:
-        #     print('Procedure 1')
-        #     get_var_during_training(model_and_loss, optimizer, train_loader, 20)
-        #
-        # # if skip_training:
-        #     print('Procedure 2')
-        #     get_var(model_and_loss, optimizer, train_loader, 20)
-        #     exit(0)
 
     get_var(model_and_loss, optimizer, train_loader, 10, model_state)

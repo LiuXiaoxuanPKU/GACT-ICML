@@ -100,6 +100,7 @@ ImageNet
 
 | *quantize config* | *Overall Var* | *Val Top1* |
 |--------|----------|---------|
+| -c fanin | /  | 77.09 |
 | -c qlinear --ca=True --cabits=4 --ibits=4 --pergroup=False --perlayer=False | 0.7898967862129211 | |
 | -c qlinear --ca=True --cabits=2 --ibits=2 --pergroup=False --perlayer=False | 9.28708267211914 | |
 | -c qlinear --ca=True --cabits=2 --ibits=2 --pergroup=True --perlayer=False | 0.3763839602470398 | |

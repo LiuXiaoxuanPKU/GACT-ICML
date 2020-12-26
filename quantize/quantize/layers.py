@@ -91,4 +91,17 @@ class QBatchNorm2d(nn.BatchNorm2d):
             self.weight, self.bias, bn_training, exponential_average_factor, self.eps, self.scheme)
 
 
-# class QReLU()
+class QReLU(nn.Module):
+    __constants__ = ['inplace']
+    inplace: bool
+
+    def __init__(self, inplace: bool = False):
+        super(ReLU, self).__init__()
+        self.inplace = inplace
+
+    def forward(self, input: Tensor) -> Tensor:
+        return F.relu(input, inplace=self.inplace) # TODO inplace?
+
+    def extra_repr(self) -> str:
+        inplace_str = 'inplace=True' if self.inplace else ''
+        return inplace_str

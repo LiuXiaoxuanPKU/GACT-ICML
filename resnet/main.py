@@ -140,6 +140,7 @@ def add_parser_arguments(parser):
     parser.add_argument('--pergroup', type=str2bool, default=True, help='Per-group range')
     parser.add_argument('--groupsize', type=int, default=256, help='Size for each quantization group')
     parser.add_argument('--perlayer', type=str2bool, default=True, help='Per layer quantization')
+    parser.add_argument('--usegradient', type=str2bool, default=True, help='Using gradient information for persample')
 
 
 def main(args):
@@ -150,6 +151,7 @@ def main(args):
     config.pergroup = args.pergroup
     config.perlayer = args.perlayer
     config.qat = args.qat
+    config.use_gradient = args.usegradient
 
     exp_start_time = time.time()
     global best_prec1
@@ -245,12 +247,12 @@ def main(args):
         get_train_loader = get_pytorch_train_loader_cifar10
         get_val_loader = get_pytorch_val_loader_cifar10
         get_debug_loader = get_pytorch_debug_loader_cifar10
-        QScheme.num_samples = 50000
+        QScheme.num_samples = 50000     # NOTE: only needed for use_gradient
     elif args.data_backend == 'pytorch':
         get_train_loader = get_pytorch_train_loader
         get_val_loader = get_pytorch_val_loader
         get_debug_loader = get_pytorch_val_loader
-        QScheme.num_samples = 1300000
+        QScheme.num_samples = 1300000   # NOTE: only needed for use_gradient
     elif args.data_backend == 'dali-gpu':
         get_train_loader = get_dali_train_loader(dali_cpu=False)
         get_val_loader = get_dali_val_loader()

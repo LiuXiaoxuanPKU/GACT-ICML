@@ -7,7 +7,7 @@ from . import logger as log
 from . import resnet as models
 from . import utils
 from .debug import get_var, get_var_during_training
-from quantize import config, QScheme, QBNScheme
+from quantize import config, QScheme, QBNScheme, QModule
 from copy import copy
 
 try:
@@ -25,6 +25,7 @@ class ModelAndLoss(nn.Module):
 
         print("=> creating model '{}'".format(arch))
         model = models.build_resnet(arch[0], arch[1], num_classes)
+        model = QModule(model)
 
         if pretrained_weights is not None:
             print("=> using pre-trained model from a file '{}'".format(arch))
@@ -220,6 +221,7 @@ def train(train_loader, model_and_loss, optimizer, lr_scheduler, fp16, logger, e
     step = get_train_step(model_and_loss, optimizer, fp16, use_amp = use_amp, batch_size_multiplier = batch_size_multiplier)
 
     model_and_loss.train()
+    print('Training mode ', config.training)
     end = time.time()
 
     optimizer.zero_grad()
@@ -287,7 +289,6 @@ def get_val_step(model_and_loss):
 
 
 def validate(val_loader, model_and_loss, fp16, logger, epoch, prof=-1, register_metrics=True):
-    config.training = False
     if register_metrics and logger is not None:
         logger.register_metric('val.top1',         log.AverageMeter(), log_level = 0)
         logger.register_metric('val.top5',         log.AverageMeter(), log_level = 0)
@@ -302,6 +303,7 @@ def validate(val_loader, model_and_loss, fp16, logger, epoch, prof=-1, register_
     top1 = log.AverageMeter()
     # switch to evaluate mode
     model_and_loss.eval()
+    print('Training mode ', config.training)
 
     end = time.time()
 
@@ -332,7 +334,6 @@ def validate(val_loader, model_and_loss, fp16, logger, epoch, prof=-1, register_
 
         end = time.time()
 
-    config.training = True
     return top1.get_val()
 
 # Train loop {{{

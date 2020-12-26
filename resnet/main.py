@@ -7,7 +7,7 @@ import torch.distributed as dist
 import torch.optim
 import torch.utils.data
 import torch.utils.data.distributed
-from quantize import config, QScheme
+from quantize import config, QScheme, QModule
 
 try:
     from apex.parallel import DistributedDataParallel as DDP

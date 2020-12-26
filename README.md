@@ -20,7 +20,25 @@ pip install -e .
 cd ..
 ```
 
-Memory Saving Training
+Using the library
+====
+
+```python
+from quantize import QConv2d, QLinear, QBatchNorm2d, QModule
+
+class MyModel(nn.Module):
+    # Replace all Conv2d layers to QConv2d layers
+    def __init__(self): 
+        self.conv = QConv2d(...)
+        self.linear = QLinear(...)
+        self.bn = QBatchNorm2d(...)
+
+# Convert the model to a QModule before using 
+model = QModule(MyModel())  
+```
+
+
+Using the built-in ResNet examples
 ====
 
 Prepare
@@ -52,11 +70,11 @@ where data config is
 | -c fanin | /  | 92.78 |
 | -c quantize --ca=True --cabits=4 --ibits=4 --pergroup=False --perlayer=False | 0.011829948052763939 | 93.10 |
 | -c quantize --ca=True --cabits=2 --ibits=2 --pergroup=False --perlayer=False | 0.29687657952308655 | 91.58 |
-| -c quantize --ca=True --cabits=2 --ibits=2 --pergroup=True --perlayer=False | 0.03139203414320946 | ~~93.03~~ |
-| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False | 0.0061396025121212006 | ~~93.09~~ | 
-| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False --usegradient=False | 0.033477190881967545 |  |
-| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True | 0.0026178082916885614 | ~~93.05~~ |
-| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True --usegradient=False | 0.019806843250989914 |  |
+| -c quantize --ca=True --cabits=2 --ibits=2 --pergroup=True --perlayer=False | 0.03139203414320946 | 93.07 |
+| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False | 0.0061396025121212006 | 92.87 | 
+| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False --usegradient=False | 0.033477190881967545 | 92.67 |
+| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True | 0.0026178082916885614 | 92.91 |
+| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True --usegradient=False | 0.019806843250989914 | 93.24 |
 
 CIFAR100
 ----

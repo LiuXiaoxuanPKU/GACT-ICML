@@ -7,6 +7,7 @@ Reference:
 import math
 import torch
 import torch.nn as nn
+from quantize import QModule
 
 
 class PreActBlock(nn.Module):

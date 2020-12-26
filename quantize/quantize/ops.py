@@ -129,6 +129,7 @@ class conv2d(Function):
         else:
             grad_bias = None
 
+        ctx.scheme.if_allocate_perlayer()
         return grad_input, grad_weight, grad_bias, None, None, None, None, None
 
 
@@ -167,6 +168,7 @@ class linear(Function):
         else:
             grad_bias = None
 
+        ctx.scheme.if_allocate_perlayer()
         return grad_input, grad_weight, grad_bias, None
 
 
@@ -213,6 +215,7 @@ class batch_norm(Function):
 
         ctx.scheme.set_scale(grad_normalized, batch_std, (mean_grad**2).sum())
 
+        ctx.scheme.if_allocate_perlayer()
         return grad_input, None, None, grad_weight, grad_bias, None, None, None, None
 
 

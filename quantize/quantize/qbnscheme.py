@@ -17,6 +17,7 @@ class QBNScheme(QScheme):
         self.conv_input_norm = torch.tensor(1.0)
         self.mean_grad_norm = 1.0
         QBNScheme.layers.append(self)
+        QScheme.all_layers.append(self)
         self.prev_linear = QScheme.layers[-1]
 
         # debug

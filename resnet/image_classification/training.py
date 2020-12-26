@@ -255,9 +255,9 @@ def train(train_loader, model_and_loss, optimizer, lr_scheduler, fp16, logger, e
             logger.log_metric('train.compute_time', it_time - data_time)
 
         end = time.time()
-        if epoch > 0 and config.perlayer:
-            QScheme.allocate_perlayer()
-            QBNScheme.allocate_perlayer()
+        # if epoch > 0 and config.perlayer:
+        #     QScheme.allocate_perlayer()
+        #     QBNScheme.allocate_perlayer()
 
     for layer in QScheme.layers:
         print(layer.name, layer.bits)

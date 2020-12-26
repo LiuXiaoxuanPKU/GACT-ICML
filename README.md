@@ -59,7 +59,9 @@ where data config is
 | -c quantize --ca=True --cabits=2 --ibits=2 --pergroup=False --perlayer=False | 0.29687657952308655 | 91.58 |
 | -c quantize --ca=True --cabits=2 --ibits=2 --pergroup=True --perlayer=False | 0.023775238543748856 | 93.03 |
 | -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False | 0.0034970948472619057 | 93.09 | 
+| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False --usegradient=False | 0.033477190881967545 |  |
 | -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True | 0.0017123270081356168 | 93.05 |
+| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True --usegradient=False | 0.019806843250989914 |  |
 
 CIFAR100
 ----
@@ -85,8 +87,10 @@ where data config is
 | -c quantize --ca=True --cabits=4 --ibits=4 --pergroup=False --perlayer=False | 0.03873932361602783 | 69.87|
 | -c quantize --ca=True --cabits=2 --ibits=2 --pergroup=False --perlayer=False | 0.9092444181442261 | 61.55|
 | -c quantize --ca=True --cabits=2 --ibits=2 --pergroup=True --perlayer=False | 0.1020037978887558 |69.71 |
-| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False | 0.05299000069499016 | 70.17 | 
+| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False | 0.05299000069499016 | 70.17 |
+| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False --usegradient=False | 0.15131664276123047 |  | 
 | -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True | 0.0214 |70.09 |
+| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True --usegradient=False | 0.0763486847281456 |  |
 
 ImageNet
 ----
@@ -113,8 +117,9 @@ ImageNet
 | -c quantize --ca=True --cabits=2 --ibits=2 --pergroup=False --perlayer=False | 47.97850799560547 | |
 | -c quantize --ca=True --cabits=2 --ibits=2 --pergroup=True --perlayer=False | 0.40297362208366394 | g37 |
 | -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False | 0.25603559613227844 |   |
-| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True | 0.06779336929321289 | g16 |
-
+| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False --usegradient=False |  |  |
+| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True | 0.06779336929321289 | g16 | 
+| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True --usegradient=False |  |  |
 
 TODOs
 ----

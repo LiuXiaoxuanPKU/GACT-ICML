@@ -99,7 +99,7 @@ class QReLU(nn.Module):
         super(ReLU, self).__init__()
         self.inplace = inplace
 
-    def forward(self, input: Tensor) -> Tensor:
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
         return F.relu(input, inplace=self.inplace) # TODO inplace?
 
     def extra_repr(self) -> str:

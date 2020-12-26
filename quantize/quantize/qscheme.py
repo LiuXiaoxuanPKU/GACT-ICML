@@ -1,6 +1,7 @@
 import torch
 import pytorch_minimax
 
+import quantize
 from quantize.conf import config
 from C import calc_precision_dp, calc_precision, calc_avg_bits
 
@@ -11,6 +12,7 @@ class QScheme(object):
     batch = None
     update_scale = True
     layers = []
+    all_layers = []     # For executing perlayer quantization automatically
 
     def __init__(self, num_locations=1):
         self.initial_bits = config.initial_bits
@@ -18,6 +20,7 @@ class QScheme(object):
         assert QScheme.num_samples > 0
         self.scales = torch.zeros(QScheme.num_samples)
         QScheme.layers.append(self)
+        QScheme.all_layers.append(self)
         self.C = None
         self.dim = None
         self.num_locations = num_locations
@@ -35,7 +38,7 @@ class QScheme(object):
             scale[scale == 0] = avg_scale + 1e-9
             return scale
         else:
-            return self.scales
+            return self.scales.mean()
 
     def set_scale(self, grad):
         if QScheme.update_scale:
@@ -120,3 +123,9 @@ class QScheme(object):
                 bs = b[i*N : (i+1)*N]
                 layers[i].bits = bs.float().mean()
 
+    def if_allocate_perlayer(self):
+        # If myself is the last layer, then reallocate bits per layer
+        if config.compress_activation and config.perlayer and config.training:
+            if self == QScheme.all_layers[0]:
+                QScheme.allocate_perlayer()
+                quantize.QBNScheme.allocate_perlayer()

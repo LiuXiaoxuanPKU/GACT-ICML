@@ -7,8 +7,6 @@ from tqdm import tqdm
 import numpy as np
 import pickle
 from matplotlib.colors import LogNorm
-from quantize.hutchinson import trace_Hessian
-from quantize.weights import get_precision
 from copy import deepcopy
 
 

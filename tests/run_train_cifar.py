@@ -26,6 +26,8 @@ configs = [
     ('2bit_pg', '-c quantize --ca=True --cabits=2 --ibits=2 --pergroup=True --perlayer=False'),
     ('2bit_pg_ps', '-c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False'),
     ('2bit_pg_pl', '-c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True'),
+    ('2bit_pg_ps_nog', '-c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False --usegradient=False'),
+    ('2bit_pg_pl_nog', '-c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True --usegradient=False'),
 ]
 tasks = []
 for tid, params in configs:

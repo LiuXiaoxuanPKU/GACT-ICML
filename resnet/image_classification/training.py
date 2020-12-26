@@ -229,7 +229,6 @@ def train(train_loader, model_and_loss, optimizer, lr_scheduler, fp16, logger, e
         data_iter = logger.iteration_generator_wrapper(data_iter)
 
     for i, (input, target, index) in data_iter:     # NOTE: only needed for use_gradient
-
         QScheme.batch = index                       # NOTE: only needed for use_gradient
 
         bs = input.size(0)
@@ -288,7 +287,7 @@ def get_val_step(model_and_loss):
 
 
 def validate(val_loader, model_and_loss, fp16, logger, epoch, prof=-1, register_metrics=True):
-    config.training = False         # NOTE: only needed for use_gradient
+    config.training = False
     if register_metrics and logger is not None:
         logger.register_metric('val.top1',         log.AverageMeter(), log_level = 0)
         logger.register_metric('val.top5',         log.AverageMeter(), log_level = 0)
@@ -333,7 +332,7 @@ def validate(val_loader, model_and_loss, fp16, logger, epoch, prof=-1, register_
 
         end = time.time()
 
-    config.training = True          # NOTE: only needed for use_gradient
+    config.training = True
     return top1.get_val()
 
 # Train loop {{{

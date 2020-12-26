@@ -7,7 +7,7 @@ from C import calc_precision_dp, calc_precision, calc_avg_bits
 
 
 class QScheme(object):
-    num_samples = 0
+    num_samples = 1
     num_layers = 0
     batch = None
     update_scale = True
@@ -17,7 +17,8 @@ class QScheme(object):
     def __init__(self, num_locations=1):
         self.initial_bits = config.initial_bits
         self.bits = config.activation_compression_bits
-        assert QScheme.num_samples > 0
+        if config.use_gradient:
+            assert QScheme.num_samples > 1
         self.scales = torch.zeros(QScheme.num_samples)
         QScheme.layers.append(self)
         QScheme.all_layers.append(self)

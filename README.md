@@ -50,17 +50,12 @@ where data config is
 | *quantize config* | *Overall Var* | *Val Top1* |
 |--------|----------|---------|
 | -c fanin | /  | 92.78 |
-| -c qlinear --ca=True --cabits=4 --ibits=4 --pergroup=False --perlayer=False | 0.009703520685434341 |  |
-| -c qlinear --ca=True --cabits=2 --ibits=2 --pergroup=False --perlayer=False | 0.21035686135292053 | |
-| -c qlinear --ca=True --cabits=2 --ibits=2 --pergroup=True --perlayer=False | 0.0181496012955904 | |
-| -c qlinear --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False | 0.002921732608228922 | |
-| -c qlinear --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True | 0.001438044011592865 |  |
 | -c quantize --ca=True --cabits=4 --ibits=4 --pergroup=False --perlayer=False | 0.011829948052763939 | 93.10 |
 | -c quantize --ca=True --cabits=2 --ibits=2 --pergroup=False --perlayer=False | 0.29687657952308655 | 91.58 |
-| -c quantize --ca=True --cabits=2 --ibits=2 --pergroup=True --perlayer=False | 0.023775238543748856 | 93.03 |
-| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False | 0.0034970948472619057 | 93.09 | 
+| -c quantize --ca=True --cabits=2 --ibits=2 --pergroup=True --perlayer=False | 0.03139203414320946 | ~~93.03~~ |
+| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False | 0.0061396025121212006 | ~~93.09~~ | 
 | -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False --usegradient=False | 0.033477190881967545 |  |
-| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True | 0.0017123270081356168 | 93.05 |
+| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True | 0.0026178082916885614 | ~~93.05~~ |
 | -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True --usegradient=False | 0.019806843250989914 |  |
 
 CIFAR100
@@ -79,17 +74,12 @@ where data config is
 | *quantize config* | *Overall Var* | *Val Top1* |
 |--------|----------|---------|
 | -c fanin | /  | 70.33 |
-| -c qlinear --ca=True --cabits=4 --ibits=4 --pergroup=False --perlayer=False | 0.03486475348472595 | |
-| -c qlinear --ca=True --cabits=2 --ibits=2 --pergroup=False --perlayer=False | 0.7869864702224731 | |
-| -c qlinear --ca=True --cabits=2 --ibits=2 --pergroup=True --perlayer=False | 0.09328116476535797 | |
-| -c qlinear --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False | 0.04863186180591583 | |
-| -c qlinear --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True | 0.018564047291874886 | |
-| -c quantize --ca=True --cabits=4 --ibits=4 --pergroup=False --perlayer=False | 0.03873932361602783 | 69.87|
-| -c quantize --ca=True --cabits=2 --ibits=2 --pergroup=False --perlayer=False | 0.9092444181442261 | 61.55|
-| -c quantize --ca=True --cabits=2 --ibits=2 --pergroup=True --perlayer=False | 0.1020037978887558 |69.71 |
-| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False | 0.05299000069499016 | 70.17 |
+| -c quantize --ca=True --cabits=4 --ibits=4 --pergroup=False --perlayer=False | 0.03873932361602783 | 69.87 |
+| -c quantize --ca=True --cabits=2 --ibits=2 --pergroup=False --perlayer=False | 0.9092444181442261 | 61.55 |
+| -c quantize --ca=True --cabits=2 --ibits=2 --pergroup=True --perlayer=False | 0.1514340490102768 | ~~69.71~~ |
+| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False | 0.08524089306592941 | ~~70.17~~ |
 | -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False --usegradient=False | 0.15131664276123047 |  | 
-| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True | 0.0214 |70.09 |
+| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True | 0.032878682017326355 | ~~70.09~~ |
 | -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True --usegradient=False | 0.0763486847281456 |  |
 
 ImageNet
@@ -105,21 +95,18 @@ ImageNet
 | *quantize config* | *Overall Var* | *Val Top1* |
 |--------|----------|---------|
 | -c fanin | /  | 77.09 |
-| -c qlinear --ca=True --cabits=4 --ibits=4 --pergroup=False --perlayer=False | 0.7898967862129211 | |
-| -c qlinear --ca=True --cabits=2 --ibits=2 --pergroup=False --perlayer=False | 9.28708267211914 | |
-| -c qlinear --ca=True --cabits=2 --ibits=2 --pergroup=True --perlayer=False | 0.3763839602470398 | |
-| -c qlinear --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False | 0.22041866183280945 | |
-| -c qlinear --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True | 0.05691418796777725 | g29 |
+| -c qlinear --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True | 0.09732577949762344 | ~~g29~~ |
 | qlinear, 2bit, persample minimax |/ | 75.54 |
 | qlinear, 2bit, persample minimax, per sample adaptive |/ | 75.93 |
+| qlinear, 2bit, persample minimax, per layer |/ | 76.35 |
 | qlinear, 4bit |/ | 76.81 |
-| -c quantize --ca=True --cabits=4 --ibits=4 --pergroup=False --perlayer=False | 0.8921149969100952 | g36 |
+| -c quantize --ca=True --cabits=4 --ibits=4 --pergroup=False --perlayer=False | 0.8921149969100952 | ~~g36~~ |
 | -c quantize --ca=True --cabits=2 --ibits=2 --pergroup=False --perlayer=False | 47.97850799560547 | |
-| -c quantize --ca=True --cabits=2 --ibits=2 --pergroup=True --perlayer=False | 0.40297362208366394 | g37 |
-| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False | 0.25603559613227844 |   |
-| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False --usegradient=False |  |  |
-| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True | 0.06779336929321289 | g16 | 
-| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True --usegradient=False |  |  |
+| -c quantize --ca=True --cabits=2 --ibits=2 --pergroup=True --perlayer=False | 0.7865011692047119 | ~~g37~~ |
+| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False | 0.5164923667907715 |   |
+| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False --usegradient=False | 0.7651944756507874 |  |
+| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True |0.12191561609506607  | ~~g16~~ | 
+| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True --usegradient=False | 0.2176554799079895 |  |
 
 TODOs
 ----

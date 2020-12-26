@@ -152,6 +152,7 @@ def main(args):
     config.perlayer = args.perlayer
     config.qat = args.qat
     config.use_gradient = args.usegradient
+    config.group_size = args.groupsize
 
     exp_start_time = time.time()
     global best_prec1

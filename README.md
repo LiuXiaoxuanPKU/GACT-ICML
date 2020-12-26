@@ -113,3 +113,18 @@ ImageNet
 | -c quantize --ca=True --cabits=2 --ibits=2 --pergroup=True --perlayer=False | 0.40297362208366394 | g37 |
 | -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False | 0.25603559613227844 |   |
 | -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True | 0.06779336929321289 | g16 |
+
+
+TODOs
+----
+
+0. Better API [Jianfei, today]
+1. True quantize [Lianmin, next Monday]
+2. Speed optimization [Lianmin]
+3. Depthwise [Jianfei]
+4. Paper writing [Jianfei, next next Thursday]
+5. Verification experiments [Dequan, this year]
+6. Initial result for detection [Dequan]
+7. 10 machine -> 1 machine [Dequan]
+
+*. Deadline [Feb. 7]

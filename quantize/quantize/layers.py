@@ -89,3 +89,6 @@ class QBatchNorm2d(nn.BatchNorm2d):
             self.running_mean if not self.training or self.track_running_stats else None,
             self.running_var if not self.training or self.track_running_stats else None,
             self.weight, self.bias, bn_training, exponential_average_factor, self.eps, self.scheme)
+
+
+# class QReLU()

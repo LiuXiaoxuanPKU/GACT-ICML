@@ -7,8 +7,8 @@ class QuantizationConfig:
         self.initial_bits = 8
         self.simulate = True
         self.swap = False
-        self.training = True
+        self.training = True  # deprecated
         self.group_size = 64
-        self.qat = 0
+        self.qat = 0    # deprecated
 
 config = QuantizationConfig()

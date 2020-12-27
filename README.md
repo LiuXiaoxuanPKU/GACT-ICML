@@ -94,11 +94,11 @@ where data config is
 | -c fanin | /  | 70.33 |
 | -c quantize --ca=True --cabits=4 --ibits=4 --pergroup=False --perlayer=False | 0.03873932361602783 | 69.87 |
 | -c quantize --ca=True --cabits=2 --ibits=2 --pergroup=False --perlayer=False | 0.9092444181442261 | 61.55 |
-| -c quantize --ca=True --cabits=2 --ibits=2 --pergroup=True --perlayer=False | 0.1514340490102768 | ~~69.71~~ |
-| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False | 0.08524089306592941 | ~~70.17~~ |
-| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False --usegradient=False | 0.15131664276123047 |  | 
-| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True | 0.032878682017326355 | ~~70.09~~ |
-| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True --usegradient=False | 0.0763486847281456 |  |
+| -c quantize --ca=True --cabits=2 --ibits=2 --pergroup=True --perlayer=False | 0.1514340490102768 | 69.81 |
+| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False | 0.08524089306592941 | 70.40 |
+| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False --usegradient=False | 0.15131664276123047 | 70.14 | 
+| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True | 0.032878682017326355 | 70.36 |
+| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True --usegradient=False | 0.0763486847281456 | 69.91 |
 
 ImageNet
 ----
@@ -113,7 +113,7 @@ ImageNet
 | *quantize config* | *Overall Var* | *Val Top1* |
 |--------|----------|---------|
 | -c fanin | /  | 77.09 |
-| -c qlinear --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True | 0.09732577949762344 | ~~g29~~ |
+| -c qlinear --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True | 0.09732577949762344 | ~~77.40， g29~~ |
 | qlinear, 2bit, persample minimax |/ | 75.54 |
 | qlinear, 2bit, persample minimax, per sample adaptive |/ | 75.93 |
 | qlinear, 2bit, persample minimax, per layer |/ | 76.35 |

@@ -1,4 +1,5 @@
 from collections import namedtuple
+import os
 import torch
 import pytorch_minimax
 import torch.nn.functional as F
@@ -8,14 +9,16 @@ from torch.autograd.function import Function
 from quantize.conf import config
 from functools import reduce
 
+# Load cuda extensions
+dirname = os.path.dirname(__file__)
+ext_backward_func = load(name="ext_backward_func",
+        sources=[os.path.join(dirname, "ext_backward_func.cc")], verbose=True)
+ext_quantization = load(name="ext_quantization",
+        sources=[os.path.join(dirname, "ext_quantization.cc"),
+                 os.path.join(dirname, "ext_quantization_cuda_kernel.cu")], verbose=True)
+
 
 QParams = namedtuple('QParams', ['range', 'zero_point', 'num_bits'])
-
-
-ext_backward_func = load(name="ext_backward_func", sources=["ext_backward_func.cc"], verbose=True)
-ext_quantization = load(name="ext_quantization",
-        sources=["ext_quantization.cc", "ext_quantization_cuda_kernel.cu"], verbose=True)
-
 
 def quantize_mixed_precision(data, bits, mn, mx, stochastic=True):
     assert stochastic
@@ -31,7 +34,6 @@ def quantize_mixed_precision(data, bits, mn, mx, stochastic=True):
         mn = mn - 1e-6
         mx = mx + 1e-6
         scale = B / (mx - mn)     # N, groups, 1
-        # print('scale ', scale, B)
         output = (output - mn) * scale
 
         if stochastic:

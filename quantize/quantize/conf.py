@@ -1,9 +1,9 @@
 class QuantizationConfig:
     def __init__(self):
         self.compress_activation = True
-        self.activation_compression_bits = 8
+        self.activation_compression_bits = 2
         self.pergroup = True
-        self.perlayer = False
+        self.perlayer = True
         self.initial_bits = 8
         self.simulate = True
         self.swap = False

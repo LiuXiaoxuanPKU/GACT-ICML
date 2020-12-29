@@ -118,12 +118,12 @@ ImageNet
 | qlinear, 2bit, persample minimax, per sample adaptive |/ | 75.93 |
 | qlinear, 2bit, persample minimax, per layer |/ | 76.35 |
 | qlinear, 4bit |/ | 76.81 |
-| -c quantize --ca=True --cabits=4 --ibits=4 --pergroup=False --perlayer=False | 0.8921149969100952 | ~~g36~~ |
+| -c quantize --ca=True --cabits=4 --ibits=4 --pergroup=False --perlayer=False | 0.8921149969100952 | 76.57 |
 | -c quantize --ca=True --cabits=2 --ibits=2 --pergroup=False --perlayer=False | 47.97850799560547 | |
-| -c quantize --ca=True --cabits=2 --ibits=2 --pergroup=True --perlayer=False | 0.7865011692047119 | ~~g37~~ |
+| -c quantize --ca=True --cabits=2 --ibits=2 --pergroup=True --perlayer=False | 0.7865011692047119 | ~~77.06~~ |
 | -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False | 0.5164923667907715 |   |
 | -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False --usegradient=False | 0.7651944756507874 |  |
-| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True |0.12191561609506607  | ~~g16~~ | 
+| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True |0.12191561609506607  | ~~77.09~~ | 
 | -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True --usegradient=False | 0.2176554799079895 |  |
 
 TODOs

@@ -1,8 +1,19 @@
-quantize/build/
-quantize/dist/
-quantize/quantize.egg-info/
+# Python
+__pycache__
+
+# VIM
+*.swp
+
+quantize/build
+quantize/dist
+quantize/quantize.egg-info
 quantize/*.so
-pytorch_minimax/build/
-pytorch_minimax/dist/
-pytorch_minimax/pytorch_minimax.egg-info/
+
+pytorch_minimax/build
+pytorch_minimax/dist
+pytorch_minimax/pytorch_minimax.egg-info
+
 resnet/results.tar.gz
+resnet/results
+
+

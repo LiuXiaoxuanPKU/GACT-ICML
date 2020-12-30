@@ -47,8 +47,6 @@ cd resnet
 wget https://people.eecs.berkeley.edu/~jianfei/results.tar.gz
 tar xzvf results.tar.gz
 mkdir results/tmp
-cp ../tests/*.cc .
-cp ../tests/*.cu . 
 ```
 
 

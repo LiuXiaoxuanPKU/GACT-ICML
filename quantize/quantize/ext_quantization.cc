@@ -9,10 +9,11 @@ using namespace torch::autograd;
 
 // Declarations for functions in ext_quantization_cuda_kernel.cu
 std::pair<torch::Tensor, torch::Tensor> pack_mixed_precision_cuda(
-        torch::Tensor data, torch::Tensor min, torch::Tensor max, torch::Tensor bits);
+        torch::Tensor data, torch::Tensor min,
+        torch::Tensor max, torch::Tensor bits, bool stochastic);
 torch::Tensor unpack_mixed_precision_cuda(torch::Tensor data, torch::Tensor bits,
                                           torch::Tensor scale, torch::Tensor min,
-                                          int N, int D);
+                                          int N, int num_groups, int group_size);
 std::pair<torch::Tensor, torch::Tensor> act_quantized_relu_forward_cuda(torch::Tensor data);
 torch::Tensor act_quantized_relu_backward_cuda(torch::Tensor mask, torch::Tensor data);
 
@@ -33,13 +34,14 @@ torch::Tensor act_quantized_relu_backward_cuda(torch::Tensor mask, torch::Tensor
 std::pair<torch::Tensor, torch::Tensor> pack_mixed_precision(torch::Tensor data,
                                                              torch::Tensor min,
                                                              torch::Tensor max,
-                                                             torch::Tensor bits) {
-  CHECK_CUDA_TENSOR_DIM_TYPE(data, 2, torch::kFloat32);
-  CHECK_CUDA_TENSOR_DIM_TYPE(min, 1, torch::kFloat32);
-  CHECK_CUDA_TENSOR_DIM_TYPE(max, 1, torch::kFloat32);
+                                                             torch::Tensor bits,
+                                                             bool stochastic) {
+  CHECK_CUDA_TENSOR_DIM_TYPE(data, 3, torch::kFloat32);
+  CHECK_CUDA_TENSOR_DIM_TYPE(min, 3, torch::kFloat32);
+  CHECK_CUDA_TENSOR_DIM_TYPE(max, 3, torch::kFloat32);
   CHECK_CUDA_TENSOR_DIM_TYPE(bits, 1, torch::kInt32);
 
-  return pack_mixed_precision_cuda(data, min, max, bits);
+  return pack_mixed_precision_cuda(data, min, max, bits, stochastic);
 }
 
 torch::Tensor unpack_mixed_precision(torch::Tensor data,
@@ -47,13 +49,15 @@ torch::Tensor unpack_mixed_precision(torch::Tensor data,
                                      torch::Tensor scale,
                                      torch::Tensor min,
                                      int N,
-                                     int D) {
+                                     int num_groups,
+                                     int group_size) {
   CHECK_CUDA_TENSOR_DIM_TYPE(data, 1, torch::kInt32);
   CHECK_CUDA_TENSOR_DIM_TYPE(bits, 1, torch::kInt32);
-  CHECK_CUDA_TENSOR_DIM_TYPE(scale, 1, torch::kFloat32);
-  CHECK_CUDA_TENSOR_DIM_TYPE(min, 1, torch::kFloat32);
+  CHECK_CUDA_TENSOR_DIM_TYPE(scale, 3, torch::kFloat32);
+  CHECK_CUDA_TENSOR_DIM_TYPE(min, 3, torch::kFloat32);
 
-  return unpack_mixed_precision_cuda(data, bits, scale, min, N, D);
+  return unpack_mixed_precision_cuda(data, bits, scale, min,
+                                     N, num_groups, group_size);
 }
 
 // Activation quantized relu: use compressed bit stream to store activation

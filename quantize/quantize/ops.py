@@ -228,6 +228,17 @@ class batch_norm(Function):
         return grad_input, None, None, grad_weight, grad_bias, None, None, None, None
 
 
+def get_memory_usage(print_info=False):
+    """Get accurate gpu memory usage by querying torch runtime"""
+    torch.cuda.empty_cache()
+    allocated = torch.cuda.memory_allocated(0)
+    reserved = torch.cuda.memory_reserved(0)
+    if print_info:
+        print("allocated: %.2f MB" % (allocated / 1024 / 1024), flush=True)
+        print("reserved:  %.2f MB" % (reserved / 1024 / 1024), flush=True)
+    return allocated
+
+
 if __name__ == '__main__':
     x = torch.rand(2, 3)
     x_q = quantize(x, flatten_dims=(-1), num_bits=8, dequantize=True)

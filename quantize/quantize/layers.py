@@ -93,7 +93,7 @@ class QBatchNorm2d(nn.BatchNorm2d):
 
 class QReLU(nn.Module):
     def __init__(self):
-        super(ReLU, self).__init__()
+        super().__init__()
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         return ext_quantization.act_quantized_relu(input)

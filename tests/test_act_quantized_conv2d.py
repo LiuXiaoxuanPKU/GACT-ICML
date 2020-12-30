@@ -13,23 +13,12 @@ from timeit_v2 import py_benchmark
 
 from quantize.conf import config
 from quantize.qscheme import QScheme
-from quantize.ops import ext_backward_func, ext_quantization
+from quantize.ops import ext_backward_func, ext_quantization, get_memory_usage
 from quantize.ops import conv2d as quantized_conv2d
 
 def compute_tensor_bytes(x):
     assert x.dtype in [torch.float32, torch.int]
     return np.prod(x.size()) * 4
-
-
-def get_memory_usage(print_info=False):
-    """Get accurate gpu memory usage by querying torch runtime"""
-    torch.cuda.empty_cache()
-    allocated = torch.cuda.memory_allocated(0)
-    reserved = torch.cuda.memory_reserved(0)
-    if print_info:
-        print("allocated: %.2f MB" % (allocated / 1024 / 1024))
-        print("reserved:  %.2f MB" % (reserved / 1024 / 1024))
-    return allocated
 
 
 def test_relu_correctness():

@@ -17,7 +17,7 @@ class PreActBlock(nn.Module):
     def __init__(self, builder, inplanes, planes, stride=1, downsample=None):
         super(PreActBlock, self).__init__()
         self.bn1 = builder.batchnorm(inplanes)
-        self.relu = nn.ReLU(inplace=True)
+        self.relu = builder.activation()
         self.conv1 = builder.conv3x3(inplanes, planes, stride)
         self.bn2 = builder.batchnorm(planes, last_bn=True)
         self.conv2 = builder.conv3x3(planes, planes)
@@ -69,7 +69,7 @@ class PreActBottleneck(nn.Module):
     def __init__(self, builder, inplanes, planes, stride=1, downsample=None):
         super(PreActBottleneck, self).__init__()
         self.bn1 = builder.batchnorm(inplanes)
-        self.relu = nn.ReLU(inplace=True)
+        self.relu = builder.activation()
         self.conv1 = builder.conv1x1(inplanes, planes)
         self.bn2 = builder.batchnorm(planes)
         self.conv2 = builder.conv3x3(planes, planes, stride=stride)

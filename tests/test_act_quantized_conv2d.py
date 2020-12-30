@@ -11,10 +11,9 @@ import pytorch_minimax
 
 from timeit_v2 import py_benchmark
 
-from quantize.conf import config
-from quantize.qscheme import QScheme
+from quantize import QScheme, QBNScheme, config
 from quantize.ops import ext_backward_func, ext_quantization, get_memory_usage
-from quantize.ops import conv2d as quantized_conv2d
+from quantize.ops import conv2d as quantized_conv2d, batch_norm as quantized_batch_norm
 
 def compute_tensor_bytes(x):
     assert x.dtype in [torch.float32, torch.int]
@@ -62,9 +61,9 @@ def test_relu_speed():
     forward_us, backward_us = test_implementation(ext_quantization.act_quantized_relu)
 
     print("========== ReLU Speed Test ==========")
-    print("Reference. forward: %.2f ms\tbackward: %.2f ms\tsum: %.2f ms" %
+    print("Exact.     forward: %.2f ms\tbackward: %.2f ms\tsum: %.2f ms" %
             (forward_ref * 1e3, backward_ref * 1e3, (forward_ref + backward_ref) * 1e3))
-    print("Ours.      forward: %.2f ms\tbackward: %.2f ms\tsum: %.2f ms" %
+    print("Quantized. forward: %.2f ms\tbackward: %.2f ms\tsum: %.2f ms" %
             (forward_us * 1e3, backward_us * 1e3, (forward_us + backward_us) * 1e3))
 
 
@@ -87,8 +86,8 @@ def test_relu_memory():
     usage_us = test_implementation(ext_quantization.act_quantized_relu)
 
     print("========== ReLU Memory Test ==========")
-    print("Reference. Usage: %.2f MB" % (usage_ref / 2 ** 20))
-    print("Ours.      Usage: %.2f MB" % (usage_us / 2 ** 20))
+    print("Exact.     Usage: %.2f MB" % (usage_ref / 2 ** 20))
+    print("Quantized. Usage: %.2f MB" % (usage_us / 2 ** 20))
 
 
 def test_conv2d_correctness():
@@ -169,11 +168,11 @@ def test_conv2d_speed():
     forward_us, backward_us = test_implementation(quantized_conv2d.apply, stride, padding, dilation, groups)
 
     print("========== Conv2d Speed Test ==========")
-    print("Reference.  forward: %.2f ms\tbackward: %.2f ms\tsum: %.2f ms" %
+    print("Exact.      forward: %.2f ms\tbackward: %.2f ms\tsum: %.2f ms" %
             (forward_ref * 1e3, backward_ref * 1e3, (forward_ref + backward_ref) * 1e3))
     print("Simulation. forward: %.2f ms\tbackward: %.2f ms\tsum: %.2f ms" %
             (forward_sim * 1e3, backward_sim * 1e3, (forward_sim + backward_sim) * 1e3))
-    print("Ours.       forward: %.2f ms\tbackward: %.2f ms\tsum: %.2f ms" %
+    print("Quantized.  forward: %.2f ms\tbackward: %.2f ms\tsum: %.2f ms" %
             (forward_us * 1e3, backward_us * 1e3, (forward_us + backward_us) * 1e3))
 
 
@@ -185,20 +184,30 @@ def test_conv2d_memory_analytical():
     data_np = np.random.randn(N, CI, H, W).astype('float32')
     weight_np = np.random.randn(CO, CI // groups, kernel_size, kernel_size).astype('float32')
     bias_np = np.random.randn(CO).astype('float32')
+    running_mean = np.zeros((CO,), dtype='float32')
+    running_var = np.ones((CO,), dtype='float32')
+    bn_weight = np.random.randn(CO).astype('float32')
+    bn_bias = np.random.randn(CO).astype('float32')
 
     scheme = QScheme(num_locations=kernel_size**2)
+    bn_scheme = QBNScheme()
 
-    def test_implementation(conv_func, relu_func, n_layers=10):
-        data = torch.tensor(data_np).to("cuda").requires_grad_()
-        weight = torch.tensor(weight_np).to("cuda").requires_grad_()
-        bias = torch.tensor(bias_np).to("cuda").requires_grad_()
+    def test_implementation(conv_func, relu_func, bn_func, n_layers=10):
+        data = torch.tensor(data_np).to("cuda")
 
         # allocate input and weights
         data = torch.tensor(data_np).to("cuda").requires_grad_(False)
         weights = []
+        running_means = []
+        running_vars = []
+        bn_weights = []
+        bn_biass = []
         for i in range(n_layers):
-            weight = torch.tensor(weight_np).to("cuda").requires_grad_()
-            weights.append(weight)
+            weights.append(torch.tensor(weight_np).to("cuda").requires_grad_())
+            running_means.append(torch.tensor(running_mean).to("cuda"))
+            running_vars.append(torch.tensor(running_var).to("cuda"))
+            bn_weights.append(torch.tensor(bn_weight).to("cuda").requires_grad_())
+            bn_biass.append(torch.tensor(bn_bias).to("cuda").requires_grad_())
 
         before_size = get_memory_usage(False)
 
@@ -207,9 +216,12 @@ def test_conv2d_memory_analytical():
         for i in range(n_layers):
             if conv_func == quantized_conv2d.apply:
                 output = conv_func(output, weights[i], None, stride, padding, dilation, groups, scheme)
+                output = bn_func(output, running_means[i], running_vars[i], bn_weights[i], bn_biass[i], True, 0.1, 1e-5, bn_scheme)
             else:
                 output = conv_func(output, weights[i], None, stride, padding, dilation, groups)
+                output = bn_func(output, running_means[i], running_vars[i], bn_weights[i], bn_biass[i], True, 0.1, 1e-5)
             output = relu_func(output)
+
         output = output.sum()
 
         after_size = get_memory_usage(False)
@@ -217,16 +229,18 @@ def test_conv2d_memory_analytical():
 
         return after_size / 1024**2, (after_size - before_size - output_size) / 1024**2
 
-    total_size_ref, act_size_ref = test_implementation(F.conv2d, lambda x: F.relu(x, inplace=True))
+    total_size_ref, act_size_ref = test_implementation(F.conv2d, lambda x: F.relu(x, inplace=True), F.batch_norm)
     config.simulate = True
-    total_size_sim, act_size_sim = test_implementation(quantized_conv2d.apply, ext_quantization.act_quantized_relu)
+    total_size_sim, act_size_sim = test_implementation(quantized_conv2d.apply,
+            ext_quantization.act_quantized_relu, quantized_batch_norm.apply)
     config.simulate = False
-    total_size_us, act_size_us = test_implementation(quantized_conv2d.apply, ext_quantization.act_quantized_relu)
+    total_size_us, act_size_us = test_implementation(quantized_conv2d.apply,
+            ext_quantization.act_quantized_relu, quantized_batch_norm.apply)
 
     print("========== Conv2d Activation Memory Test (bits = %d) ==========" % (config.activation_compression_bits))
-    print("Reference.  Total: %7.2f MB\tAct: %7.2f MB" % (total_size_ref, act_size_ref))
+    print("Exact.      Total: %7.2f MB\tAct: %7.2f MB" % (total_size_ref, act_size_ref))
     print("Simulation. Total: %7.2f MB\tAct: %7.2f MB" % (total_size_sim, act_size_sim))
-    print("Ours.       Total: %7.2f MB\tAct: %7.2f MB" % (total_size_us, act_size_us))
+    print("Quantized.  Total: %7.2f MB\tAct: %7.2f MB" % (total_size_us, act_size_us))
 
 
 def test_conv2d_memory_max_batch_size():
@@ -272,9 +286,9 @@ def test_conv2d_memory_max_batch_size():
                 print("Maximum batch size: %d" % (batch_sizes[i-1]))
        
         print("========== Conv2d Batch Size Test ==========")
-        print("---> Reference")
+        print("---> Exact")
         test_implementation(F.conv2d, n_layers=50, batch_sizes=[100, 200, 250, 300, 350, 400, 450, 500, 1000])
-        print("---> Ours")
+        print("---> Quantized")
         test_implementation(act_quantized_conv2d.apply, n_layers=50, batch_sizes=[100, 200, 250, 500, 1000, 2200, 2300, 2400, 3000, 4000])
 
 

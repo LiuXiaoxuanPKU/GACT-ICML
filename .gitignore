@@ -1,12 +1,33 @@
+# Results
 results
 *.log
-.idea
-__pycache__
-*.pdf
 *.npz
-*.png
+resnet/results.tar.gz
+resnet/results
+
+# IDE & OS
+.idea
 .DS_Store
+
+# Documents
+*.pdf
+*.png
 *.jpg
 *.pptx
-*.swp
+
+# Python
 *.pyc
+__pycache__
+
+# VIM
+*.swp
+
+# Build
+quantize/build
+quantize/dist
+quantize/quantize.egg-info
+quantize/*.so
+
+pytorch_minimax/build
+pytorch_minimax/dist
+pytorch_minimax/pytorch_minimax.egg-info

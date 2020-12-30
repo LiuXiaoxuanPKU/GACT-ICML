@@ -5,7 +5,8 @@ class QuantizationConfig:
         self.pergroup = True
         self.perlayer = True
         self.initial_bits = 8
-        self.simulate = True
+        self.simulate = False
+        self.stochastic = True
         self.swap = False
         self.training = True
         self.group_size = 256

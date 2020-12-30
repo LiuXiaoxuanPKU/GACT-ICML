@@ -1,5 +1,5 @@
 import torch.nn as nn
-from quantize import QConv2d, QLinear, QBatchNorm2d
+from quantize import QConv2d, QLinear, QBatchNorm2d, QReLU
 from .preact_resnet import PreActBlock, PreActBottleneck, PreActResNet
 
 __all__ = ['ResNet', 'build_resnet', 'resnet_versions', 'resnet_configs']
@@ -373,7 +373,7 @@ resnet_configs = {
             'conv_init' : 'fan_in',
             'nonlinearity' : 'relu',
             'last_bn_0_init' : False,
-            'activation' : lambda: nn.ReLU(inplace=True),
+            'activation' : QReLU,
             'quantize_forward': True
             },
         'qlinear' : {

@@ -1,24 +1,29 @@
 from collections import namedtuple
+from functools import reduce
+import os
+
+import numpy as np
 import torch
-import pytorch_minimax
 import torch.nn.functional as F
 from torch.nn.modules.utils import _pair
 from torch.utils.cpp_extension import load
 from torch.autograd.function import Function
+
+import pytorch_minimax
 from quantize.conf import config
-from functools import reduce
+
+# Load cuda extensions
+dirname = os.path.dirname(__file__)
+ext_backward_func = load(name="ext_backward_func",
+        sources=[os.path.join(dirname, "ext_backward_func.cc")], verbose=True)
+ext_quantization = load(name="ext_quantization",
+        sources=[os.path.join(dirname, "ext_quantization.cc"),
+                 os.path.join(dirname, "ext_quantization_cuda_kernel.cu")], verbose=True)
 
 
 QParams = namedtuple('QParams', ['range', 'zero_point', 'num_bits'])
 
-
-ext_backward_func = load(name="ext_backward_func", sources=["ext_backward_func.cc"], verbose=True)
-ext_quantization = load(name="ext_quantization",
-        sources=["ext_quantization.cc", "ext_quantization_cuda_kernel.cu"], verbose=True)
-
-
-def quantize_mixed_precision(data, bits, mn, mx, stochastic=True):
-    assert stochastic
+def quantize_mixed_precision(data, bits, mn, mx):
     if not config.compress_activation:
         return data, None, None
 
@@ -31,19 +36,17 @@ def quantize_mixed_precision(data, bits, mn, mx, stochastic=True):
         mn = mn - 1e-6
         mx = mx + 1e-6
         scale = B / (mx - mn)     # N, groups, 1
-        # print('scale ', scale, B)
         output = (output - mn) * scale
 
-        if stochastic:
+        if config.stochastic:
             noise = output.new(output.shape).uniform_(-0.5, 0.5)
             output.add_(noise)
 
         output = F.relu(output)
         output = torch.min(output, B.float()).round_().int()
     else:
-        # TODO
         bits = bits.cuda()
-        output, scale = ext_quantization.pack_mixed_precision(output, mn, mx, bits)
+        output, scale = ext_quantization.pack_mixed_precision(output, mn, mx, bits, config.stochastic)
 
     return output, bits, scale
 
@@ -55,9 +58,15 @@ def dequantize_mixed_precision(data, shape, bits, scale, mn):
     if config.simulate:
         data = data / scale + mn
     else:
-        assert config.quantize_activation
+        N = shape[0]
+        num_features = int(np.prod(shape[1:]))
+        group_size = config.group_size
+        # Pad to group_size
+        num_features = (num_features + (group_size - num_features % group_size) % group_size)
+
+        #assert other_dim % config.group_size == 0, f"{shape}, {other_dim}, {config.group_size}"
         data = ext_quantization.unpack_mixed_precision(data, bits,
-                scale, mn, shape[0], np.prod(shape) // shape[0])
+                scale, mn, N, num_features // config.group_size, config.group_size)
     return data
 
 
@@ -65,7 +74,7 @@ def quantize_activation(input, scheme):
     N = input.shape[0]
     input_groups, q_bits, q_min, mx = scheme.compute_quantization_bits(input)
     q_input, q_bits, q_scale = \
-        quantize_mixed_precision(input_groups, q_bits, q_min, mx, True)
+        quantize_mixed_precision(input_groups, q_bits, q_min, mx)
 
     if q_scale is None:
         return q_input, q_bits
@@ -97,8 +106,8 @@ class conv2d(Function):
     @staticmethod
     def forward(ctx, input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1, scheme=None):
         with torch.no_grad():
-            quantized = quantize_activation(input, scheme)
             output = F.conv2d(input, weight, bias, stride, padding, dilation, groups)
+            quantized = quantize_activation(input, scheme)
 
         ctx.scheme = scheme
         # ctx.save_for_backward(*quantized, weight, bias)
@@ -217,6 +226,17 @@ class batch_norm(Function):
 
         ctx.scheme.if_allocate_perlayer()
         return grad_input, None, None, grad_weight, grad_bias, None, None, None, None
+
+
+def get_memory_usage(print_info=False):
+    """Get accurate gpu memory usage by querying torch runtime"""
+    torch.cuda.empty_cache()
+    allocated = torch.cuda.memory_allocated(0)
+    reserved = torch.cuda.memory_reserved(0)
+    if print_info:
+        print("allocated: %.2f MB" % (allocated / 1024 / 1024), flush=True)
+        print("reserved:  %.2f MB" % (reserved / 1024 / 1024), flush=True)
+    return allocated
 
 
 if __name__ == '__main__':

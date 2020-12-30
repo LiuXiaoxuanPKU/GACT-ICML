@@ -3,7 +3,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from quantize.ops import linear, batch_norm, conv2d
+from quantize.ops import linear, batch_norm, conv2d, ext_quantization
 from quantize.qscheme import QScheme
 from quantize.qbnscheme import QBNScheme
 from quantize.conf import config
@@ -92,16 +92,8 @@ class QBatchNorm2d(nn.BatchNorm2d):
 
 
 class QReLU(nn.Module):
-    __constants__ = ['inplace']
-    inplace: bool
-
-    def __init__(self, inplace: bool = False):
+    def __init__(self):
         super(ReLU, self).__init__()
-        self.inplace = inplace
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        return F.relu(input, inplace=self.inplace) # TODO inplace?
-
-    def extra_repr(self) -> str:
-        inplace_str = 'inplace=True' if self.inplace else ''
-        return inplace_str
+        return ext_quantization.act_quantized_relu(input)

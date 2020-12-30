@@ -59,10 +59,14 @@ def dequantize_mixed_precision(data, shape, bits, scale, mn):
         data = data / scale + mn
     else:
         N = shape[0]
-        other_dim = int(np.prod(shape[1:]))
-        assert other_dim % config.group_size == 0, f"{other_dim}, {config.group_size}"
+        num_features = int(np.prod(shape[1:]))
+        group_size = config.group_size
+        # Pad to group_size
+        num_features = (num_features + (group_size - num_features % group_size) % group_size)
+
+        #assert other_dim % config.group_size == 0, f"{shape}, {other_dim}, {config.group_size}"
         data = ext_quantization.unpack_mixed_precision(data, bits,
-                scale, mn, N, other_dim // config.group_size, config.group_size)
+                scale, mn, N, num_features // config.group_size, config.group_size)
     return data
 
 

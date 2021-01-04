@@ -96,7 +96,7 @@ where data config is
 | -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False | 0.08524089306592941 | 70.40 |
 | -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False --usegradient=False | 0.15131664276123047 | 70.14 | 
 | -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True | 0.032878682017326355 | 70.36 |
-| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True --usegradient=False | 0.0763486847281456 | 69.91 |
+| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True --usegradient=False | 0.0763486847281456 | 69.91 | 
 
 ImageNet
 ----
@@ -121,19 +121,24 @@ ImageNet
 | -c quantize --ca=True --cabits=2 --ibits=2 --pergroup=True --perlayer=False | 0.7865011692047119 | ~~77.06~~ |
 | -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False | 0.5164923667907715 |   |
 | -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False --usegradient=False | 0.7651944756507874 |  |
-| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True |0.12191561609506607  | ~~77.09~~ | 
-| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True --usegradient=False | 0.2176554799079895 |  |
+| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True |0.12191561609506607  | 76.92 | 
+| -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True --usegradient=False | 0.2176554799079895 | 77.06 |
 
 TODOs
 ----
 
-0. Better API [Jianfei, today]
-1. True quantize [Lianmin, next Monday]
+0. ~~Better API~~ [Jianfei, today]
+1. ~~True quantize~~ [Lianmin, next Monday]
 2. Speed optimization [Lianmin]
 3. Depthwise [Jianfei]
 4. Paper writing [Jianfei, next next Thursday]
-5. Verification experiments [Dequan, this year]
-6. Initial result for detection [Dequan]
+5. ~~Verification experiments~~ [Dequan, this year]
+6. Result for detection [Dequan]
 7. 10 machine -> 1 machine [Dequan]
+8. QPool [Jianfei]
+9. Upsample [Jianfei]
+10. Fix BatchNorm [Jianfei, today]
+11. CIFAR100 results
+12. float16 
 
 *. Deadline [Feb. 7]

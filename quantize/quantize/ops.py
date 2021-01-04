@@ -224,8 +224,6 @@ class batch_norm(Function):
         grad_input = grad_normalized - mean_grad_normalized - normalized * mean_grad
         grad_input = grad_input / batch_std
 
-        ctx.scheme.set_scale(grad_normalized, weight, batch_std, normalized)
-
         ctx.scheme.if_allocate_perlayer()
         return grad_input, None, None, grad_weight, grad_bias, None, None, None, None
 

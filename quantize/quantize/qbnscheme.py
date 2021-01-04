@@ -11,38 +11,9 @@ class QBNScheme(QScheme):
     def __init__(self):
         self.initial_bits = config.initial_bits
         self.bits = config.activation_compression_bits
-        self.scales = torch.ones(QScheme.num_samples)
-        self.term2 = 1.0
         QBNScheme.layers.append(self)
         QScheme.all_layers.append(self)
         self.prev_linear = QScheme.layers[-1]
-
-        # debug
-        # self.name = 'bn_layer_{}'.format(QBNScheme.num_layers)
-        # QBNScheme.num_layers += 1
-
-    def set_scale(self, grad_output, weight, batch_std, normalized):
-        if QScheme.update_scale:
-            with torch.no_grad():
-                bs, C, H, W = grad_output.shape
-                N =  bs * H * W
-                d = (grad_output * normalized).sum([0, 2, 3])   # [C]
-                w2_s2 = (weight / batch_std) ** 2               # [C]
-                w2_s4 = w2_s2 / batch_std**2
-                w4_s4 = (w2_s2 ** 2).view(1, -1, 1, 1)
-                term1 = (N * w4_s4 * grad_output**2).mean([1, 2, 3]) * C   # [N]
-                term2 = (w2_s4 * d).sum() ** 2             # []
-
-                term1 = term1.cpu()
-                term2 = term2.cpu()
-
-                if config.use_gradient:
-                    assert QScheme.batch is not None
-                    self.scales[QScheme.batch] = term1
-                    self.term2 = term2
-                else:
-                    self.scales = term1.mean()
-                    self.term2 = term2
 
     def compute_quantization_bits(self, input):
         N, D, H, W = input.shape
@@ -71,9 +42,7 @@ class QBNScheme(QScheme):
         Range_sqr = ((mx - mn) ** 2).view(N, -1).sum(1) * config.group_size / num_pixels
 
         # greedy
-        term1 = self.get_scale().cuda()
-        term2 = self.term2
-        C = (Range_sqr * (term1 * num_pixels + term2)).cpu()
+        C = Range_sqr.cpu()
 
         b = torch.ones(N, dtype=torch.int32) * self.initial_bits
         w = torch.ones(N, dtype=torch.int32)

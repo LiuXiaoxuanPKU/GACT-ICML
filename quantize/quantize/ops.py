@@ -186,43 +186,32 @@ class batch_norm(Function):
     def forward(ctx, input, running_mean, running_var, weight, bias,
                 training, exponential_average_factor, eps, scheme):
         with torch.no_grad():
-            # TODO: fused batch_norm
             output = F.batch_norm(
                 input, running_mean, running_var, weight, bias,
                 training, exponential_average_factor, eps)
 
-            batch_mean = input.mean((0, 2, 3), keepdim=True)
-            batch_std = torch.sqrt(input.var((0, 2, 3), keepdim=True) + eps)
-
-            normalized = (input - batch_mean) / batch_std
-            weight = weight.view(1, -1, 1, 1)
+            batch_mean = input.mean((0, 2, 3))      # TODO: compute these with cuDNN
+            batch_std = torch.sqrt(input.var((0, 2, 3)) + eps)
 
             quantized = quantize_activation(input, scheme)
 
         ctx.scheme = scheme
         # TODO save_for_backward is not working, get RuntimeError: No grad accumulator for a saved leaf!
-        ctx.other_args = normalized.shape
-        ctx.saved = (quantized, weight, batch_mean, batch_std, bias)
+        ctx.other_args = input.shape
+        ctx.saved = (quantized, weight, running_mean, running_var, batch_mean, batch_std, bias, eps)
 
         return output
 
     @staticmethod
     def backward(ctx, grad_output):
         # TODO save_for_backward is not working, get RuntimeError: No grad accumulator for a saved leaf!
-        quantized, weight, batch_mean, batch_std, bias = ctx.saved
+        quantized, weight, running_mean, running_var, batch_mean, batch_std, bias, eps = ctx.saved
         q_input_shape = ctx.other_args
         input = dequantize_activation(quantized, q_input_shape)
-        normalized = (input - batch_mean) / batch_std
 
-        # TODO: fused batch_norm
-        grad_weight = (grad_output * normalized).sum((0, 2, 3))
-        grad_bias = grad_output.sum((0, 2, 3))
-        grad_normalized = grad_output * weight
-
-        mean_grad_normalized = grad_normalized.mean((0, 2, 3), keepdim=True)
-        mean_grad = (normalized * grad_normalized).mean((0, 2, 3), keepdim=True)
-        grad_input = grad_normalized - mean_grad_normalized - normalized * mean_grad
-        grad_input = grad_input / batch_std
+        grad_input, grad_weight, grad_bias = ext_backward_func.cudnn_batch_norm_backward(
+            input, grad_output, weight, running_mean, running_var, batch_mean, 1 / batch_std, eps, torch.Tensor()
+        )
 
         ctx.scheme.if_allocate_perlayer()
         return grad_input, None, None, grad_weight, grad_bias, None, None, None, None

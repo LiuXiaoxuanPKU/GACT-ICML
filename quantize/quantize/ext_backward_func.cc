@@ -73,7 +73,8 @@ std::tuple<Tensor, Tensor, Tensor, int64_t, int64_t> prepare_layer_norm_inputs(
   return std::make_tuple(X, gamma, beta, M, N);
 }
 
-}  // namespace native 
+
+}  // namespace native
 }  // namespace at
 
 
@@ -82,5 +83,5 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("prepare_layer_norm_inputs",  &at::native::prepare_layer_norm_inputs);
   m.def("layer_norm_cuda",            &at::native::layer_norm_cuda);
   m.def("layer_norm_backward_cuda",   &at::native::layer_norm_backward_cuda);
+  m.def("cudnn_batch_norm_backward",  &at::native::cudnn_batch_norm_backward);
 }
-

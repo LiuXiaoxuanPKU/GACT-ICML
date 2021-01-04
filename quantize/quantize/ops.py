@@ -193,24 +193,26 @@ class batch_norm(Function):
 
             batch_mean = input.mean((0, 2, 3), keepdim=True)
             batch_std = torch.sqrt(input.var((0, 2, 3), keepdim=True) + eps)
+
             normalized = (input - batch_mean) / batch_std
             weight = weight.view(1, -1, 1, 1)
 
-            quantized = quantize_activation(normalized, scheme)
+            quantized = quantize_activation(input, scheme)
 
         ctx.scheme = scheme
         # TODO save_for_backward is not working, get RuntimeError: No grad accumulator for a saved leaf!
         ctx.other_args = normalized.shape
-        ctx.saved = (quantized, weight, batch_std, bias)
+        ctx.saved = (quantized, weight, batch_mean, batch_std, bias)
 
         return output
 
     @staticmethod
     def backward(ctx, grad_output):
         # TODO save_for_backward is not working, get RuntimeError: No grad accumulator for a saved leaf!
-        quantized, weight, batch_std, bias = ctx.saved
+        quantized, weight, batch_mean, batch_std, bias = ctx.saved
         q_input_shape = ctx.other_args
-        normalized = dequantize_activation(quantized, q_input_shape)
+        input = dequantize_activation(quantized, q_input_shape)
+        normalized = (input - batch_mean) / batch_std
 
         # TODO: fused batch_norm
         grad_weight = (grad_output * normalized).sum((0, 2, 3))
@@ -222,7 +224,7 @@ class batch_norm(Function):
         grad_input = grad_normalized - mean_grad_normalized - normalized * mean_grad
         grad_input = grad_input / batch_std
 
-        ctx.scheme.set_scale(grad_normalized, batch_std, (mean_grad**2).sum())
+        ctx.scheme.set_scale(grad_normalized, weight, batch_std, normalized)
 
         ctx.scheme.if_allocate_perlayer()
         return grad_input, None, None, grad_weight, grad_bias, None, None, None, None

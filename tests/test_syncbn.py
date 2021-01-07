@@ -3,12 +3,18 @@ import torch
 import torch.nn as nn
 import argparse
 import torch.distributed as dist
+from quantize import QSyncBatchNorm, config
 
 N = 16
 
 if __name__ == '__main__':
+    config.activation_compression_bits = 8
+    config.pergroup = False
+    config.perlayer = False
+
     parser = argparse.ArgumentParser(description='Test SyncBN')
     parser.add_argument("--local_rank", default=0, type=int)
+    parser.add_argument("--quantize", default=0, type=int)
     args = parser.parse_args()
 
     print('Process ', args.local_rank)
@@ -32,7 +38,10 @@ if __name__ == '__main__':
     local_N = N // args.world_size
 
     if args.distributed:
-        model = nn.SyncBatchNorm(10).cuda()
+        if args.quantize == 0:
+            model = nn.SyncBatchNorm(10).cuda()
+        else:
+            model = QSyncBatchNorm(10).cuda()
         model = nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank])
     else:
         model = nn.BatchNorm2d(10).cuda()

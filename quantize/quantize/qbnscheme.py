@@ -13,7 +13,10 @@ class QBNScheme(QScheme):
         self.bits = config.activation_compression_bits
         QBNScheme.layers.append(self)
         QScheme.all_layers.append(self)
-        self.prev_linear = QScheme.layers[-1]
+        if len(QScheme.layers) > 0:
+            self.prev_linear = QScheme.layers[-1]
+        else:
+            self.prev_linear = None
 
     def compute_quantization_bits(self, input):
         N, D, H, W = input.shape

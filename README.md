@@ -135,10 +135,10 @@ TODOs
 5. ~~Verification experiments~~ [Dequan, this year]
 6. Result for detection [Dequan]
 7. 10 machine -> 1 machine [Dequan]
-8. QPool [Jianfei]
-9. Upsample [Jianfei]
-10. Fix BatchNorm [Jianfei, today]
-11. CIFAR100 results
-12. float16 
+8. Pool, Upsample [Lianmin]
+9. SyncBN [Jianfei]
+10. ~~Fix BatchNorm~~ [Jianfei, today]
+11. ~~CIFAR100 results~~
+12. float16 / QAT? 
 
 *. Deadline [Feb. 7]

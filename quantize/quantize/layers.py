@@ -4,10 +4,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.distributed
-from quantize.ops import linear, batch_norm, conv2d, sync_batch_norm, ext_quantization
+from torch.nn.modules.pooling import _size_2_t, _pair, _MaxPoolNd
+
 from quantize.qscheme import QScheme
 from quantize.qbnscheme import QBNScheme
 from quantize.conf import config
+from quantize.ops import linear, batch_norm, conv2d, sync_batch_norm, ext_quantization
 
 
 class QConv2d(nn.Conv2d):
@@ -177,3 +179,25 @@ class QSyncBatchNorm(nn.SyncBatchNorm):
             return sync_batch_norm().apply(
                 input, self.weight, self.bias, running_mean, running_var,
                 self.eps, exponential_average_factor, process_group, world_size, self.scheme)
+
+
+class QMaxPool2d(_MaxPoolNd):
+    kernel_size: _size_2_t
+    stride: _size_2_t
+    padding: _size_2_t
+    dilation: _size_2_t
+
+    def __init__(self, kernel_size, stride=None, padding=0, dilation=1,
+                 return_indices=False, ceil_mode=False):
+        super().__init__(kernel_size, stride, padding, dilation, return_indices, ceil_mode)
+        self.kernel_size = _pair(kernel_size)
+        self.stride = _pair(stride)
+        self.padding = _pair(padding)
+        self.dilation = _pair(dilation)
+
+    def forward(self, input):
+        return ext_quantization.act_quantized_max_pool2d(
+            input, self.kernel_size, self.stride,
+            self.padding, self.dilation, self.ceil_mode,
+            self.return_indices)
+

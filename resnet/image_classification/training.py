@@ -7,7 +7,7 @@ from . import logger as log
 from . import resnet as models
 from . import utils
 from .debug import get_var, get_var_during_training
-from quantize import config, QScheme, QBNScheme, QModule
+from quantize import config, QScheme, QBNScheme, QModule, get_memory_usage, compute_tensor_bytes
 from copy import copy
 
 try:
@@ -175,6 +175,11 @@ def get_train_step(model_and_loss, optimizer, fp16, use_amp = False, batch_size_
     def _step(input, target, optimizer_step = True):
         input_var = Variable(input)
         target_var = Variable(target)
+
+        if config.debug_memory_model:
+            print("========== Init Data Loader + Optimizer ===========")
+            init_mem = get_memory_usage(True)
+
         loss, output = model_and_loss(input_var, target_var)
         prec1, prec5 = torch.zeros(1), torch.zeros(1) #utils.accuracy(output.data, target, topk=(1, 5))
 
@@ -184,6 +189,23 @@ def get_train_step(model_and_loss, optimizer, fp16, use_amp = False, batch_size_
             #prec5 = reduce_tensor(prec5)
         else:
             reduced_loss = loss.data
+
+        if config.debug_memory_model:
+            print("========== Before Backward ===========")
+            total_mem = get_memory_usage(True)
+            act_mem = get_memory_usage() - init_mem - compute_tensor_bytes(output)
+            res = "Batch size: %d\tTotal Mem: %.2f MB\tAct Mem: %.2f MB" % (
+                    len(output), total_mem / 1024**2, act_mem / 1024**2)
+            print(res)
+            loss.backward()
+            del loss
+            print("========== After Backward ===========")
+            after_backward = get_memory_usage(True)
+            act_mem = get_memory_usage() - init_mem - compute_tensor_bytes(output)
+            print(res)
+            with open("results.tsv", "a") as fout:
+                fout.write(res + '\n')
+            exit()
 
         if fp16:
             optimizer.backward(loss)
@@ -218,6 +240,10 @@ def train(train_loader, model_and_loss, optimizer, lr_scheduler, fp16, logger, e
         logger.register_metric('train.total_ips', log.AverageMeter(), log_level=0)
         logger.register_metric('train.data_time', log.AverageMeter(), log_level=1)
         logger.register_metric('train.compute_time', log.AverageMeter(), log_level=1)
+
+    if config.debug_memory_model:
+        print("========== Model Only ===========")
+        get_memory_usage(True)
 
     step = get_train_step(model_and_loss, optimizer, fp16, use_amp = use_amp, batch_size_multiplier = batch_size_multiplier)
 

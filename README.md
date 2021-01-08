@@ -12,12 +12,8 @@ pip install -v --no-cache-dir --global-option="--cpp_ext" --global-option="--cud
 Step 2: Install this repo
 ```bash
 nvcc --version   # Should be 10.2
-cd pytorch_minimax
-python setup.py install
-cd ..
 cd quantize
 pip install -e .
-cd ..
 ```
 
 Using the library

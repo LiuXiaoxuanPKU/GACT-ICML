@@ -7,6 +7,9 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 
+using torch::IntArrayRef;
+using torch::Tensor;
+
 __global__ void compute_scale_kernel(const int32_t* __restrict__ bits,
                                      const float* __restrict__ min,
                                      const float* __restrict__ max,
@@ -149,6 +152,10 @@ torch::Tensor unpack_mixed_precision_cuda(torch::Tensor data,
   return unpacked;
 }
 
+
+/****************************************/
+/********** Act Quantized ReLU **********/
+/****************************************/
 // Unpack int32 bit stream to float32 data
 __global__ void act_quantized_relu_forward_kernel(const float* __restrict__ data,
                                                   int32_t* __restrict__ mask,
@@ -185,36 +192,152 @@ std::pair<torch::Tensor, torch::Tensor> act_quantized_relu_forward_cuda(torch::T
   return std::make_pair(output, mask);
 }
 
-__global__ void act_quantized_relu_backward_kernel(const float* __restrict__ data,
+__global__ void act_quantized_relu_backward_kernel(const float* __restrict__ grad_output,
                                                    int32_t* __restrict__ mask,
-                                                   float* __restrict__ output,
+                                                   float* __restrict__ grad_input,
                                                    int N,
                                                    int mask_len) {
   int id = blockIdx.x * blockDim.x + threadIdx.x;
 
   if (id < N) {
     if ((mask[id % mask_len] >> (id / mask_len)) & 1) {
-      output[id] = data[id];
+      grad_input[id] = grad_output[id];
     }
   }
 }
 
-torch::Tensor act_quantized_relu_backward_cuda(torch::Tensor mask, torch::Tensor data) {
+
+/****************************************/
+/******** Act Quantized MaxPool2d *******/
+/****************************************/
+torch::Tensor act_quantized_relu_backward_cuda(torch::Tensor grad_output, torch::Tensor mask) {
   int n_elements = 1;
-  for (size_t i = 0; i < data.dim(); ++i) {
-    n_elements *= data.size(i);
+  for (size_t i = 0; i < grad_output.dim(); ++i) {
+    n_elements *= grad_output.size(i);
   }
 
   int mask_len = (n_elements + 31) / 32;
   int threads = 256;
   int blocks = (n_elements + threads - 1) / threads;
 
-  torch::Tensor output = torch::zeros_like(data);
+  torch::Tensor grad_input = torch::zeros_like(grad_output);
 
   act_quantized_relu_backward_kernel<<<blocks, threads>>>(
-    data.data_ptr<float>(), mask.data_ptr<int32_t>(), output.data_ptr<float>(),
+    grad_output.data_ptr<float>(), mask.data_ptr<int32_t>(), grad_input.data_ptr<float>(),
     n_elements, mask_len);
 
-  return output;
+  return grad_input;
 }
 
+__global__ void act_quantized_max_pool2d_forward_kernel(const float* __restrict__ input,
+                                                        float* __restrict__ output,
+                                                        int8_t* __restrict__ max_indices,
+                                                        int n_elements,
+                                                        int N, int C, int H, int W, int H_out, int W_out,
+                                                        int KH, int KW, int SH, int SW, int PH, int PW,
+                                                        int DH, int DW) {
+  int id = blockIdx.x * blockDim.x + threadIdx.x;
+
+  if (id < n_elements) {
+    int nc = id / (H_out * W_out);
+    int h = id / W_out % H_out;
+    int w = id % W_out;
+
+    int h_base = h * SH - PH;
+    int h_start = std::max(h_base, 0);
+    int h_end = std::min(h_base + KH, H);
+    int w_base = w * SW - PW;
+    int w_start = std::max(w_base, 0);
+    int w_end = std::min(w_base + KW, W);
+
+    float v = -1e10;
+    int8_t index;
+    for (int i = h_start; i < h_end; i++) {
+        for (int j = w_start; j < w_end; j++) {
+            if (input[nc * (H * W) + i * W + j] > v) {
+                v = input[nc * (H * W) + i * W + j];
+                index = (i - h_base) * KW + j - w_base;
+            }
+        }
+    }
+
+    output[id] = v;
+    max_indices[id] = index;
+  }
+}
+
+std::pair<torch::Tensor, torch::Tensor> act_quantized_max_pool2d_forward_cuda(torch::Tensor input,
+        IntArrayRef kernel_size, IntArrayRef stride, IntArrayRef padding, IntArrayRef dilation,
+        bool ceil_mode, bool return_indices) {
+  int N = input.size(0);
+  int C = input.size(1);
+  int H = input.size(2);
+  int W = input.size(3);
+  int H_out = (H + 2 * padding[0] - dilation[0] * (kernel_size[0] - 1) - 1) / stride[0] + 1;
+  int W_out = (W + 2 * padding[1] - dilation[1] * (kernel_size[1] - 1) - 1) / stride[1] + 1;
+  auto options = torch::TensorOptions().dtype(torch::kFloat32).device(input.device());
+  Tensor output = torch::empty({N, C, H_out, W_out}, options);
+  options = torch::TensorOptions().dtype(torch::kInt8).device(input.device());
+  Tensor max_indices = torch::empty({N, C, H_out, W_out}, options);
+
+  int threads = 256;
+  int n_elements = N * C * H_out * W_out;
+  int blocks = (n_elements + threads - 1) / threads;
+
+  act_quantized_max_pool2d_forward_kernel<<<blocks, threads>>>(
+    input.data_ptr<float>(), output.data_ptr<float>(), max_indices.data_ptr<int8_t>(), n_elements,
+    N, C, H, W, H_out, W_out, kernel_size[0], kernel_size[1], stride[0], stride[1],
+    padding[0], padding[1], dilation[0], dilation[1]);
+
+  return std::make_pair(output, max_indices);
+}
+
+__global__ void act_quantized_max_pool2d_backward_kernel(const float* __restrict__ grad_output,
+                                                         int8_t* __restrict__ max_indices,
+                                                         float* __restrict__ grad_input,
+                                                         int n_elements,
+                                                         int N, int C, int H, int W, int H_out, int W_out,
+                                                         int KH, int KW, int SH, int SW, int PH, int PW,
+                                                         int DH, int DW) {
+  int id = blockIdx.x * blockDim.x + threadIdx.x;
+
+  if (id < n_elements) {
+    int nc = id / (H_out * W_out);
+    int h = id / W_out % H_out;
+    int w = id % W_out;
+
+    int h_base = h * SH - PH;
+    int w_base = w * SW - PW;
+    int8_t index = max_indices[id];
+    int h_offset = index / KW;
+    int w_offset = index % KW;
+    atomicAdd(grad_input + (nc * H * W) + (h_base + h_offset) * W + (w_base + w_offset), grad_output[id]);
+  }
+}
+
+torch::Tensor act_quantized_max_pool2d_backward_cuda(torch::Tensor grad_output, torch::Tensor max_indices,
+        IntArrayRef input_shape, 
+        IntArrayRef kernel_size, IntArrayRef stride, IntArrayRef padding, IntArrayRef dilation,
+        bool ceil_mode, bool return_indices) {
+  auto options = torch::TensorOptions().dtype(torch::kFloat).device(grad_output.device());
+  Tensor grad_input =  torch::zeros(input_shape, options);
+
+  int N = grad_output.size(0);
+  int C = grad_output.size(1);
+  int H_out = grad_output.size(2);
+  int W_out = grad_output.size(3);
+  int H = input_shape[2];
+  int W = input_shape[3];
+
+  int threads = 256;
+  int n_elements = N * C * H_out * W_out;
+  int blocks = (n_elements + threads - 1) / threads;
+
+  act_quantized_max_pool2d_backward_kernel<<<blocks, threads>>>(
+    grad_output.data_ptr<float>(), max_indices.data_ptr<int8_t>(), grad_input.data_ptr<float>(),
+    n_elements,
+    N, C, H, W, H_out, W_out, kernel_size[0], kernel_size[1], stride[0], stride[1],
+    padding[0], padding[1], dilation[0], dilation[1]);
+
+  return grad_input;
+}

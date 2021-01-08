@@ -1,6 +1,7 @@
 import torch.nn as nn
-from quantize import QConv2d, QLinear, QBatchNorm2d, QReLU, QSyncBatchNorm
 from .preact_resnet import PreActBlock, PreActBottleneck, PreActResNet
+
+from quantize import QConv2d, QLinear, QBatchNorm2d, QReLU, QSyncBatchNorm, QMaxPool2d, config
 
 __all__ = ['ResNet', 'build_resnet', 'resnet_versions', 'resnet_configs']
 
@@ -57,7 +58,8 @@ class ResNetBuilder(object):
         return c
 
     def batchnorm(self, planes, last_bn=False):
-        # bn = nn.BatchNorm2d(planes)
+        if config.debug_remove_bn:
+            return nn.Identity()
         bn = self.config['bn'](planes)
 
         gamma_init_val = 0 if last_bn and self.config['last_bn_0_init'] else 1
@@ -66,10 +68,15 @@ class ResNetBuilder(object):
 
         return bn
 
+    def max_pool2d(self, *args, **kwargs):
+        return self.config['max_pool2d'](*args, **kwargs)
+
     def linear(self, in_planes, out_planes):
         return self.config['linear'](in_planes, out_planes)
 
     def activation(self):
+        if config.debug_remove_relu:
+            return nn.Identity()
         return self.config['activation']()
 
 # ResNetBuilder }}}
@@ -188,7 +195,7 @@ class ResNet(nn.Module):
         self.conv1 = builder.conv7x7(3, 64, stride=2)
         self.bn1 = builder.batchnorm(64)
         self.relu = builder.activation()
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.maxpool = builder.max_pool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(builder, block, 64, layers[0])
         self.layer2 = self._make_layer(builder, block, 128, layers[1], stride=2)
         self.layer3 = self._make_layer(builder, block, 256, layers[2], stride=2)
@@ -350,6 +357,7 @@ resnet_configs = {
             'conv' : nn.Conv2d,
             'linear' : nn.Linear,
             'bn' : nn.BatchNorm2d,
+            'max_pool2d' : nn.MaxPool2d,
             'conv_init' : 'fan_out',
             'nonlinearity' : 'relu',
             'last_bn_0_init' : False,
@@ -360,6 +368,7 @@ resnet_configs = {
             'conv' : nn.Conv2d,
             'linear' : nn.Linear,
             'bn' : nn.BatchNorm2d,
+            'max_pool2d' : nn.MaxPool2d,
             'conv_init' : 'fan_in',
             'nonlinearity' : 'relu',
             'last_bn_0_init' : False,
@@ -370,6 +379,7 @@ resnet_configs = {
             'conv' : QConv2d,
             'linear' : QLinear,
             'bn' : QBatchNorm2d,
+            'max_pool2d' : QMaxPool2d,
             'conv_init' : 'fan_in',
             'nonlinearity' : 'relu',
             'last_bn_0_init' : False,
@@ -380,6 +390,7 @@ resnet_configs = {
             'conv' : QConv2d,
             'linear' : QLinear,
             'bn' : nn.BatchNorm2d,
+            'max_pool2d' : QMaxPool2d,
             'conv_init' : 'fan_in',
             'nonlinearity' : 'relu',
             'last_bn_0_init' : False,
@@ -390,6 +401,7 @@ resnet_configs = {
             'conv': QConv2d,
             'linear': QLinear,
             'bn': QSyncBatchNorm,
+            'max_pool2d' : QMaxPool2d,
             'conv_init': 'fan_in',
             'nonlinearity': 'relu',
             'last_bn_0_init': False,

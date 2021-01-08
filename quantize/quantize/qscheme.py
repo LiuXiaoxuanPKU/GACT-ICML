@@ -1,8 +1,8 @@
 import torch
-import pytorch_minimax
 
 import quantize
 from quantize.conf import config
+from quantize.ops import ext_minimax
 from C import calc_precision_dp, calc_precision, calc_avg_bits
 
 
@@ -67,8 +67,8 @@ class QScheme(object):
                                        torch.zeros([N, delta], dtype=input.dtype, device=input.device)], 1)
 
         input_groups = input_flatten.view(-1, config.group_size)
-        mn = pytorch_minimax.min(input_groups).view(N, -1, 1)       # N, num_groups, 1
-        mx = pytorch_minimax.max(input_groups).view(N, -1, 1)       # N, num_groups, 1
+        mn = ext_minimax.min(input_groups).view(N, -1, 1)       # N, num_groups, 1
+        mx = ext_minimax.max(input_groups).view(N, -1, 1)       # N, num_groups, 1
         if not config.pergroup:    # No per group quantization
             min_scalar = mn.min()
             mn = torch.ones_like(mn) * min_scalar

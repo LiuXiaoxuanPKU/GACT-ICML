@@ -11,16 +11,19 @@ from torch.autograd.function import Function
 import torch.distributed as dist
 
 
-import pytorch_minimax
 from quantize.conf import config
+from quantize.utils import get_memory_usage, compute_tensor_bytes
 
 # Load cuda extensions
 dirname = os.path.dirname(__file__)
 ext_backward_func = load(name="ext_backward_func",
-        sources=[os.path.join(dirname, "ext_backward_func.cc")], verbose=True)
+    sources=[os.path.join(dirname, "ext_backward_func.cc")], verbose=True)
 ext_quantization = load(name="ext_quantization",
-        sources=[os.path.join(dirname, "ext_quantization.cc"),
-                 os.path.join(dirname, "ext_quantization_cuda_kernel.cu")], verbose=True)
+    sources=[os.path.join(dirname, "ext_quantization.cc"),
+             os.path.join(dirname, "ext_quantization_cuda_kernel.cu")], verbose=True)
+ext_minimax = load(name="ext_minimax",
+    sources=[os.path.join(dirname, "ext_minimax.cc"),
+             os.path.join(dirname, "ext_minimax_cuda_kernel.cu")], verbose=True)
 
 
 QParams = namedtuple('QParams', ['range', 'zero_point', 'num_bits'])
@@ -103,20 +106,31 @@ def dequantize_activation(quantized, q_input_shape):
     input = input.view(*q_input_shape)
     return input
 
+conv2d_layer_ct = 0
+bn_layer_ct = 0
+total_act_mem = 0
 
 class conv2d(Function):
     @staticmethod
     def forward(ctx, input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1, scheme=None):
-        with torch.no_grad():
-            output = F.conv2d(input, weight, bias, stride, padding, dilation, groups)
-            quantized = quantize_activation(input, scheme)
+        quantized = quantize_activation(input, scheme)
 
         ctx.scheme = scheme
-        # ctx.save_for_backward(*quantized, weight, bias)
-        ctx.saved = quantized, weight, bias # TODO hack
+        ctx.saved = quantized, weight, bias
         ctx.other_args = (input.shape, stride, padding, dilation, groups)
 
-        return output
+        if config.empty_cache:
+            torch.cuda.empty_cache()
+
+        if config.debug_memory_op_forward:
+            global conv2d_layer_ct, total_act_mem
+            print("========== conv2d forward %d ==========" % conv2d_layer_ct)
+            get_memory_usage(True)
+            conv2d_layer_ct += 1
+            total_act_mem += compute_tensor_bytes(quantized)
+            print("Act mem: %.2f MB" % (total_act_mem / 1024 ** 2))
+
+        return F.conv2d(input, weight, bias, stride, padding, dilation, groups)
 
     @staticmethod
     def backward(ctx, grad_output):
@@ -130,6 +144,17 @@ class conv2d(Function):
         dilation = _pair(dilation)
 
         input = dequantize_activation(quantized, q_input_shape)
+        del quantized, ctx.saved
+
+        if config.empty_cache:
+            torch.cuda.empty_cache()
+
+        if config.debug_memory_op_backward:
+            global conv2d_layer_ct
+            print("========== conv2d backward %d ==========" % conv2d_layer_ct)
+            get_memory_usage(True)
+            conv2d_layer_ct += 1
+            print("WS: %.2f MB" % (compute_tensor_bytes([grad_output, input, input]) / 1024 ** 2))
 
         grad_input, grad_weight = ext_backward_func.cudnn_convolution_backward(
                 input, grad_output, weight, padding, stride, dilation, groups,
@@ -147,20 +172,16 @@ class conv2d(Function):
 class linear(Function):
     @staticmethod
     def forward(ctx, input, weight, bias=None, scheme=None):
-        with torch.no_grad():
-            quantized = quantize_activation(input, scheme)
+        quantized = quantize_activation(input, scheme)
 
-            # TODO: the following implementation might not be optimal
-            output = input.mm(weight.t())
-            if bias is not None:
-                output += bias.unsqueeze(0).expand_as(output)
+        if config.empty_cache:
+            torch.cuda.empty_cache()
 
         ctx.scheme = scheme
-        # ctx.save_for_backward(*quantized, weight, bias)
         ctx.saved = quantized, weight, bias  # TODO hack
         ctx.other_args = input.shape
 
-        return output
+        return F.linear(input, weight, bias)
 
     @staticmethod
     def backward(ctx, grad_output):
@@ -170,6 +191,10 @@ class linear(Function):
         q_input_shape = ctx.other_args
 
         input = dequantize_activation(quantized, q_input_shape)
+        del quantized, ctx.saved
+
+        if config.empty_cache:
+            torch.cuda.empty_cache()
 
         # TODO: the following implementation might not be optimal
         grad_input = grad_output.mm(weight)
@@ -187,29 +212,44 @@ class batch_norm(Function):
     @staticmethod
     def forward(ctx, input, running_mean, running_var, weight, bias,
                 training, exponential_average_factor, eps, scheme):
-        with torch.no_grad():
-            output = F.batch_norm(
-                input, running_mean, running_var, weight, bias,
-                training, exponential_average_factor, eps)
+        batch_mean = input.mean((0, 2, 3))      # TODO: compute these with cuDNN
+        batch_std = torch.sqrt(input.var((0, 2, 3)) + eps)
+        quantized = quantize_activation(input, scheme)
 
-            batch_mean = input.mean((0, 2, 3))      # TODO: compute these with cuDNN
-            batch_std = torch.sqrt(input.var((0, 2, 3)) + eps)
+        if config.empty_cache:
+            torch.cuda.empty_cache()
 
-            quantized = quantize_activation(input, scheme)
+        if config.debug_memory_op_forward:
+            global bn_layer_ct, total_act_mem
+            print("========== bn forward %d ==========" % bn_layer_ct)
+            get_memory_usage(True)
+            bn_layer_ct += 1
+            total_act_mem += compute_tensor_bytes(quantized)
+            print("Act mem: %.2f MB" % (total_act_mem / 1024 ** 2))
 
         ctx.scheme = scheme
-        # TODO save_for_backward is not working, get RuntimeError: No grad accumulator for a saved leaf!
         ctx.other_args = input.shape
         ctx.saved = (quantized, weight, running_mean, running_var, batch_mean, batch_std, bias, eps)
 
-        return output
+        return F.batch_norm(input, running_mean, running_var, weight, bias,
+                training, exponential_average_factor, eps)
 
     @staticmethod
     def backward(ctx, grad_output):
-        # TODO save_for_backward is not working, get RuntimeError: No grad accumulator for a saved leaf!
         quantized, weight, running_mean, running_var, batch_mean, batch_std, bias, eps = ctx.saved
         q_input_shape = ctx.other_args
+
         input = dequantize_activation(quantized, q_input_shape)
+        del quantized, ctx.saved
+
+        if config.empty_cache:
+            torch.cuda.empty_cache()
+
+        if config.debug_memory_op_backward:
+            global bn_layer_ct
+            print("========== bn backward %d ==========" % bn_layer_ct)
+            get_memory_usage(True)
+            bn_layer_ct += 1
 
         grad_input, grad_weight, grad_bias = ext_backward_func.cudnn_batch_norm_backward(
             input, grad_output, weight, running_mean, running_var, batch_mean, 1 / batch_std, eps, torch.Tensor()
@@ -268,16 +308,16 @@ class sync_batch_norm(Function):
         self.process_group = process_group
 
         # apply element-wise normalization
-        out = torch.batch_norm_elemt(input, weight, bias, mean, invstd, eps)
-        return out
+        return torch.batch_norm_elemt(input, weight, bias, mean, invstd, eps)
 
     @staticmethod
     def backward(self, grad_output):
         grad_output = grad_output.contiguous()
+
         quantized = self.saved
         q_input_shape = self.other_args
         saved_input = dequantize_activation(quantized, q_input_shape)
-        del quantized, self.saved          # TODO, lianmin: check
+        del quantized, self.saved
 
         weight, mean, invstd, count_tensor = self.saved_tensors
         grad_input = grad_weight = grad_bias = None
@@ -330,15 +370,18 @@ class sync_batch_norm(Function):
         return grad_input, grad_weight, grad_bias, None, None, None, None, None, None, None
 
 
-def get_memory_usage(print_info=False):
-    """Get accurate gpu memory usage by querying torch runtime"""
-    torch.cuda.empty_cache()
-    allocated = torch.cuda.memory_allocated(0)
-    reserved = torch.cuda.memory_reserved(0)
-    if print_info:
-        print("allocated: %.2f MB" % (allocated / 1024 / 1024), flush=True)
-        print("reserved:  %.2f MB" % (reserved / 1024 / 1024), flush=True)
-    return allocated
+class adaptive_avg_pool2d(Function):
+    @staticmethod
+    def forward(ctx, input, output_size):
+        assert output_size == (1, 1)
+        ctx.saved = input.shape
+        return torch.mean(input, dim=[2, 3], keepdim=True)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        input_shape = ctx.saved
+        repeat_size = [int(x / y) for x, y in zip(input_shape, grad_output.shape)]
+        return grad_output.repeat(repeat_size) / np.prod(repeat_size), None
 
 
 if __name__ == '__main__':

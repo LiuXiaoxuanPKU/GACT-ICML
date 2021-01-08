@@ -140,7 +140,8 @@ class PreActResNet(nn.Module):
         self.layer3 = self._make_layer(block, 64, num_blocks[2], stride=2)
         self.bn = builder.batchnorm(64 * block.expansion)
         self.relu = builder.activation()
-        self.avgpool = nn.AvgPool2d(8, stride=1)
+        #self.avgpool = nn.AvgPool2d(8, stride=1)
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
         self.fc = builder.linear(64 * block.expansion, num_classes)
 
     def _make_layer(self, block, planes, blocks, stride=1):

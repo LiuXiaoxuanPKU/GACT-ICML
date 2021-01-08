@@ -4,6 +4,7 @@ results
 *.npz
 resnet/results.tar.gz
 resnet/results
+resnet/results.tsv
 
 # IDE & OS
 .idea

@@ -3,7 +3,8 @@
 #include <cuda_runtime.h>
 #include <limits>
 #include <torch/extension.h>
-#include "minimax.h"
+
+enum Reduce { MIN, MAX };
 
 namespace cg = cooperative_groups;
 
@@ -131,31 +132,6 @@ __global__ void reduce6(T *g_idata, T *g_odata, unsigned int n) {
 }
 
 #define N_THREADS 512
-/*
-template<Reduce r> torch::Tensor minimax_cuda(torch::Tensor x) {
-  int n = x.size(0);
-  int d = x.size(1);
-  int e = d / N_THREADS + (d % N_THREADS > 0);
-
-  dim3 d_grid(n, (d + N_THREADS - 1) / N_THREADS);
-	int sizeof_dtype;
-  switch (x.type().scalarType()) {
-  case torch::ScalarType::Double:
-    sizeof_dtype = 64;
-		break;
-  case torch::ScalarType::Float:
-    sizeof_dtype = 32;
-		break;
-	}
-  int sm_size = (N_THREADS <= 32) ? 2 * N_THREADS * sizeof_dtype : N_THREADS * sizeof_dtype;
-
-  torch::Tensor y = torch::empty({n, e}, x.options());
-	AT_DISPATCH_FLOATING_TYPES(x.type(), "min_cuda_forward", [&] {
-  	reduce6<scalar_t, N_THREADS, false, r><<<d_grid, N_THREADS, sm_size>>>(x.data<scalar_t>(), y.data<scalar_t>(), d);
-	});
-  return std::get<0>(torch::min(y, 1));
-}
-*/
 
 torch::Tensor min_cuda(torch::Tensor x) {
   int n = x.size(0);

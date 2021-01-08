@@ -11,7 +11,8 @@ from quantize import config, QScheme, QBNScheme, QModule
 from copy import copy
 
 try:
-    from apex.parallel import DistributedDataParallel as DDP
+    # from apex.parallel import DistributedDataParallel as DDP
+    from torch.nn.parallel import DistributedDataParallel as DDP
     from apex.fp16_utils import *
     from apex import amp
 except ImportError:
@@ -51,8 +52,8 @@ class ModelAndLoss(nn.Module):
 
         return loss, output
 
-    def distributed(self):
-        self.model = DDP(self.model)
+    def distributed(self, rank):
+        self.model = DDP(self.model, device_ids=[rank])
 
     def load_model_state(self, state):
         if not state is None:

@@ -10,7 +10,8 @@ import torch.utils.data.distributed
 from quantize import config, QScheme, QModule
 
 try:
-    from apex.parallel import DistributedDataParallel as DDP
+    # from apex.parallel import DistributedDataParallel as DDP
+    from torch.nn.parallel import DistributedDataParallel as DDP
     from apex.fp16_utils import *
     from apex import amp
 except ImportError:
@@ -328,7 +329,7 @@ def main(args):
                 loss_scale="dynamic" if args.dynamic_loss_scale else args.static_loss_scale)
 
     if args.distributed:
-        model_and_loss.distributed()
+        model_and_loss.distributed(args.local_rank)
 
     model_and_loss.load_model_state(model_state)
 

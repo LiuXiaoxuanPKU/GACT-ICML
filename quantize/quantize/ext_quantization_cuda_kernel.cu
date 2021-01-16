@@ -34,21 +34,31 @@ __global__ void pack_mixed_precision_kernel(const int32_t* __restrict__ bits,
                                             int N,
                                             int num_groups,
                                             int group_size) {
-  int id = blockIdx.x * blockDim.x + threadIdx.x;
+  extern __shared__ int packed_shared[];
 
-  if (id < N * num_groups * group_size) {
-    int n = id / (num_groups * group_size);
-    int group_id = (id / group_size) % num_groups;
-    int d = id % group_size;
-  
-    int bit_offset = (n == 0 ? 0 : prefix_sum[n-1]) * (num_groups * group_size) +
-                     bits[n] * (group_id * group_size + d);
-  
-    int val = __float2int_rn(fmax((data[id] - min[n * num_groups + group_id]) * scale[n * num_groups + group_id] + noise[id] - 0.5, 0.0f));
-  
-    for (int i = 0; i < bits[n]; i++) {
-      atomicOr(packed + (bit_offset + i) / 32, (1 & (val >> i)) << ((bit_offset + i) % 32));
-    }
+  const int n = blockIdx.x;
+  const int group_id = blockIdx.y;
+  const int d = threadIdx.x;
+  const int id = (n * num_groups + group_id) * group_size + d;
+  const int shared_len = group_size * bits[n] / 32;
+
+  if (threadIdx.x * 2 < shared_len) {
+    reinterpret_cast<int2*>(packed_shared)[threadIdx.x] = make_int2(0, 0);
+  }
+
+  const int val = __float2int_rn(fmax((data[id] - min[n * num_groups + group_id]) * scale[n * num_groups + group_id] + noise[id] - 0.5, 0.0f));
+  const int offset = d * bits[n];
+
+  __syncthreads();
+  for (int i = 0; i < bits[n]; i++) {
+    atomicOr(packed_shared + (offset + i) % shared_len, (1 & (val >> i)) << ((offset + i) / shared_len));
+  }
+  __syncthreads();
+
+  if (threadIdx.x * 2 < shared_len) {
+    const int global_offset = ((n == 0 ? 0 : prefix_sum[n-1]) * num_groups * group_size + bits[n] * group_id * group_size) / 32;
+    reinterpret_cast<int2*>(packed)[global_offset/2 + threadIdx.x] = \
+                             reinterpret_cast<int2*>(packed_shared)[threadIdx.x];
   }
 }
 
@@ -77,8 +87,6 @@ std::pair<torch::Tensor, torch::Tensor> pack_mixed_precision_cuda(torch::Tensor 
     bits.data_ptr<int32_t>(), min.data_ptr<float>(), max.data_ptr<float>(),
     scale.data_ptr<float>(), N, num_groups);
 
-  blocks = (N * num_groups * group_size + threads - 1) / threads;
-
   torch::Tensor noise;
   if (stochastic) {
     noise = torch::rand({N, num_groups, group_size}, options);
@@ -86,7 +94,12 @@ std::pair<torch::Tensor, torch::Tensor> pack_mixed_precision_cuda(torch::Tensor 
     noise = torch::full({N, num_groups, group_size}, 0.5, options);
   }
 
-  pack_mixed_precision_kernel<<<blocks, threads>>>(
+  int max_bit = torch::max(bits).item<int32_t>();
+  dim3 block_dim(N, num_groups, 1);
+  dim3 thread_dim(group_size, 1, 1);
+  TORCH_CHECK(group_size % 32 == 0);
+
+  pack_mixed_precision_kernel<<<block_dim, thread_dim, max_bit * group_size * sizeof(int) / 32>>>(
     bits.data_ptr<int32_t>(), prefix_sum.data_ptr<int32_t>(),
     data.data_ptr<float>(),
     scale.data_ptr<float>(), min.data_ptr<float>(),
@@ -107,23 +120,21 @@ __global__ void unpack_mixed_precision_kernel(const int32_t* __restrict__ bits,
                                               int N,
                                               int num_groups,
                                               int group_size) {
-  int id = blockIdx.x * blockDim.x + threadIdx.x;
+  const int n = blockIdx.x;
+  const int group_id = blockIdx.y;
+  const int d = threadIdx.x;
+  const int id = (n * num_groups + group_id) * group_size + d;
+  const int shared_len = group_size * bits[n] / 32;
 
-  if (id < N * num_groups * group_size) {
-    int n = id / (num_groups * group_size);
-    int group_id = (id / group_size) % num_groups;
-    int d = id % group_size;
+  const int global_offset = ((n == 0 ? 0 : prefix_sum[n-1]) * num_groups * group_size + bits[n] * group_id * group_size) / 32;
+  const int block_offset = d * bits[n];
 
-    int bit_offset = (n == 0 ? 0 : prefix_sum[n-1]) * (num_groups * group_size) +
-                     bits[n] * (group_id * group_size + d);
-  
-    int val = 0;
-    for (int i = 0; i < bits[n]; i++) {
-      val |= (1 & (data[(bit_offset + i) / 32] >> ((bit_offset + i) % 32))) << i;
-    }
-
-    unpacked[id] = ((float)val) / scale[n * num_groups + group_id] + min[n * num_groups + group_id];
+  int val = 0;
+  for (int i = 0; i < bits[n]; i++) {
+    val |= (1 & (data[global_offset + (block_offset + i) % shared_len] >> ((block_offset + i) / shared_len))) << i;
   }
+
+  unpacked[id] = ((float)val) / scale[n * num_groups + group_id] + min[n * num_groups + group_id];
 }
 
 // Unpack int32 bit stream to float32 data
@@ -139,10 +150,11 @@ torch::Tensor unpack_mixed_precision_cuda(torch::Tensor data,
   auto options = torch::TensorOptions().dtype(torch::kFloat32).device(data.device());
   torch::Tensor unpacked = torch::empty({N, num_groups, group_size}, options);
 
-  int threads = 128;
-  int blocks = (N * num_groups * group_size + threads - 1) / threads;
+  dim3 block_dim(N, num_groups, 1);
+  dim3 thread_dim(group_size, 1, 1);
+  TORCH_CHECK(group_size % 32 == 0);
 
-  unpack_mixed_precision_kernel<<<blocks, threads>>>(
+  unpack_mixed_precision_kernel<<<block_dim, thread_dim>>>(
     bits.data_ptr<int32_t>(), prefix_sum.data_ptr<int32_t>(),
     data.data_ptr<int32_t>(), 
     scale.data_ptr<float>(), min.data_ptr<float>(),
@@ -156,18 +168,33 @@ torch::Tensor unpack_mixed_precision_cuda(torch::Tensor data,
 /****************************************/
 /********** Act Quantized ReLU **********/
 /****************************************/
+#define ACT_QUANTIZED_RELU_NUM_THREADS 256
 // Unpack int32 bit stream to float32 data
 __global__ void act_quantized_relu_forward_kernel(const float* __restrict__ data,
                                                   int32_t* __restrict__ mask,
                                                   float* __restrict__ output,
                                                   int N,
                                                   int mask_len) {
-  int id = blockIdx.x * blockDim.x + threadIdx.x;
+  const int id = blockIdx.x * blockDim.x + threadIdx.x;
+  const int global_offset = blockIdx.x * blockDim.x / 32;
+  const int shared_len = ACT_QUANTIZED_RELU_NUM_THREADS / 32;
+  __shared__ int mask_shared[ACT_QUANTIZED_RELU_NUM_THREADS / 32];
+
+  if (threadIdx.x * 2 < shared_len) {
+    reinterpret_cast<int2*>(mask_shared)[threadIdx.x] = make_int2(0, 0);
+  }
 
   if (id < N) {
-    int bit = data[id] > 0;
-    atomicOr(mask + id % mask_len, bit << (id / mask_len));
-    output[id] = fmax(data[id], 0.0f);
+    bool bit = data[id] > 0;
+    output[id] = bit ? data[id] : 0;
+
+    __syncthreads();
+    atomicOr(mask_shared + threadIdx.x % shared_len, bit << (threadIdx.x / shared_len));
+    __syncthreads();
+  }
+
+  if (threadIdx.x * 2 < shared_len) {
+    reinterpret_cast<int2*>(mask)[global_offset / 2 + threadIdx.x] = reinterpret_cast<int2*>(mask_shared)[threadIdx.x];
   }
 }
 
@@ -182,7 +209,7 @@ std::pair<torch::Tensor, torch::Tensor> act_quantized_relu_forward_cuda(torch::T
   torch::Tensor mask = torch::zeros({mask_len}, options);
   torch::Tensor output = torch::empty_like(data);
 
-  int threads = 256;
+  int threads = ACT_QUANTIZED_RELU_NUM_THREADS;;
   int blocks = (n_elements + threads - 1) / threads;
 
   act_quantized_relu_forward_kernel<<<blocks, threads>>>(
@@ -198,18 +225,16 @@ __global__ void act_quantized_relu_backward_kernel(const float* __restrict__ gra
                                                    int N,
                                                    int mask_len) {
   int id = blockIdx.x * blockDim.x + threadIdx.x;
+  const int global_offset = blockIdx.x * blockDim.x / 32;
+  const int shared_len = ACT_QUANTIZED_RELU_NUM_THREADS / 32;
 
   if (id < N) {
-    if ((mask[id % mask_len] >> (id / mask_len)) & 1) {
-      grad_input[id] = grad_output[id];
-    }
+    bool bit =  (mask[global_offset + threadIdx.x % shared_len] >> (threadIdx.x / shared_len)) & 1;
+    grad_input[id] = bit ? grad_output[id] : 0.0;
   }
 }
 
 
-/****************************************/
-/******** Act Quantized MaxPool2d *******/
-/****************************************/
 torch::Tensor act_quantized_relu_backward_cuda(torch::Tensor grad_output, torch::Tensor mask) {
   int n_elements = 1;
   for (size_t i = 0; i < grad_output.dim(); ++i) {
@@ -217,10 +242,10 @@ torch::Tensor act_quantized_relu_backward_cuda(torch::Tensor grad_output, torch:
   }
 
   int mask_len = (n_elements + 31) / 32;
-  int threads = 256;
+  int threads = ACT_QUANTIZED_RELU_NUM_THREADS;
   int blocks = (n_elements + threads - 1) / threads;
 
-  torch::Tensor grad_input = torch::zeros_like(grad_output);
+  torch::Tensor grad_input = torch::empty_like(grad_output);
 
   act_quantized_relu_backward_kernel<<<blocks, threads>>>(
     grad_output.data_ptr<float>(), mask.data_ptr<int32_t>(), grad_input.data_ptr<float>(),
@@ -229,6 +254,11 @@ torch::Tensor act_quantized_relu_backward_cuda(torch::Tensor grad_output, torch:
   return grad_input;
 }
 
+
+/****************************************/
+/******** Act Quantized MaxPool2d *******/
+/****************************************/
+#define ACT_QUANTIZED_MAX_POOL2D_NUM_THREADS 256
 __global__ void act_quantized_max_pool2d_forward_kernel(const float* __restrict__ input,
                                                         float* __restrict__ output,
                                                         int8_t* __restrict__ max_indices,
@@ -280,7 +310,7 @@ std::pair<torch::Tensor, torch::Tensor> act_quantized_max_pool2d_forward_cuda(to
   options = torch::TensorOptions().dtype(torch::kInt8).device(input.device());
   Tensor max_indices = torch::empty({N, C, H_out, W_out}, options);
 
-  int threads = 256;
+  int threads = ACT_QUANTIZED_MAX_POOL2D_NUM_THREADS;
   int n_elements = N * C * H_out * W_out;
   int blocks = (n_elements + threads - 1) / threads;
 
@@ -311,6 +341,7 @@ __global__ void act_quantized_max_pool2d_backward_kernel(const float* __restrict
     int8_t index = max_indices[id];
     int h_offset = index / KW;
     int w_offset = index % KW;
+
     atomicAdd(grad_input + (nc * H * W) + (h_base + h_offset) * W + (w_base + w_offset), grad_output[id]);
   }
 }
@@ -329,7 +360,7 @@ torch::Tensor act_quantized_max_pool2d_backward_cuda(torch::Tensor grad_output, 
   int H = input_shape[2];
   int W = input_shape[3];
 
-  int threads = 256;
+  int threads = ACT_QUANTIZED_MAX_POOL2D_NUM_THREADS;
   int n_elements = N * C * H_out * W_out;
   int blocks = (n_elements + threads - 1) / threads;
 

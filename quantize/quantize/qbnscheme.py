@@ -1,4 +1,5 @@
 import torch
+
 from quantize.conf import config
 from quantize.qscheme import QScheme
 from quantize.ops import ext_minimax
@@ -33,25 +34,21 @@ class QBNScheme(QScheme):
                                        torch.zeros([N, delta], dtype=input.dtype, device=input.device)], 1)
 
         input_groups = input_flatten.view(-1, config.group_size)
-        mn = ext_minimax.min(input_groups).view(N, -1, 1)  # N, num_groups, 1
-        mx = ext_minimax.max(input_groups).view(N, -1, 1)  # N, num_groups, 1
+        mn, mx = ext_minimax.minimax(input_groups)
         if not config.pergroup:    # No per group quantization
-            min_scalar = mn.min()
-            mn = torch.ones_like(mn) * min_scalar
-            max_scalar = mx.max()
-            mx = torch.ones_like(mx) * max_scalar
+            mn = torch.ones_like(mn) * mn.min()
+            mx = torch.ones_like(mx) * mx.max()
 
         # Average range over pixels [N]
-        Range_sqr = ((mx - mn) ** 2).view(N, -1).sum(1) * config.group_size / num_pixels
+        Range_sqr = torch.norm((mx - mn).view(N, -1), dim=1).square() * (config.group_size / num_pixels)
 
         # greedy
         C = Range_sqr.cpu()
-
         b = torch.ones(N, dtype=torch.int32) * self.initial_bits
         w = torch.ones(N, dtype=torch.int32)
         b = calc_precision(b, C, w, int(self.bits * N))
 
-        return input_groups.view(N, -1, config.group_size), b, mn, mx
+        return input_groups.view(N, -1, config.group_size), b.cuda(), mn.view(N, -1, 1), mx.view(N, -1, 1)
 
     @staticmethod
     def allocate_perlayer():

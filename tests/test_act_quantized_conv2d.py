@@ -8,8 +8,6 @@ from torch import nn, autograd
 from torch.nn import init, functional as F
 from torch.autograd.function import Function
 
-import pytorch_minimax
-
 from timeit_v2 import py_benchmark
 
 from quantize import QScheme, QBNScheme, config, get_memory_usage, compute_tensor_bytes
@@ -311,18 +309,18 @@ def test_conv2d_speed():
         return t_forward, t_backward
 
     forward_ref, backward_ref = test_implementation(F.conv2d, stride, padding, dilation, groups)
-    config.simulate = True
-    forward_sim, backward_sim = test_implementation(quantized_conv2d.apply, stride, padding, dilation, groups)
+    #config.simulate = True
+    #forward_sim, backward_sim = test_implementation(quantized_conv2d.apply, stride, padding, dilation, groups)
     config.simulate = False
     forward_us, backward_us = test_implementation(quantized_conv2d.apply, stride, padding, dilation, groups)
 
     print("========== Conv2d Speed Test ==========")
     print("Exact.      forward: %.2f ms\tbackward: %.2f ms\tsum: %.2f ms" %
             (forward_ref * 1e3, backward_ref * 1e3, (forward_ref + backward_ref) * 1e3))
-    print("Simulation. forward: %.2f ms\tbackward: %.2f ms\tsum: %.2f ms" %
-            (forward_sim * 1e3, backward_sim * 1e3, (forward_sim + backward_sim) * 1e3))
     print("Quantized.  forward: %.2f ms\tbackward: %.2f ms\tsum: %.2f ms" %
             (forward_us * 1e3, backward_us * 1e3, (forward_us + backward_us) * 1e3))
+    #print("Simulation. forward: %.2f ms\tbackward: %.2f ms\tsum: %.2f ms" %
+    #        (forward_sim * 1e3, backward_sim * 1e3, (forward_sim + backward_sim) * 1e3))
 
 
 def test_conv2d_memory_analytical():
@@ -449,13 +447,13 @@ if __name__ == "__main__":
     #test_adaptive_avg_pool2d_correctness()
     #test_adaptive_avg_pool2d_memory()
 
-    test_max_pool2d_correctness()
-    test_max_pool2d_memory()
-    test_max_pool2d_speed()
+    #test_max_pool2d_correctness()
+    #test_max_pool2d_memory()
+    #test_max_pool2d_speed()
 
     #test_upsample_memory()
 
-    #test_conv2d_correctness()
+    test_conv2d_correctness()
 
     #config.activation_compression_bits = 2
     #test_conv2d_speed()

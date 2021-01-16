@@ -1,5 +1,4 @@
 from collections import namedtuple
-from functools import reduce
 import os
 
 import numpy as np
@@ -17,26 +16,25 @@ from quantize.utils import get_memory_usage, compute_tensor_bytes
 # Load cuda extensions
 dirname = os.path.dirname(__file__)
 ext_backward_func = load(name="ext_backward_func",
-    sources=[os.path.join(dirname, "ext_backward_func.cc")], verbose=True)
+    sources=[os.path.join(dirname, "ext_backward_func.cc")], verbose=False)
 ext_quantization = load(name="ext_quantization",
     sources=[os.path.join(dirname, "ext_quantization.cc"),
              os.path.join(dirname, "ext_quantization_cuda_kernel.cu")], verbose=True)
 ext_minimax = load(name="ext_minimax",
     sources=[os.path.join(dirname, "ext_minimax.cc"),
-             os.path.join(dirname, "ext_minimax_cuda_kernel.cu")], verbose=True)
+             os.path.join(dirname, "ext_minimax_cuda_kernel.cu")], verbose=False)
 
 
 QParams = namedtuple('QParams', ['range', 'zero_point', 'num_bits'])
 
 def quantize_mixed_precision(data, bits, mn, mx):
     if not config.compress_activation:
-        return data, None, None
-
-    N = data.shape[0]
-    output = data   # N, groups, group_dim
+        return data, None 
 
     if config.simulate:
-        bits = bits.cuda()
+        N = data.shape[0]
+        output = data   # N, groups, group_dim
+
         B = (2 ** bits - 1).view(N, 1, 1)
         mn = mn - 1e-6
         mx = mx + 1e-6
@@ -50,10 +48,9 @@ def quantize_mixed_precision(data, bits, mn, mx):
         output = F.relu(output)
         output = torch.min(output, B.float()).round_().int()
     else:
-        bits = bits.cuda()
-        output, scale = ext_quantization.pack_mixed_precision(output, mn, mx, bits, config.stochastic)
+        output, scale = ext_quantization.pack_mixed_precision(data, mn, mx, bits, config.stochastic)
 
-    return output, bits, scale
+    return output, scale
 
 
 def dequantize_mixed_precision(data, shape, bits, scale, mn):
@@ -78,8 +75,7 @@ def dequantize_mixed_precision(data, shape, bits, scale, mn):
 def quantize_activation(input, scheme):
     N = input.shape[0]
     input_groups, q_bits, q_min, mx = scheme.compute_quantization_bits(input)
-    q_input, q_bits, q_scale = \
-        quantize_mixed_precision(input_groups, q_bits, q_min, mx)
+    q_input, q_scale = quantize_mixed_precision(input_groups, q_bits, q_min, mx)
 
     if q_scale is None:
         return q_input, q_bits
@@ -101,7 +97,7 @@ def dequantize_activation(quantized, q_input_shape):
 
     # Remove padding
     N = q_input_shape[0]
-    num_features = reduce(lambda x, y: x*y, q_input_shape[1:])
+    num_features = np.prod(q_input_shape[1:])
     input = input.view(N, -1)[:, :num_features]
     input = input.view(*q_input_shape)
     return input
@@ -136,13 +132,12 @@ class conv2d(Function):
     def backward(ctx, grad_output):
         ctx.scheme.set_scale(grad_output)
 
-        quantized, weight, bias = ctx.saved
         q_input_shape, stride, padding, dilation, groups = ctx.other_args
-
         padding = _pair(padding)
         stride = _pair(stride)
         dilation = _pair(dilation)
 
+        quantized, weight, bias = ctx.saved
         input = dequantize_activation(quantized, q_input_shape)
         del quantized, ctx.saved
 
@@ -178,7 +173,7 @@ class linear(Function):
             torch.cuda.empty_cache()
 
         ctx.scheme = scheme
-        ctx.saved = quantized, weight, bias  # TODO hack
+        ctx.saved = quantized, weight, bias
         ctx.other_args = input.shape
 
         return F.linear(input, weight, bias)
@@ -212,8 +207,6 @@ class batch_norm(Function):
     @staticmethod
     def forward(ctx, input, running_mean, running_var, weight, bias,
                 training, exponential_average_factor, eps, scheme):
-        batch_mean = input.mean((0, 2, 3))      # TODO: compute these with cuDNN
-        batch_std = torch.sqrt(input.var((0, 2, 3)) + eps)
         quantized = quantize_activation(input, scheme)
 
         if config.empty_cache:
@@ -227,16 +220,18 @@ class batch_norm(Function):
             total_act_mem += compute_tensor_bytes(quantized)
             print("Act mem: %.2f MB" % (total_act_mem / 1024 ** 2))
 
+        output, save_mean, save_var, reserve = ext_backward_func.cudnn_batch_norm(
+            input, weight, bias, running_mean, running_var, training, exponential_average_factor, eps)
+
         ctx.scheme = scheme
         ctx.other_args = input.shape
-        ctx.saved = (quantized, weight, running_mean, running_var, batch_mean, batch_std, bias, eps)
+        ctx.saved = (quantized, weight, running_mean, running_var, save_mean, save_var, eps, reserve)
 
-        return F.batch_norm(input, running_mean, running_var, weight, bias,
-                training, exponential_average_factor, eps)
+        return output
 
     @staticmethod
     def backward(ctx, grad_output):
-        quantized, weight, running_mean, running_var, batch_mean, batch_std, bias, eps = ctx.saved
+        quantized, weight, running_mean, running_var, save_mean, save_var, eps, reserve = ctx.saved
         q_input_shape = ctx.other_args
 
         input = dequantize_activation(quantized, q_input_shape)
@@ -252,7 +247,7 @@ class batch_norm(Function):
             bn_layer_ct += 1
 
         grad_input, grad_weight, grad_bias = ext_backward_func.cudnn_batch_norm_backward(
-            input, grad_output, weight, running_mean, running_var, batch_mean, 1 / batch_std, eps, torch.Tensor()
+            input, grad_output, weight, running_mean, running_var, save_mean, save_var, eps, reserve
         )
 
         ctx.scheme.if_allocate_perlayer()

@@ -21,6 +21,7 @@ class QuantizationConfig:
         self.debug_memory_model = bool(os.environ.get('DEBUG_MEM_MODEL', False))
         self.debug_memory_op_forward = False
         self.debug_memory_op_backward = False
+        self.debug_speed = False
         self.debug_remove_bn = False
         self.debug_remove_relu = False
 

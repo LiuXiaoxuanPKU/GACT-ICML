@@ -19,7 +19,7 @@ ext_backward_func = load(name="ext_backward_func",
     sources=[os.path.join(dirname, "ext_backward_func.cc")], verbose=False)
 ext_quantization = load(name="ext_quantization",
     sources=[os.path.join(dirname, "ext_quantization.cc"),
-             os.path.join(dirname, "ext_quantization_cuda_kernel.cu")], verbose=True)
+             os.path.join(dirname, "ext_quantization_cuda_kernel.cu")], verbose=False)
 ext_minimax = load(name="ext_minimax",
     sources=[os.path.join(dirname, "ext_minimax.cc"),
              os.path.join(dirname, "ext_minimax_cuda_kernel.cu")], verbose=False)
@@ -109,6 +109,10 @@ total_act_mem = 0
 class conv2d(Function):
     @staticmethod
     def forward(ctx, input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1, scheme=None):
+        if not ctx.needs_input_grad[1]:
+            assert not ctx.needs_input_grad[0] and not ctx.needs_input_grad[1]
+            return F.conv2d(input, weight, bias, stride, padding, dilation, groups)
+
         quantized = quantize_activation(input, scheme)
 
         ctx.scheme = scheme
@@ -130,6 +134,10 @@ class conv2d(Function):
 
     @staticmethod
     def backward(ctx, grad_output):
+        if not ctx.needs_input_grad[1]:
+            assert not ctx.needs_input_grad[0] and not ctx.needs_input_grad[1]
+            return None, None, None, None, None, None, None, None
+
         ctx.scheme.set_scale(grad_output)
 
         q_input_shape, stride, padding, dilation, groups = ctx.other_args
@@ -207,6 +215,11 @@ class batch_norm(Function):
     @staticmethod
     def forward(ctx, input, running_mean, running_var, weight, bias,
                 training, exponential_average_factor, eps, scheme):
+        if not ctx.needs_input_grad[3]:
+            assert not ctx.needs_input_grad[0] and not ctx.needs_input_grad[4]
+            return ext_backward_func.cudnn_batch_norm(
+                input, weight, bias, running_mean, running_var, training, exponential_average_factor, eps)[0]
+
         quantized = quantize_activation(input, scheme)
 
         if config.empty_cache:
@@ -231,6 +244,10 @@ class batch_norm(Function):
 
     @staticmethod
     def backward(ctx, grad_output):
+        if not ctx.needs_input_grad[3]:
+            assert not ctx.needs_input_grad[0] and not ctx.needs_input_grad[4]
+            return None, None, None, None, None, None, None, None, None
+
         quantized, weight, running_mean, running_var, save_mean, save_var, eps, reserve = ctx.saved
         q_input_shape = ctx.other_args
 
@@ -246,6 +263,10 @@ class batch_norm(Function):
             get_memory_usage(True)
             bn_layer_ct += 1
 
+        if save_mean is None:
+            save_mean = input.mean((0, 2, 3))
+        if save_var is None:
+            save_var = 1 / torch.sqrt(input.var((0, 2, 3)) + eps)
         grad_input, grad_weight, grad_bias = ext_backward_func.cudnn_batch_norm_backward(
             input, grad_output, weight, running_mean, running_var, save_mean, save_var, eps, reserve
         )

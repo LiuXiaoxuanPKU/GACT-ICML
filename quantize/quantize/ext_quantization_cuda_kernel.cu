@@ -36,8 +36,8 @@ __global__ void pack_mixed_precision_kernel(const int32_t* __restrict__ bits,
                                             int group_size) {
   extern __shared__ int packed_shared[];
 
-  const int n = blockIdx.x;
-  const int group_id = blockIdx.y;
+  const int n = blockIdx.y;
+  const int group_id = blockIdx.x;
   const int d = threadIdx.x;
   const int id = (n * num_groups + group_id) * group_size + d;
   const int shared_len = group_size * bits[n] / 32;
@@ -56,7 +56,7 @@ __global__ void pack_mixed_precision_kernel(const int32_t* __restrict__ bits,
   __syncthreads();
 
   if (threadIdx.x * 2 < shared_len) {
-    const int global_offset = ((n == 0 ? 0 : prefix_sum[n-1]) * num_groups * group_size + bits[n] * group_id * group_size) / 32;
+    const int64_t global_offset = ((int64_t)(n == 0 ? 0 : prefix_sum[n-1]) * num_groups * group_size + bits[n] * group_id * group_size) / 32;
     reinterpret_cast<int2*>(packed)[global_offset/2 + threadIdx.x] = \
                              reinterpret_cast<int2*>(packed_shared)[threadIdx.x];
   }
@@ -73,10 +73,10 @@ std::pair<torch::Tensor, torch::Tensor> pack_mixed_precision_cuda(torch::Tensor 
   int group_size = data.size(2);
 
   torch::Tensor prefix_sum = torch::cumsum(bits, 0, torch::kInt32);
-  int total_bits = prefix_sum[-1].item<int32_t>() * num_groups * group_size;
+  int64_t total_bits = ((int64_t) prefix_sum[-1].item<int32_t>()) * num_groups * group_size;
 
   auto options = torch::TensorOptions().dtype(torch::kInt32).device(data.device());
-  torch::Tensor packed = torch::zeros({(total_bits + 31) / 32,}, options);
+  torch::Tensor packed = torch::empty({(total_bits + 31) / 32,}, options);
   options = torch::TensorOptions().dtype(torch::kFloat).device(data.device());
   torch::Tensor scale = torch::empty({N, num_groups, 1}, options);
 
@@ -95,7 +95,7 @@ std::pair<torch::Tensor, torch::Tensor> pack_mixed_precision_cuda(torch::Tensor 
   }
 
   int max_bit = torch::max(bits).item<int32_t>();
-  dim3 block_dim(N, num_groups, 1);
+  dim3 block_dim(num_groups, N, 1);
   dim3 thread_dim(group_size, 1, 1);
   TORCH_CHECK(group_size % 32 == 0);
 
@@ -120,8 +120,8 @@ __global__ void unpack_mixed_precision_kernel(const int32_t* __restrict__ bits,
                                               int N,
                                               int num_groups,
                                               int group_size) {
-  const int n = blockIdx.x;
-  const int group_id = blockIdx.y;
+  const int n = blockIdx.y;
+  const int group_id = blockIdx.x;
   const int d = threadIdx.x;
   const int id = (n * num_groups + group_id) * group_size + d;
   const int shared_len = group_size * bits[n] / 32;
@@ -150,7 +150,7 @@ torch::Tensor unpack_mixed_precision_cuda(torch::Tensor data,
   auto options = torch::TensorOptions().dtype(torch::kFloat32).device(data.device());
   torch::Tensor unpacked = torch::empty({N, num_groups, group_size}, options);
 
-  dim3 block_dim(N, num_groups, 1);
+  dim3 block_dim(num_groups, N, 1);
   dim3 thread_dim(group_size, 1, 1);
   TORCH_CHECK(group_size % 32 == 0);
 
@@ -206,7 +206,7 @@ std::pair<torch::Tensor, torch::Tensor> act_quantized_relu_forward_cuda(torch::T
 
   auto options = torch::TensorOptions().dtype(torch::kInt32).device(data.device());
   int mask_len = (n_elements + 31) / 32;
-  torch::Tensor mask = torch::zeros({mask_len}, options);
+  torch::Tensor mask = torch::empty({mask_len}, options);
   torch::Tensor output = torch::empty_like(data);
 
   int threads = ACT_QUANTIZED_RELU_NUM_THREADS;;

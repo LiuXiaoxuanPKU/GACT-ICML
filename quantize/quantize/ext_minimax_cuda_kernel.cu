@@ -72,6 +72,7 @@ std::pair<Tensor, Tensor> minimax_cuda(torch::Tensor data) {
 
   int blocks = N;
   int threads = 32;
+  TORCH_CHECK(D % 32 == 0 && D > 32);
 
   minimax_cuda_kernel<<<blocks, threads>>>(
     data.data_ptr<float>(), min.data_ptr<float>(), max.data_ptr<float>(),

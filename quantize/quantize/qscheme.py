@@ -25,7 +25,6 @@ class QScheme(object):
         self.C = None
         self.dim = None
         self.num_locations = num_locations
-        self.conv_input_norm = torch.tensor(1.0)
         self.layer = layer
 
         # debug
@@ -46,10 +45,10 @@ class QScheme(object):
         if QScheme.update_scale:
             if config.use_gradient:
                 assert QScheme.batch is not None
-                scale = (grad.view(grad.shape[0], -1) ** 2).sum(1).detach().cpu()
+                scale = grad.view(grad.shape[0], -1).norm(dim=1).square().cpu()
                 self.scales[QScheme.batch] = self.scales[QScheme.batch] * 0.5 + scale * 0.5
             else:
-                scale = (grad.view(grad.shape[0], -1) ** 2).sum(1).detach().cpu()
+                scale = grad.view(grad.shape[0], -1).norm(dim=1).square().cpu()
                 self.scales = scale.mean()
 
     def compute_quantization_bits(self, input):
@@ -68,15 +67,13 @@ class QScheme(object):
                                        torch.zeros([N, delta], dtype=input.dtype, device=input.device)], 1)
 
         input_groups = input_flatten.view(-1, config.group_size)
-        mn = ext_minimax.min(input_groups).view(N, -1, 1)       # N, num_groups, 1
-        mx = ext_minimax.max(input_groups).view(N, -1, 1)       # N, num_groups, 1
+        mn, mx = ext_minimax.minimax(input_groups)
         if not config.pergroup:    # No per group quantization
-            min_scalar = mn.min()
-            mn = torch.ones_like(mn) * min_scalar
-            max_scalar = mx.max()
-            mx = torch.ones_like(mx) * max_scalar
+            mn = torch.ones_like(mn) * mn.min()
+            mx = torch.ones_like(mx) * mx.max()
 
-        Range_sqr = ((mx - mn)**2).view(N, -1).sum(1) * config.group_size / num_pixels  # Average range over pixels
+        # Average range over pixels
+        Range_sqr = torch.norm((mx - mn).view(N, -1), dim=1).square() * (config.group_size / num_pixels)
 
         # greedy
         grad_sum = self.get_scale().cuda()
@@ -85,13 +82,11 @@ class QScheme(object):
         w = torch.ones(N, dtype=torch.int32)
         b = calc_precision(b, C, w, int(self.bits * N))         # N
 
-        with torch.no_grad():
-            self.C = C
-            self.dim = input.numel() // N
-            self.b = b.detach()
-            self.conv_input_norm = (input_flatten ** 2).sum(1) * self.num_locations
+        self.C = C
+        self.dim = input.numel() // N
+        self.b = b
 
-        return input_groups.view(N, -1, config.group_size), b, mn, mx
+        return input_groups.view(N, -1, config.group_size), b.cuda(), mn.view(N, -1, 1), mx.view(N, -1, 1)
 
     @staticmethod
     def allocate_perlayer():

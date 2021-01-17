@@ -1,182 +1,82 @@
-#include <cooperative_groups.h>
-#include <cuda.h>
-#include <cuda_runtime.h>
-#include <limits>
 #include <torch/extension.h>
 
-enum Reduce { MIN, MAX };
+#include <cuda.h>
+#include <cuda_runtime.h>
 
-namespace cg = cooperative_groups;
+using torch::Tensor;
 
-// Utility class used to avoid linker errors with extern
-// unsized shared memory arrays with templated type
-template <class T>
-struct SharedMemory {
-  __device__ inline operator T *() {
-    extern __shared__ int __smem[];
-    return (T *)__smem;
+#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 700)
+#define __shfl_sync(mask, var, lane, width) \
+        __shfl((var), (lane), (width))
+
+#define __shfl_down_sync(mask, var, offset, width) \
+        __shfl_down((var), (offset), (width))
+
+#define __shfl_up_sync(mask, var, offset, width) \
+        __shfl_up((var), (offset), (width))
+#endif
+
+__global__ void minimax_cuda_kernel(const float* __restrict__ data,
+                                    float* __restrict__ min,
+                                    float* __restrict__ max,
+                                    int N,
+                                    int D) {
+  float max_val, min_val;
+  max_val = -1e30;
+  min_val = 1e30;
+
+  for (int k1_outer = 0; k1_outer < D / 32; ++k1_outer) {
+    max_val = std::max(max_val, data[blockIdx.x * D + k1_outer * 32 + threadIdx.x]);
+    min_val = std::min(min_val, data[blockIdx.x * D + k1_outer * 32 + threadIdx.x]);
   }
 
-  __device__ inline operator const T *() const {
-    extern __shared__ int __smem[];
-    return (T *)__smem;
-  }
-};
+  unsigned int mask;
+  float max_val_t, min_val_t;
+  mask = __activemask();
 
-// specialize for double to avoid unaligned memory
-// access compile errors
-template <>
-struct SharedMemory<double> {
-  __device__ inline operator double *() {
-    extern __shared__ double __smem_d[];
-    return (double *)__smem_d;
-  }
+  max_val_t = __shfl_down_sync(mask, max_val, 16, 32);
+  max_val = std::max(max_val, max_val_t);
+  max_val_t = __shfl_down_sync(mask, max_val, 8, 32);
+  max_val = std::max(max_val, max_val_t);
+  max_val_t = __shfl_down_sync(mask, max_val, 4, 32);
+  max_val = std::max(max_val, max_val_t);
+  max_val_t = __shfl_down_sync(mask, max_val, 2, 32);
+  max_val = std::max(max_val, max_val_t);
+  max_val_t = __shfl_down_sync(mask, max_val, 1, 32);
+  max_val = std::max(max_val, max_val_t);
+  max_val = __shfl_sync(mask, max_val, 0, 32);
+  max[blockIdx.x] = max_val;
 
-  __device__ inline operator const double *() const {
-    extern __shared__ double __smem_d[];
-    return (double *)__smem_d;
-  }
-};
-
-template <class T, Reduce r> __device__ __forceinline__ T id() {
-  switch (r) {
-  case MIN:
-    return std::numeric_limits<T>::max();
-  case MAX:
-    return std::numeric_limits<T>::lowest();
-  }
+  min_val_t = __shfl_down_sync(mask, min_val, 16, 32);
+  min_val = std::min(min_val, min_val_t);
+  min_val_t = __shfl_down_sync(mask, min_val, 8, 32);
+  min_val = std::min(min_val, min_val_t);
+  min_val_t = __shfl_down_sync(mask, min_val, 4, 32);
+  min_val = std::min(min_val, min_val_t);
+  min_val_t = __shfl_down_sync(mask, min_val, 2, 32);
+  min_val = std::min(min_val, min_val_t);
+  min_val_t = __shfl_down_sync(mask, min_val, 1, 32);
+  min_val = std::min(min_val, min_val_t);
+  min_val = __shfl_sync(mask, min_val, 0, 32);
+  min[blockIdx.x] = min_val;
 }
 
-template <class T, Reduce r> __device__ __forceinline__ T op(T lhs, T rhs) {
-  switch (r) {
-  case MIN:
-    return lhs < rhs ? lhs : rhs;
-  case MAX:
-    return lhs < rhs ? rhs : lhs;
-  default:
-    return 0;
-  }
-}
 
-template <class T, unsigned int blockSize, bool nIsPow2, Reduce r>
-__global__ void reduce6(T *g_idata, T *g_odata, unsigned int n) {
-  // Handle to thread block group
-  cg::thread_block cta = cg::this_thread_block();
-  T *sdata = SharedMemory<T>();
+std::pair<Tensor, Tensor> minimax_cuda(torch::Tensor data) {
+  int N = data.size(0);
+  int D = data.size(1);
 
-  // perform first level of reduction,
-  // reading from global memory, writing to shared memory
-  unsigned int tid = threadIdx.x;
-  unsigned int j = blockIdx.x;
-  unsigned int i = blockIdx.y * blockSize * 2 + threadIdx.x;
-  unsigned int gridSize = blockSize * 2 * gridDim.y;
+  auto options = torch::TensorOptions().dtype(torch::kFloat32).device(data.device());
+  Tensor min = torch::empty({N,}, options);
+  Tensor max = torch::empty({N,}, options);
 
-  T mySum = id<T, r>();
+  int blocks = N;
+  int threads = 32;
+  TORCH_CHECK(D % 32 == 0 && D > 32);
 
-  // we reduce multiple elements per thread.  The number is determined by the
-  // number of active thread blocks (via gridDim).  More blocks will result
-  // in a larger gridSize and therefore fewer elements per thread
-  while (i < n) {
-    // mySum += g_idata[i];
-    mySum = op<T, r>(mySum, g_idata[j * n + i]);
+  minimax_cuda_kernel<<<blocks, threads>>>(
+    data.data_ptr<float>(), min.data_ptr<float>(), max.data_ptr<float>(),
+    N, D);
 
-    // ensure we don't read out of bounds -- this is optimized away for powerOf2
-    // sized arrays
-    // if (nIsPow2 || i + blockSize < n) mySum += g_idata[i + blockSize];
-    if (nIsPow2 || i + blockSize < n) mySum = op<T, r>(mySum, g_idata[j * n + i + blockSize]);
-
-    i += gridSize;
-  }
-
-  // each thread puts its local sum into shared memory
-  sdata[tid] = mySum;
-  cg::sync(cta);
-
-  // do reduction in shared mem
-  if ((blockSize >= 512) && (tid < 256)) {
-    // sdata[tid] = mySum = mySum + sdata[tid + 256];
-    sdata[tid] = mySum = op<T, r>(mySum, sdata[tid + 256]);
-  }
-
-  cg::sync(cta);
-
-  if ((blockSize >= 256) && (tid < 128)) {
-    // sdata[tid] = mySum = mySum + sdata[tid + 128];
-    sdata[tid] = mySum = op<T, r>(mySum, sdata[tid + 128]);
-  }
-
-  cg::sync(cta);
-
-  if ((blockSize >= 128) && (tid < 64)) {
-    // sdata[tid] = mySum = mySum + sdata[tid + 64];
-    sdata[tid] = mySum = op<T, r>(mySum, sdata[tid + 64]);
-  }
-
-  cg::sync(cta);
-
-  cg::thread_block_tile<32> tile32 = cg::tiled_partition<32>(cta);
-
-  if (cta.thread_rank() < 32) {
-    // Fetch final intermediate sum from 2nd warp
-    // if (blockSize >= 64) mySum += sdata[tid + 32];
-    if (blockSize >= 64) mySum = op<T, r>(mySum, sdata[tid + 32]);
-    // Reduce final warp using shuffle
-    for (int offset = tile32.size() / 2; offset > 0; offset /= 2) {
-      // mySum += tile32.shfl_down(mySum, offset);
-      mySum = op<T, r>(mySum, tile32.shfl_down(mySum, offset));
-    }
-  }
-
-  // write result for this block to global mem
-  if (cta.thread_rank() == 0) g_odata[j * gridDim.y + blockIdx.y] = mySum;
-}
-
-#define N_THREADS 512
-
-torch::Tensor min_cuda(torch::Tensor x) {
-  int n = x.size(0);
-  int d = x.size(1);
-  int e = d / N_THREADS + (d % N_THREADS > 0);
-
-  dim3 d_grid(n, (d + N_THREADS - 1) / N_THREADS);
-	int sizeof_dtype;
-  switch (x.type().scalarType()) {
-  case torch::ScalarType::Double:
-    sizeof_dtype = 64;
-		break;
-  case torch::ScalarType::Float:
-    sizeof_dtype = 32;
-		break;
-	}
-  int sm_size = (N_THREADS <= 32) ? 2 * N_THREADS * sizeof_dtype : N_THREADS * sizeof_dtype;
-
-  torch::Tensor y = torch::empty({n, e}, x.options());
-	AT_DISPATCH_FLOATING_TYPES(x.type(), "min_cuda_forward", [&] {
-  	reduce6<scalar_t, N_THREADS, false, MIN><<<d_grid, N_THREADS, sm_size>>>(x.data<scalar_t>(), y.data<scalar_t>(), d);
-	});
-  return std::get<0>(torch::min(y, 1));
-}
-
-torch::Tensor max_cuda(torch::Tensor x) {
-  int n = x.size(0);
-  int d = x.size(1);
-  int e = d / N_THREADS + (d % N_THREADS > 0);
-
-  dim3 d_grid(n, (d + N_THREADS - 1) / N_THREADS);
-	int sizeof_dtype;
-  switch (x.type().scalarType()) {
-  case torch::ScalarType::Double:
-    sizeof_dtype = 64;
-		break;
-  case torch::ScalarType::Float:
-    sizeof_dtype = 32;
-		break;
-	}
-  int sm_size = (N_THREADS <= 32) ? 2 * N_THREADS * sizeof_dtype : N_THREADS * sizeof_dtype;
-
-  torch::Tensor y = torch::empty({n, e}, x.options());
-	AT_DISPATCH_FLOATING_TYPES(x.type(), "min_cuda_forward", [&] {
-  	reduce6<scalar_t, N_THREADS, false, MAX><<<d_grid, N_THREADS, sm_size>>>(x.data<scalar_t>(), y.data<scalar_t>(), d);
-	});
-  return std::get<0>(torch::max(y, 1));
+  return std::make_pair(min, max);
 }

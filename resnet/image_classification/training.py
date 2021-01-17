@@ -177,7 +177,7 @@ def get_train_step(model_and_loss, optimizer, fp16, use_amp = False, batch_size_
         target_var = Variable(target)
 
         if config.debug_memory_model:
-            print("========== Init Data Loader + Optimizer ===========")
+            print("========== Init Data Loader ===========")
             init_mem = get_memory_usage(True)
 
         loss, output = model_and_loss(input_var, target_var)
@@ -192,16 +192,18 @@ def get_train_step(model_and_loss, optimizer, fp16, use_amp = False, batch_size_
 
         if config.debug_memory_model:
             print("========== Before Backward ===========")
-            total_mem = get_memory_usage(True)
-            act_mem = get_memory_usage() - init_mem - compute_tensor_bytes(output)
+            before_backward = get_memory_usage(True)
+            act_mem = get_memory_usage() - init_mem - compute_tensor_bytes([input, target, output])
             res = "Batch size: %d\tTotal Mem: %.2f MB\tAct Mem: %.2f MB" % (
-                    len(output), total_mem / 1024**2, act_mem / 1024**2)
+                    len(output), before_backward / 1024**2, act_mem / 1024**2)
             print(res)
             loss.backward()
             del loss
             print("========== After Backward ===========")
             after_backward = get_memory_usage(True)
-            act_mem = get_memory_usage() - init_mem - compute_tensor_bytes(output)
+            total_mem = before_backward + (after_backward - init_mem)
+            res = "Batch size: %d\tTotal Mem: %.2f MB\tAct Mem: %.2f MB" % (
+                    len(output), total_mem / 1024**2, act_mem / 1024**2)
             print(res)
             with open("results.tsv", "a") as fout:
                 fout.write(res + '\n')
@@ -273,6 +275,11 @@ def train(train_loader, model_and_loss, optimizer, lr_scheduler, fp16, logger, e
 
         it_time = time.time() - end
 
+        if config.debug_speed and i >= 2:
+            res = "BatchSize: %d\tCost: %.2f ms" % (bs, 1000.0 / calc_ips(bs, it_time))
+            print(res, flush=True)
+            exit(0)
+
         if logger is not None:
             logger.log_metric('train.top1', to_python_float(prec1))
             logger.log_metric('train.top5', to_python_float(prec5))
@@ -287,8 +294,8 @@ def train(train_loader, model_and_loss, optimizer, lr_scheduler, fp16, logger, e
         #     QScheme.allocate_perlayer()
         #     QBNScheme.allocate_perlayer()
 
-    for layer in QScheme.layers:
-        print(layer.name, layer.bits)
+    #for layer in QScheme.layers:
+    #    print(layer.name, layer.bits)
 
 
 def get_val_step(model_and_loss):

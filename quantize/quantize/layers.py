@@ -22,11 +22,11 @@ class QConv2d(nn.Conv2d):
     def forward(self, input):
         if config.training:
             if self.padding_mode != 'zeros':
-                return conv2d().apply(F.pad(input, self._reversed_padding_repeated_twice, mode=self.padding_mode),
-                                      self.weight, self.bias, self.stride,
-                                      _pair(0), self.dilation, self.groups, self.scheme)
-            return conv2d().apply(input, self.weight, self.bias, self.stride,
-                                  self.padding, self.dilation, self.groups, self.scheme)
+                return conv2d.apply(F.pad(input, self._reversed_padding_repeated_twice, mode=self.padding_mode),
+                                    self.weight, self.bias, self.stride,
+                                    _pair(0), self.dilation, self.groups, self.scheme)
+            return conv2d.apply(input, self.weight, self.bias, self.stride,
+                                 self.padding, self.dilation, self.groups, self.scheme)
         else:
             return super(QConv2d, self).forward(input)
 
@@ -40,7 +40,7 @@ class QLinear(nn.Linear):
 
     def forward(self, input):
         if config.training:
-            return linear().apply(input, self.weight, self.bias, self.scheme)
+            return linear.apply(input, self.weight, self.bias, self.scheme)
         else:
             return super(QLinear, self).forward(input)
 
@@ -86,7 +86,7 @@ class QBatchNorm2d(nn.BatchNorm2d):
         passed when the update should occur (i.e. in training mode when they are tracked), or when buffer stats are
         used for normalization (i.e. in eval mode when buffers are not None).
         """
-        return batch_norm().apply(
+        return batch_norm.apply(
             input,
             # If buffers are not to be tracked, ensure that they won't be updated
             self.running_mean if not self.training or self.track_running_stats else None,

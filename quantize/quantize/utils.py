@@ -3,7 +3,6 @@ import numpy as np
 
 def get_memory_usage(print_info=False):
     """Get accurate gpu memory usage by querying torch runtime"""
-    torch.cuda.empty_cache()
     allocated = torch.cuda.memory_allocated(0)
     reserved = torch.cuda.memory_reserved(0)
     if print_info:

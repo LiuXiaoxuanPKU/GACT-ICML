@@ -17,7 +17,7 @@ class QConv2d(nn.Conv2d):
                  stride=1, padding=0, dilation=1, groups=1, bias=True):
         super(QConv2d, self).__init__(in_channels, out_channels, kernel_size,
                                       stride, padding, dilation, groups, bias)
-        self.scheme = QScheme(num_locations=kernel_size**2)
+        self.scheme = QScheme(self, num_locations=kernel_size**2)
 
     def forward(self, input):
         if config.training:
@@ -36,7 +36,7 @@ class QLinear(nn.Linear):
 
     def __init__(self, input_features, output_features, bias=True):
         super(QLinear, self).__init__(input_features, output_features, bias)
-        self.scheme = QScheme()
+        self.scheme = QScheme(self)
 
     def forward(self, input):
         if config.training:
@@ -46,8 +46,8 @@ class QLinear(nn.Linear):
 
 
 class QBatchNorm2d(nn.BatchNorm2d):
-    def __init__(self, num_features):
-        super(QBatchNorm2d, self).__init__(num_features)
+    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True):
+        super(QBatchNorm2d, self).__init__(num_features, eps, momentum, affine, track_running_stats)
         self.scheme = QBNScheme()
         # self.scheme.initial_bits = self.scheme.bits # TODO hack
 
@@ -95,7 +95,7 @@ class QBatchNorm2d(nn.BatchNorm2d):
 
 
 class QReLU(nn.Module):
-    def __init__(self):
+    def __init__(self, inplace=False):
         super().__init__()
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:

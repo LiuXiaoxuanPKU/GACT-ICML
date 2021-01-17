@@ -114,11 +114,23 @@ ImageNet
 | qlinear, 4bit |/ | 76.81 |
 | -c quantize --ca=True --cabits=4 --ibits=4 --pergroup=False --perlayer=False | 0.8921149969100952 | 76.57 |
 | -c quantize --ca=True --cabits=2 --ibits=2 --pergroup=False --perlayer=False | 47.97850799560547 | |
-| -c quantize --ca=True --cabits=2 --ibits=2 --pergroup=True --perlayer=False | 0.7865011692047119 | ~~77.06~~ |
+| -c quantize --ca=True --cabits=2 --ibits=2 --pergroup=True --perlayer=False | 0.7865011692047119 | ~~77.06~~ 0.1? |
 | -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False | 0.5164923667907715 |   |
 | -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False --usegradient=False | 0.7651944756507874 |  |
 | -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True |0.12191561609506607  | 76.92 | 
 | -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True --usegradient=False | 0.2176554799079895 | 77.06 |
+
+Coco
+----
+
+| *quantize config* | *Quant Var* | *Sample Var* |
+|--------|----------|---------|
+| QBN, -c quantize --ca=True --cabits=4 --ibits=8 --pergroup=True --perlayer=False --usegradient=False | 19 |  |
+| QBN, -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False --usegradient=False |  |  |
+| QBN, -c quantize --ca=True --cabits=3 --ibits=8 --pergroup=True --perlayer=True --usegradient=False |  12.8 |  | 
+| QBN, -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True --usegradient=False |  127.8656 |  |
+| QSyncBN, -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=False --usegradient=False | 493.7278 | | 
+| QSyncBN, -c quantize --ca=True --cabits=2 --ibits=8 --pergroup=True --perlayer=True --usegradient=False | 123  | 5836.6851 |
 
 TODOs
 ----

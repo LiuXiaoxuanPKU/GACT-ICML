@@ -14,7 +14,7 @@ class QScheme(object):
     layers = []
     all_layers = []     # For executing perlayer quantization automatically
 
-    def __init__(self, num_locations=1):
+    def __init__(self, layer, num_locations=1):
         self.initial_bits = config.initial_bits
         self.bits = config.activation_compression_bits
         if config.use_gradient:
@@ -26,6 +26,7 @@ class QScheme(object):
         self.dim = None
         self.num_locations = num_locations
         self.conv_input_norm = torch.tensor(1.0)
+        self.layer = layer
 
         # debug
         self.name = 'layer_{}'.format(QScheme.num_layers)
@@ -125,8 +126,13 @@ class QScheme(object):
                 layers[i].bits = bs.float().mean()
 
     def if_allocate_perlayer(self):
+        first_layer = None
+        for layer in QScheme.layers:
+            if layer.layer.weight.requires_grad:
+                first_layer = layer
+
         # If myself is the last layer, then reallocate bits per layer
         if config.compress_activation and config.perlayer and config.training:
-            if self == QScheme.all_layers[0]:
+            if self == first_layer:
                 QScheme.allocate_perlayer()
                 quantize.QBNScheme.allocate_perlayer()

@@ -237,6 +237,48 @@ def test_upsample_memory():
     print("Exact.     Usage: %.3f MB" % (usage_ref / 2 ** 20))
 
 
+def test_bn_correctness():
+    # arguments and test data
+    N, H, W, CI = 16, 28, 28, 256
+    data_np = np.random.randn(N, CI, H, W).astype('float32') * 0.01
+    running_mean_np = np.random.randn(CI).astype('float32')
+    running_var_np = np.random.randn(CI).astype('float32')
+    bn_weight_np = np.random.randn(CI).astype('float32')
+    bn_bias_np = np.random.randn(CI).astype('float32')
+    training = False
+
+    bn_scheme = QBNScheme()
+    config.compress_activation = False
+
+    def test_implementation(func):
+        torch.manual_seed(0)
+        data = torch.tensor(data_np).to("cuda").requires_grad_()
+        running_mean = torch.tensor(running_mean_np).to("cuda")
+        running_var = torch.tensor(running_var_np).to("cuda")
+        bn_weight = torch.tensor(bn_weight_np).to("cuda").requires_grad_()
+        bn_bias = torch.tensor(bn_bias_np).to("cuda").requires_grad_()
+
+        if func == F.batch_norm:
+            output = func(data, running_mean, running_var, bn_weight, bn_bias, training, 0.1, 1e-5)
+        else:
+            output = func(data, running_mean, running_var, bn_weight, bn_bias, training, 0.1, 1e-5, bn_scheme)
+
+        output.backward(torch.ones_like(output))
+
+        return [x.detach().cpu().numpy() for x in [output, data.grad, bn_weight.grad, bn_bias.grad]]
+
+    output_ref, grad_data_ref, grad_weight_ref, grad_bias_ref = test_implementation(F.batch_norm)
+    output_us, grad_data_us, grad_weight_us, grad_bias_us = test_implementation(quantized_batch_norm.apply)
+
+    atol = 1e-3
+    rtol = 1e-3
+    print("========== BN Correctness Test ==========")
+    np.testing.assert_allclose(output_ref, output_us, atol=atol, rtol=rtol)
+    np.testing.assert_allclose(grad_data_ref, grad_data_us, atol=atol, rtol=rtol)
+    np.testing.assert_allclose(grad_weight_ref, grad_weight_us, atol=atol, rtol=rtol)
+    np.testing.assert_allclose(grad_bias_ref, grad_bias_us, atol=atol, rtol=rtol)
+
+
 def test_conv2d_correctness():
     """Test the correctness of computation results"""
 
@@ -453,7 +495,9 @@ if __name__ == "__main__":
 
     #test_upsample_memory()
 
-    test_conv2d_correctness()
+    test_bn_correctness()
+
+    #test_conv2d_correctness()
 
     #config.activation_compression_bits = 2
     #test_conv2d_speed()

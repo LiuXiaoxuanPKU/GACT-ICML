@@ -222,8 +222,6 @@ class batch_norm(Function):
 
         quantized = quantize_activation(input, scheme)
 
-        # assert training
-
         if config.empty_cache:
             torch.cuda.empty_cache()
 
@@ -235,17 +233,17 @@ class batch_norm(Function):
             total_act_mem += compute_tensor_bytes(quantized)
             print("Act mem: %.2f MB" % (total_act_mem / 1024 ** 2))
 
-        output, save_mean, save_var, reserve = ext_backward_func.cudnn_batch_norm(
-            input, weight, bias, running_mean, running_var, training, exponential_average_factor, eps)
-
-        # if save_mean is None:       # TODO hack
-        #     save_mean = input.mean((0, 2, 3))
-        # if save_var is None:
-        #     save_var = 1 / torch.sqrt(input.var((0, 2, 3)) + eps)
+        if training:
+            output, save_mean, save_var, reserve = ext_backward_func.cudnn_batch_norm(
+                input, weight, bias, running_mean, running_var, training, exponential_average_factor, eps)
+        else:
+            output, save_mean, save_var = ext_backward_func.native_batch_norm(
+                input, weight, bias, running_mean, running_var, training, exponential_average_factor, eps)
+            reserve = None
 
         ctx.scheme = scheme
         ctx.other_args = input.shape
-        ctx.saved = (quantized, weight, running_mean, running_var, save_mean, save_var, eps, reserve)
+        ctx.saved = (quantized, weight, running_mean, running_var, save_mean, save_var, training, eps, reserve)
 
         return output
 
@@ -254,8 +252,7 @@ class batch_norm(Function):
         # if not ctx.needs_input_grad[3]:
         #     assert not ctx.needs_input_grad[0] and not ctx.needs_input_grad[4]
         #     return None, None, None, None, None, None, None, None, None
-        quantized, weight, running_mean, running_var, save_mean, save_var, eps, reserve = ctx.saved
-        # assert training
+        quantized, weight, running_mean, running_var, save_mean, save_var, training, eps, reserve = ctx.saved
 
         q_input_shape = ctx.other_args
 
@@ -271,12 +268,14 @@ class batch_norm(Function):
             get_memory_usage(True)
             bn_layer_ct += 1
 
-        assert save_mean is not None
-        assert save_var is not None
-
-        grad_input, grad_weight, grad_bias = ext_backward_func.cudnn_batch_norm_backward(
-            input, grad_output, weight, running_mean, running_var, save_mean, save_var, eps, reserve
-        )
+        if training:
+            grad_input, grad_weight, grad_bias = ext_backward_func.cudnn_batch_norm_backward(
+                input, grad_output, weight, running_mean, running_var, save_mean, save_var, eps, reserve)
+        else:
+            grad_input, grad_weight, grad_bias = ext_backward_func.native_batch_norm_backward(
+                grad_output, input, weight, running_mean, running_var, save_mean, save_var, training, eps,
+                [ctx.needs_input_grad[0], ctx.needs_input_grad[3], ctx.needs_input_grad[4]]
+            )
 
         ctx.scheme.if_allocate_perlayer()
         return grad_input, None, None, grad_weight, grad_bias, None, None, None, None

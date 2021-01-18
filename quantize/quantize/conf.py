@@ -3,7 +3,7 @@ import os
 class QuantizationConfig:
     def __init__(self):
         self.compress_activation = True
-        self.activation_compression_bits = 2
+        self.activation_compression_bits = [2, 8, 8]
         self.pergroup = True
         self.perlayer = True
         self.initial_bits = 8

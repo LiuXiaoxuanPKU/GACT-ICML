@@ -146,7 +146,7 @@ def add_parser_arguments(parser):
 
 def main(args):
     config.compress_activation = args.ca
-    config.activation_compression_bits = args.cabits
+    config.activation_compression_bits = [args.cabits]
     config.initial_bits = args.ibits
     config.alg = args.calg
     config.pergroup = args.pergroup

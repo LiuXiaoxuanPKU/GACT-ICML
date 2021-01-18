@@ -14,10 +14,10 @@ from quantize.ops import linear, batch_norm, conv2d, sync_batch_norm, ext_quanti
 
 class QConv2d(nn.Conv2d):
     def __init__(self, in_channels, out_channels, kernel_size,
-                 stride=1, padding=0, dilation=1, groups=1, bias=True):
+                 stride=1, padding=0, dilation=1, groups=1, bias=True, group=0):
         super(QConv2d, self).__init__(in_channels, out_channels, kernel_size,
                                       stride, padding, dilation, groups, bias)
-        self.scheme = QScheme(self, num_locations=kernel_size**2)
+        self.scheme = QScheme(self, num_locations=kernel_size**2, group=group)
 
     def forward(self, input):
         if config.training:
@@ -34,9 +34,9 @@ class QConv2d(nn.Conv2d):
 class QLinear(nn.Linear):
     num_layers = 0
 
-    def __init__(self, input_features, output_features, bias=True):
+    def __init__(self, input_features, output_features, bias=True, group=0):
         super(QLinear, self).__init__(input_features, output_features, bias)
-        self.scheme = QScheme(self)
+        self.scheme = QScheme(self, group=group)
 
     def forward(self, input):
         if config.training:
@@ -46,9 +46,9 @@ class QLinear(nn.Linear):
 
 
 class QBatchNorm2d(nn.BatchNorm2d):
-    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True):
+    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True, group=0):
         super(QBatchNorm2d, self).__init__(num_features, eps, momentum, affine, track_running_stats)
-        self.scheme = QBNScheme()
+        self.scheme = QBNScheme(group=group)
         # self.scheme.initial_bits = self.scheme.bits # TODO hack
 
     def forward(self, input):
@@ -110,10 +110,11 @@ class QSyncBatchNorm(nn.SyncBatchNorm):
         momentum: float = 0.1,
         affine: bool = True,
         track_running_stats: bool = True,
-        process_group=None
+        process_group=None,
+        group=0
     ) -> None:
         super(QSyncBatchNorm, self).__init__(num_features, eps, momentum, affine, track_running_stats, process_group)
-        self.scheme = QBNScheme()
+        self.scheme = QBNScheme(group=group)
 
     def forward(self, input):
         # currently only GPU input is supported

@@ -12,20 +12,19 @@ class QScheme(object):
     batch = None
     update_scale = True
     layers = []
-    all_layers = []     # For executing perlayer quantization automatically
 
-    def __init__(self, layer, num_locations=1):
+    def __init__(self, layer, group=0, num_locations=1):
         self.initial_bits = config.initial_bits
-        self.bits = config.activation_compression_bits
+        self.bits = config.activation_compression_bits[group]
         if config.use_gradient:
             assert QScheme.num_samples > 1
         self.scales = torch.zeros(QScheme.num_samples)
         QScheme.layers.append(self)
-        QScheme.all_layers.append(self)
         self.C = None
         self.dim = None
         self.num_locations = num_locations
         self.layer = layer
+        self.group = group
 
         # debug
         self.name = 'layer_{}'.format(QScheme.num_layers)
@@ -90,35 +89,37 @@ class QScheme(object):
 
     @staticmethod
     def allocate_perlayer():
-        layers = QScheme.layers
-        L = len(layers)
+        num_groups = len(config.activation_compression_bits)
+        for g in range(num_groups):
+            layers = [layer for layer in QScheme.layers if layer.group == g]
+            L = len(layers)
 
-        if config.activation_compression_bits == config.initial_bits:
-            C = torch.tensor([layer.C.sum() for layer in layers])
-            w = torch.tensor([layer.dim for layer in layers], dtype=torch.int)
-            total_bits = w.sum() * config.activation_compression_bits
-            b = torch.ones(L, dtype=torch.int32) * 8
-            b = calc_precision(b, C, w, total_bits)
+            if config.activation_compression_bits[g] == config.initial_bits:
+                C = torch.tensor([layer.C.sum() for layer in layers])
+                w = torch.tensor([layer.dim for layer in layers], dtype=torch.int)
+                total_bits = w.sum() * config.activation_compression_bits[g]
+                b = torch.ones(L, dtype=torch.int32) * 8
+                b = calc_precision(b, C, w, total_bits)
 
-            for i in range(L):
-                layers[i].bits = layers[i].initial_bits = b[i]
-        else:
-            Cs = [layer.C for layer in layers]
-            C = torch.cat(Cs, 0)
+                for i in range(L):
+                    layers[i].bits = layers[i].initial_bits = b[i]
+            else:
+                Cs = [layer.C for layer in layers]
+                C = torch.cat(Cs, 0)
 
-            N = Cs[0].shape[0]
+                N = Cs[0].shape[0]
 
-            # TODO ???
-            Ws = [torch.ones(N, dtype=torch.int32) * layer.dim for layer in layers]
-            # Ws = [torch.ones(N, dtype=torch.int32) for layer in layers]
-            w = torch.cat(Ws, 0)
+                # TODO ???
+                Ws = [torch.ones(N, dtype=torch.int32) * layer.dim for layer in layers]
+                # Ws = [torch.ones(N, dtype=torch.int32) for layer in layers]
+                w = torch.cat(Ws, 0)
 
-            total_bits = w.sum() * config.activation_compression_bits
-            b = torch.ones(N * L, dtype=torch.int32) * config.initial_bits
-            b = calc_precision(b, C, w, total_bits)
-            for i in range(L):
-                bs = b[i*N : (i+1)*N]
-                layers[i].bits = bs.float().mean()
+                total_bits = w.sum() * config.activation_compression_bits[g]
+                b = torch.ones(N * L, dtype=torch.int32) * config.initial_bits
+                b = calc_precision(b, C, w, total_bits)
+                for i in range(L):
+                    bs = b[i*N : (i+1)*N]
+                    layers[i].bits = bs.float().mean()
 
     def if_allocate_perlayer(self):
         first_layer = None

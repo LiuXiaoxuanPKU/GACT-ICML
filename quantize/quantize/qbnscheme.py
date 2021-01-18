@@ -9,11 +9,10 @@ from C import calc_precision_dp, calc_precision, calc_avg_bits
 class QBNScheme(QScheme):
     layers = []
 
-    def __init__(self):
+    def __init__(self, group=0):
         self.initial_bits = config.initial_bits
-        self.bits = config.activation_compression_bits
+        self.bits = config.activation_compression_bits[group]
         QBNScheme.layers.append(self)
-        QScheme.all_layers.append(self)
         if len(QScheme.layers) > 0:
             self.prev_linear = QScheme.layers[-1]
         else:

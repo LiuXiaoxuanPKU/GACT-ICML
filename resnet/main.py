@@ -134,23 +134,39 @@ def add_parser_arguments(parser):
             raise argparse.ArgumentTypeError('Boolean value expected.')
 
     parser.add_argument('--ca', type=str2bool, default=True, help='compress activation')
-    parser.add_argument('--cabits', type=int, default=8, help='activation number of bits')
+    parser.add_argument('--cabits', type=float, default=8, help='activation number of bits')
     parser.add_argument('--qat', type=int, default=8, help='quantization aware training bits')
     parser.add_argument('--ibits', type=int, default=8, help='Initial precision for the allocation algorithm')
-    parser.add_argument('--calg', type=str, default='greedy', help='Precision allocation algorithm: greedy or dp')
-    parser.add_argument('--pergroup', type=str2bool, default=True, help='Per-group range')
+    parser.add_argument('--calg', type=str, default='pl', help='Quantization algorithm, naive, pg, ps, or pl')
+    # parser.add_argument('--pergroup', type=str2bool, default=True, help='Per-group range')
     parser.add_argument('--groupsize', type=int, default=256, help='Size for each quantization group')
-    parser.add_argument('--perlayer', type=str2bool, default=True, help='Per layer quantization')
+    # parser.add_argument('--perlayer', type=str2bool, default=True, help='Per layer quantization')
     parser.add_argument('--usegradient', type=str2bool, default=True, help='Using gradient information for persample')
 
 
 def main(args):
     config.compress_activation = args.ca
-    config.activation_compression_bits = [args.cabits]
-    config.initial_bits = args.ibits
-    config.alg = args.calg
-    config.pergroup = args.pergroup
-    config.perlayer = args.perlayer
+    if args.calg == 'naive':
+        config.activation_compression_bits = [int(args.cabits)]
+        config.pergroup = False
+        config.perlayer = False
+        config.initial_bits = int(args.cabits)
+    elif args.calg == 'pg':
+        config.activation_compression_bits = [int(args.cabits)]
+        config.pergroup = True
+        config.perlayer = False
+        config.initial_bits = int(args.cabits)
+    elif args.calg == 'ps':
+        config.activation_compression_bits = [args.cabits]
+        config.pergroup = True
+        config.perlayer = False
+        config.initial_bits = 8
+    else:
+        config.activation_compression_bits = [args.cabits]
+        config.pergroup = True
+        config.perlayer = True
+        config.initial_bits = 8
+
     config.qat = args.qat
     config.use_gradient = args.usegradient
     config.group_size = args.groupsize

@@ -134,6 +134,7 @@ def add_parser_arguments(parser):
             raise argparse.ArgumentTypeError('Boolean value expected.')
 
     parser.add_argument('--ca', type=str2bool, default=True, help='compress activation')
+    parser.add_argument('--sq', type=str2bool, default=True, help='stochastic quantization')
     parser.add_argument('--cabits', type=float, default=8, help='activation number of bits')
     parser.add_argument('--qat', type=int, default=8, help='quantization aware training bits')
     parser.add_argument('--ibits', type=int, default=8, help='Initial precision for the allocation algorithm')
@@ -146,6 +147,7 @@ def add_parser_arguments(parser):
 
 def main(args):
     config.compress_activation = args.ca
+    config.stochastic = args.sq
     if args.calg == 'naive':
         config.activation_compression_bits = [int(args.cabits)]
         config.pergroup = False

@@ -15,7 +15,8 @@ class QuantizationConfig:
         self.use_gradient = False
 
         # Memory management flag
-        self.empty_cache = False
+        self.empty_cache_threshold = 0.2
+        self.pipeline_threshold = 3 * 1024**3
 
         # Debug related flag
         self.debug_memory_model = bool(os.environ.get('DEBUG_MEM', False))

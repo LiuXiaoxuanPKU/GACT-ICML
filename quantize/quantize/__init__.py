@@ -6,5 +6,5 @@ from .qscheme import QScheme
 from .qbnscheme import QBNScheme
 from .layers import QConv2d, QBatchNorm2d, QLinear, QReLU, QSyncBatchNorm, QMaxPool2d
 from .module import QModule
-from .utils import get_memory_usage, compute_tensor_bytes
+from .utils import get_memory_usage, compute_tensor_bytes, exp_recorder
 # from .utils import LipschitzEstimator

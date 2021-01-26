@@ -1,0 +1,4 @@
+{"network": ["resnet50", "fanin"], "batch_size": 160, "ips": 113.6}
+{"network": ["resnet50", "quantize"], "batch_size": 640, "ips": 82.8}
+{"network": ["resnet152", "fanin"], "batch_size": 64, "ips": 49.2}
+{"network": ["resnet152", "quantize"], "batch_size": 512, "ips": 37.6}

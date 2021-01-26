@@ -1,4 +1,5 @@
 import time
+import os
 import numpy as np
 import torch
 import torch.nn as nn
@@ -7,7 +8,7 @@ from . import logger as log
 from . import resnet as models
 from . import utils
 from .debug import get_var, get_var_during_training
-from quantize import config, QScheme, QBNScheme, QModule, get_memory_usage, compute_tensor_bytes
+from quantize import config, QScheme, QBNScheme, QModule, get_memory_usage, compute_tensor_bytes, exp_recorder
 from copy import copy
 
 try:
@@ -18,6 +19,9 @@ try:
 except ImportError:
     raise ImportError("Please install apex from https://www.github.com/nvidia/apex to run this example.")
 
+
+MB = 1024**2
+GB = 1024**3
 
 class ModelAndLoss(nn.Module):
     def __init__(self, arch, num_classes, loss, pretrained_weights=None, cuda=True, fp16=False):
@@ -179,6 +183,7 @@ def get_train_step(model_and_loss, optimizer, fp16, use_amp = False, batch_size_
         if config.debug_memory_model:
             print("========== Init Data Loader ===========")
             init_mem = get_memory_usage(True)
+            exp_recorder.record("data_loader", init_mem / GB - exp_recorder.val_dict['model'], 2)
 
         loss, output = model_and_loss(input_var, target_var)
         prec1, prec5 = torch.zeros(1), torch.zeros(1) #utils.accuracy(output.data, target, topk=(1, 5))
@@ -193,22 +198,25 @@ def get_train_step(model_and_loss, optimizer, fp16, use_amp = False, batch_size_
         if config.debug_memory_model:
             print("========== Before Backward ===========")
             before_backward = get_memory_usage(True)
-            act_mem = get_memory_usage() - init_mem - compute_tensor_bytes([input, target, output])
+            act_mem = get_memory_usage() - init_mem - compute_tensor_bytes([loss, output])
             res = "Batch size: %d\tTotal Mem: %.2f MB\tAct Mem: %.2f MB" % (
-                    len(output), before_backward / 1024**2, act_mem / 1024**2)
-            print(res)
+                    len(output), before_backward / MB, act_mem / MB)
             loss.backward()
+            optimizer.step()
             del loss
             print("========== After Backward ===========")
             after_backward = get_memory_usage(True)
             total_mem = before_backward + (after_backward - init_mem)
             res = "Batch size: %d\tTotal Mem: %.2f MB\tAct Mem: %.2f MB" % (
-                    len(output), total_mem / 1024**2, act_mem / 1024**2)
+                    len(output), total_mem / MB, act_mem / MB)
             print(res)
-            with open("results.tsv", "a") as fout:
-                fout.write(res + '\n')
+            exp_recorder.record("batch_size", len(output))
+            exp_recorder.record("total", total_mem / GB, 2)
+            exp_recorder.record("activation", act_mem / GB, 2)
+            exp_recorder.dump('mem_results.tsv')
             exit()
 
+        print("== Before Backward ==")
         if fp16:
             optimizer.backward(loss)
         elif use_amp:
@@ -216,6 +224,7 @@ def get_train_step(model_and_loss, optimizer, fp16, use_amp = False, batch_size_
                 scaled_loss.backward()
         else:
             loss.backward()
+        print("== After Backward ==")
 
         if optimizer_step:
             opt = optimizer.optimizer if isinstance(optimizer, FP16_Optimizer) else optimizer
@@ -245,7 +254,9 @@ def train(train_loader, model_and_loss, optimizer, lr_scheduler, fp16, logger, e
 
     if config.debug_memory_model:
         print("========== Model Only ===========")
-        get_memory_usage(True)
+        usage = get_memory_usage(True)
+        exp_recorder.record("network", model_and_loss.arch)
+        exp_recorder.record("model", usage / GB, 2)
 
     step = get_train_step(model_and_loss, optimizer, fp16, use_amp = use_amp, batch_size_multiplier = batch_size_multiplier)
 
@@ -276,8 +287,14 @@ def train(train_loader, model_and_loss, optimizer, lr_scheduler, fp16, logger, e
         it_time = time.time() - end
 
         if config.debug_speed and i >= 2:
-            res = "BatchSize: %d\tCost: %.2f ms" % (bs, 1000.0 / calc_ips(bs, it_time))
+            ips = calc_ips(bs, it_time)
+            res = "BatchSize: %d\tIPS: %.2f\t,Cost: %.2f ms" % (bs, ips, 1000.0 / ips)
             print(res, flush=True)
+
+            exp_recorder.record("network", model_and_loss.arch)
+            exp_recorder.record("batch_size", len(input))
+            exp_recorder.record("ips", ips, 1)
+            exp_recorder.dump('speed_results.tsv')
             exit(0)
 
         if logger is not None:

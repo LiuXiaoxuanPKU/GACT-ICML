@@ -216,7 +216,6 @@ def get_train_step(model_and_loss, optimizer, fp16, use_amp = False, batch_size_
             exp_recorder.dump('mem_results.tsv')
             exit()
 
-        print("== Before Backward ==")
         if fp16:
             optimizer.backward(loss)
         elif use_amp:
@@ -224,7 +223,6 @@ def get_train_step(model_and_loss, optimizer, fp16, use_amp = False, batch_size_
                 scaled_loss.backward()
         else:
             loss.backward()
-        print("== After Backward ==")
 
         if optimizer_step:
             opt = optimizer.optimizer if isinstance(optimizer, FP16_Optimizer) else optimizer

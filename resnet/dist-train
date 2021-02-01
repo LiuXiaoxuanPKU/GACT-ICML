@@ -12,4 +12,4 @@ LR=0.256
 WARMUP=4
 
 mkdir results/$ID
-python ./multiproc.py --nnodes $NNODES --node_rank $NODE_RANK --master_addr $MASTER_ADDR --nproc_per_node $NPROC_PER_NODE ./main.py --arch $ARCH --gather-checkpoints --workspace results/$ID --batch-size $BATCH_SIZE --lr $LR --warmup $WARMUP $ARGS  $DIR
+python3 ./multiproc.py --nnodes $NNODES --node_rank $NODE_RANK --master_addr $MASTER_ADDR --nproc_per_node $NPROC_PER_NODE ./main.py --arch $ARCH --gather-checkpoints --workspace results/$ID --batch-size $BATCH_SIZE --lr $LR --warmup $WARMUP $ARGS  $DIR

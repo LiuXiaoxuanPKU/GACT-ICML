@@ -3,9 +3,12 @@
  */
 
 #include <torch/extension.h>
+#include <ATen/CUDAGeneratorImpl.h>
 
 #include <cuda.h>
 #include <cuda_runtime.h>
+#include <curand_kernel.h>
+
 
 using torch::IntArrayRef;
 using torch::Tensor;
@@ -29,8 +32,8 @@ __global__ void pack_mixed_precision_kernel(const int32_t* __restrict__ bits,
                                             const float* __restrict__ data,
                                             const float* __restrict__ scale,
                                             const float* __restrict__ min,
-                                            const float* __restrict__ noise,
                                             int32_t* __restrict__ packed,
+                                            std::pair<uint64_t, uint64_t> seeds,
                                             int N,
                                             int num_groups,
                                             int group_size) {
@@ -46,7 +49,15 @@ __global__ void pack_mixed_precision_kernel(const int32_t* __restrict__ bits,
     reinterpret_cast<int2*>(packed_shared)[threadIdx.x] = make_int2(0, 0);
   }
 
-  const int val = __float2int_rn(fmax((data[id] - min[n * num_groups + group_id]) * scale[n * num_groups + group_id] + noise[id] - 0.5, 0.0f));
+  curandStatePhilox4_32_10_t state;
+  curand_init(
+      seeds.first,
+      id,
+      seeds.second,
+      &state);
+
+  float noise = curand_uniform(&state);
+  const int val = __float2int_rn(fmax((data[id] - min[n * num_groups + group_id]) * scale[n * num_groups + group_id] + noise - 0.5, 0.0f));
   const int offset = d * bits[n];
 
   __syncthreads();
@@ -87,12 +98,15 @@ std::pair<torch::Tensor, torch::Tensor> pack_mixed_precision_cuda(torch::Tensor 
     bits.data_ptr<int32_t>(), min.data_ptr<float>(), max.data_ptr<float>(),
     scale.data_ptr<float>(), N, num_groups);
 
-  torch::Tensor noise;
-  if (stochastic) {
-    noise = torch::rand({N, num_groups, group_size}, options);
-  } else {
-    noise = torch::full({N, num_groups, group_size}, 0.5, options);
+  auto gen = at::check_generator<at::CUDAGeneratorImpl>(at::cuda::detail::getDefaultCUDAGenerator());
+  std::pair<uint64_t, uint64_t> rng_engine_inputs;
+  {
+    // See Note [Acquire lock when using random generators]
+    std::lock_guard<std::mutex> lock(gen->mutex_);
+    rng_engine_inputs = gen->philox_engine_inputs(threads);
   }
+
+  TORCH_CHECK(stochastic);
 
   int max_bit = torch::max(bits).item<int32_t>();
   dim3 block_dim(num_groups, N, 1);
@@ -103,8 +117,8 @@ std::pair<torch::Tensor, torch::Tensor> pack_mixed_precision_cuda(torch::Tensor 
     bits.data_ptr<int32_t>(), prefix_sum.data_ptr<int32_t>(),
     data.data_ptr<float>(),
     scale.data_ptr<float>(), min.data_ptr<float>(),
-    noise.data_ptr<float>(),
     packed.data_ptr<int32_t>(),
+    rng_engine_inputs,
     N, num_groups, group_size);
 
   return std::make_pair(packed, scale);

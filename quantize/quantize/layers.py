@@ -1,4 +1,4 @@
-# The code is compatible with PyTorch 1.6
+# The code is compatible with PyTorch 1.6/1.7
 
 import torch
 import torch.nn as nn
@@ -17,7 +17,11 @@ class QConv2d(nn.Conv2d):
                  stride=1, padding=0, dilation=1, groups=1, bias=True, group=0):
         super(QConv2d, self).__init__(in_channels, out_channels, kernel_size,
                                       stride, padding, dilation, groups, bias)
-        self.scheme = QScheme(self, num_locations=kernel_size**2, group=group)
+        if isinstance(kernel_size, int):
+            num_locations = kernel_size ** 2
+        else:
+            num_locations = kernel_size[0] * kernel_size[1]
+        self.scheme = QScheme(self, num_locations=num_locations, group=group)
 
     def forward(self, input):
         if config.training:

@@ -1,3 +1,4 @@
+import ast
 import os
 
 class QuantizationConfig:
@@ -9,7 +10,6 @@ class QuantizationConfig:
         self.initial_bits = 8
         self.simulate = False
         self.stochastic = True
-        self.swap = False
         self.training = True
         self.group_size = 256
         self.use_gradient = False
@@ -17,12 +17,13 @@ class QuantizationConfig:
         # Memory management flag
         self.empty_cache_threshold = 0.2
         self.pipeline_threshold = 3 * 1024**3
+        self.swap = False
 
         # Debug related flag
-        self.debug_memory_model = bool(os.environ.get('DEBUG_MEM', False))
+        self.debug_memory_model = ast.literal_eval(os.environ.get('DEBUG_MEM', "False"))
         self.debug_memory_op_forward = False
         self.debug_memory_op_backward = False
-        self.debug_speed = bool(os.environ.get('DEBUG_SPEED', False))
+        self.debug_speed = ast.literal_eval(os.environ.get('DEBUG_SPEED', "False"))
         self.debug_remove_bn = False
         self.debug_remove_relu = False
 

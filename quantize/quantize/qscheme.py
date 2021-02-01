@@ -18,7 +18,9 @@ class QScheme(object):
         self.bits = config.activation_compression_bits[group]
         if config.use_gradient:
             assert QScheme.num_samples > 1
-        self.scales = torch.zeros(QScheme.num_samples)
+            self.scales = torch.zeros(QScheme.num_samples)
+        else:
+            self.scales = torch.tensor([0.0])
         QScheme.layers.append(self)
         self.C = None
         self.dim = None
@@ -38,7 +40,7 @@ class QScheme(object):
             scale[scale == 0] = avg_scale + 1e-9
             return scale
         else:
-            return self.scales.mean()
+            return self.scales
 
     def set_scale(self, grad):
         if QScheme.update_scale:
@@ -47,8 +49,8 @@ class QScheme(object):
                 scale = grad.view(grad.shape[0], -1).norm(dim=1).square().cpu()
                 self.scales[QScheme.batch] = self.scales[QScheme.batch] * 0.5 + scale * 0.5
             else:
-                scale = grad.view(grad.shape[0], -1).norm(dim=1).square().cpu()
-                self.scales = scale.mean()
+                scale = grad.view(grad.shape[0], -1).norm(dim=1).square()
+                self.scales = scale.mean().cpu()
 
     def compute_quantization_bits(self, input):
         N = input.shape[0]

@@ -8,7 +8,7 @@ from . import logger as log
 from . import resnet as models
 from . import utils
 from .debug import get_var, get_var_during_training
-from quantize import config, QScheme, QBNScheme, QModule, get_memory_usage, compute_tensor_bytes, exp_recorder
+from quantize import config, QScheme, QModule, get_memory_usage, compute_tensor_bytes, exp_recorder
 from copy import copy
 
 try:
@@ -30,7 +30,9 @@ class ModelAndLoss(nn.Module):
 
         print("=> creating model '{}'".format(arch))
         model = models.build_resnet(arch[0], arch[1], num_classes)
-        model = QModule(model)
+        if arch[1] not in ['classic', 'fanin']:
+            print("=> convert to quantized model")
+            model = QModule(model)
 
         if pretrained_weights is not None:
             print("=> using pre-trained model from a file '{}'".format(arch))
@@ -183,7 +185,7 @@ def get_train_step(model_and_loss, optimizer, fp16, use_amp = False, batch_size_
         if config.debug_memory_model:
             print("========== Init Data Loader ===========")
             init_mem = get_memory_usage(True)
-            exp_recorder.record("data_loader", init_mem / GB - exp_recorder.val_dict['model'], 2)
+            exp_recorder.record("data_loader", init_mem / GB - exp_recorder.val_dict['model_only'], 2)
 
         loss, output = model_and_loss(input_var, target_var)
         prec1, prec5 = torch.zeros(1), torch.zeros(1) #utils.accuracy(output.data, target, topk=(1, 5))
@@ -239,6 +241,9 @@ def get_train_step(model_and_loss, optimizer, fp16, use_amp = False, batch_size_
 
     return _step
 
+train_step_ct = 0
+train_max_ips = 0
+train_max_batch = 0
 
 def train(train_loader, model_and_loss, optimizer, lr_scheduler, fp16, logger, epoch, use_amp=False, prof=-1, batch_size_multiplier=1, register_metrics=True):
     if register_metrics and logger is not None:
@@ -253,8 +258,10 @@ def train(train_loader, model_and_loss, optimizer, lr_scheduler, fp16, logger, e
     if config.debug_memory_model:
         print("========== Model Only ===========")
         usage = get_memory_usage(True)
-        exp_recorder.record("network", model_and_loss.arch)
-        exp_recorder.record("model", usage / GB, 2)
+        exp_recorder.record("network", model_and_loss.arch[0])
+        exp_recorder.record("algorithm", 'quantize'
+                if model_and_loss.arch[1] == 'quantize' else 'exact')
+        exp_recorder.record("model_only", usage / GB, 2)
 
     step = get_train_step(model_and_loss, optimizer, fp16, use_amp = use_amp, batch_size_multiplier = batch_size_multiplier)
 
@@ -284,16 +291,22 @@ def train(train_loader, model_and_loss, optimizer, lr_scheduler, fp16, logger, e
 
         it_time = time.time() - end
 
-        if config.debug_speed and i >= 2:
-            ips = calc_ips(bs, it_time)
-            res = "BatchSize: %d\tIPS: %.2f\t,Cost: %.2f ms" % (bs, ips, 1000.0 / ips)
-            print(res, flush=True)
-
-            exp_recorder.record("network", model_and_loss.arch)
-            exp_recorder.record("batch_size", len(input))
-            exp_recorder.record("ips", ips, 1)
-            exp_recorder.dump('speed_results.tsv')
-            exit(0)
+        if config.debug_speed:
+            global train_step_ct, train_max_ips, train_max_batch
+            train_max_ips = max(train_max_ips, calc_ips(bs, it_time))
+            train_max_batch = max(train_max_batch, len(input))
+            if train_step_ct >= 3:
+                res = "BatchSize: %d\tIPS: %.2f\t,Cost: %.2f ms" % (
+                    bs, train_max_ips, 1000.0 / train_max_ips)
+                print(res, flush=True)
+                exp_recorder.record("network", model_and_loss.arch[0])
+                exp_recorder.record("algorithm", 'quantize'
+                        if model_and_loss.arch[1] == 'quantize' else 'exact')
+                exp_recorder.record("batch_size", train_max_batch)
+                exp_recorder.record("ips", train_max_ips, 1)
+                exp_recorder.dump('speed_results.tsv')
+                exit(0)
+            train_step_ct += 1
 
         if logger is not None:
             logger.log_metric('train.top1', to_python_float(prec1))

@@ -27,9 +27,6 @@ ext_minimax = load(name="ext_minimax",
 QParams = namedtuple('QParams', ['range', 'zero_point', 'num_bits'])
 
 def quantize_mixed_precision(data, bits, mn, mx):
-    if not config.compress_activation:
-        return data, None 
-
     if config.simulate:
         N = data.shape[0]
         output = data   # N, groups, group_dim
@@ -48,17 +45,18 @@ def quantize_mixed_precision(data, bits, mn, mx):
         output = torch.min(output, B.float()).round_().int()
     else:
         output, scale = ext_quantization.pack_mixed_precision(data, mn, mx, bits, config.stochastic)
+        if config.swap:
+            output = output.cpu()
 
     return output, scale
 
 
 def dequantize_mixed_precision(data, shape, bits, scale, mn):
-    if not config.compress_activation:
-        return data
-
     if config.simulate:
         data = data / scale + mn
     else:
+        if config.swap:
+            data = data.cuda()
         N = shape[0]
         num_features = int(np.prod(shape[1:]))
         group_size = config.group_size
@@ -72,6 +70,9 @@ def dequantize_mixed_precision(data, shape, bits, scale, mn):
 
 
 def quantize_activation(input, scheme):
+    if not config.compress_activation:
+        return input, None, None, None
+
     N = input.shape[0]
     input_groups, q_bits, q_min, mx = scheme.compute_quantization_bits(input)
     q_input, q_scale = quantize_mixed_precision(input_groups, q_bits, q_min, mx)
@@ -83,6 +84,9 @@ def quantize_activation(input, scheme):
 
 
 def dequantize_activation(quantized, q_input_shape):
+    if not config.compress_activation:
+        return quantized[0]
+
     N = q_input_shape[0]
     if len(quantized) == 2:
         q_input, q_bits = quantized

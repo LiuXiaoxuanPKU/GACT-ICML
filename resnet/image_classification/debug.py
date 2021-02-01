@@ -17,7 +17,7 @@ def get_var(model_and_loss, optimizer, val_loader, num_batches=20, model_state=N
     if hasattr(model_and_loss.model, 'module'):
         m = model_and_loss.model.module
     else:
-        m = model_and_loss.model
+        m = model_and_loss.model.model
 
     m.set_name()
     weight_names = [layer.layer_name for layer in m.linear_layers]

@@ -295,7 +295,7 @@ def test_conv2d_correctness():
         weight = torch.tensor(weight_np).to("cuda").requires_grad_()
         bias = torch.tensor(bias_np).to("cuda").requires_grad_()
 
-        scheme = QScheme(num_locations=kernel_size**2)
+        scheme = QScheme(None, num_locations=kernel_size**2, group=0)
         output = func(data, weight, bias, stride, padding, dilation, groups, scheme)
 
         output.backward(torch.ones_like(output))
@@ -495,9 +495,10 @@ if __name__ == "__main__":
 
     #test_upsample_memory()
 
-    test_bn_correctness()
+    #test_bn_correctness()
 
-    #test_conv2d_correctness()
+    config.activation_compression_bits = [8, 8, 8]
+    test_conv2d_correctness()
 
     #config.activation_compression_bits = 2
     #test_conv2d_speed()

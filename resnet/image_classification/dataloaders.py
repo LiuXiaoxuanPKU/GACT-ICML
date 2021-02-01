@@ -204,9 +204,6 @@ class PrefetchedWrapper(object):
 
         for next_indices, next_data in loader:
             next_input, next_target = next_data
-            # print(next_indices)
-            # print(next_input.shape)
-            # print(next_target.shape)
 
             with torch.cuda.stream(stream):
                 next_input = next_input.cuda(non_blocking=True)
@@ -267,7 +264,7 @@ def get_pytorch_train_loader(data_path, batch_size, num_classes, one_hot, worker
 
     train_loader = dataloader.DataLoader(
             train_dataset, batch_size=batch_size, shuffle=(train_sampler is None),
-            num_workers=workers, worker_init_fn=_worker_init_fn, pin_memory=True, sampler=train_sampler, collate_fn=fast_collate, drop_last=True)
+            num_workers=workers, worker_init_fn=_worker_init_fn, pin_memory=True, sampler=train_sampler, collate_fn=fast_collate, drop_last=False)
 
     return PrefetchedWrapper(train_loader, num_classes, fp16, one_hot), len(train_loader)
 
@@ -315,7 +312,7 @@ def get_pytorch_train_loader_cifar10(data_path, batch_size, num_classes, one_hot
     train_loader = dataloader.DataLoader(
             train_dataset, batch_size=batch_size, shuffle=(train_sampler is None),
             num_workers=workers, worker_init_fn=_worker_init_fn, pin_memory=True, sampler=train_sampler,
-        collate_fn=fast_collate, drop_last=True)
+        collate_fn=fast_collate, drop_last=False)
 
     # return train_loader, len(train_loader)
     return PrefetchedWrapper(train_loader, num_classes, fp16, one_hot), len(train_loader)

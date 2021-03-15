@@ -79,12 +79,13 @@ std::tuple<Tensor, Tensor, Tensor, int64_t, int64_t> prepare_layer_norm_inputs(
 
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-  m.def("cudnn_convolution_backward",  &at::cudnn_convolution_backward);
-  m.def("prepare_layer_norm_inputs",   &at::native::prepare_layer_norm_inputs);
-  m.def("layer_norm_cuda",             &at::native::layer_norm_cuda);
-  m.def("layer_norm_backward_cuda",    &at::native::layer_norm_backward_cuda);
-  m.def("cudnn_batch_norm",            &at::native::cudnn_batch_norm);
-  m.def("cudnn_batch_norm_backward",   &at::native::cudnn_batch_norm_backward);
-  m.def("native_batch_norm",           &at::native_batch_norm);
-  m.def("native_batch_norm_backward",  &at::native_batch_norm_backward);
+  m.def("cudnn_convolution_backward",           &at::cudnn_convolution_backward);
+  m.def("cudnn_convolution_transpose_backward", &at::cudnn_convolution_transpose_backward);
+  m.def("prepare_layer_norm_inputs",  &at::native::prepare_layer_norm_inputs);
+  m.def("layer_norm_cuda",            &at::native::layer_norm_cuda);
+  m.def("layer_norm_backward_cuda",   &at::native::layer_norm_backward_cuda);
+  m.def("cudnn_batch_norm",           &at::native::cudnn_batch_norm);
+  m.def("cudnn_batch_norm_backward",  &at::native::cudnn_batch_norm_backward);
+  m.def("native_batch_norm",          &at::native_batch_norm);
+  m.def("native_batch_norm_backward", &at::native_batch_norm_backward);
 }

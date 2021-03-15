@@ -1,8 +1,0 @@
-{"network": "preact_resnet1001", "algorithm": "exact", "max_batch_size": 91, "ips": 77.9}
-{"network": "preact_resnet1001", "algorithm": "quantize", "max_batch_size": 1105, "ips": 52.9}
-{"network": "resnet152", "algorithm": "exact", "max_batch_size": 74, "ips": 50.3}
-{"network": "resnet152", "algorithm": "quantize", "max_batch_size": 493, "ips": 37.6}
-{"network": "resnet50", "algorithm": "exact", "max_batch_size": 162, "ips": 119.3}
-{"network": "resnet50", "algorithm": "quantize", "max_batch_size": 630, "ips": 83.1}
-{"network": "preact_resnet56", "algorithm": "exact", "max_batch_size": 3340, "ips": 1647.5}
-{"network": "preact_resnet56", "algorithm": "quantize", "max_batch_size": 28080, "ips": 1309.4}

@@ -2,9 +2,9 @@
 results
 *.log
 *.npz
-resnet/results.tar.gz
-resnet/results
-resnet/results.tsv
+image_classification/results.tar.gz
+image_classification/results
+image_classification/results.tsv
 
 # IDE & OS
 .idea
@@ -24,11 +24,7 @@ __pycache__
 *.swp
 
 # Build
-quantize/build
-quantize/dist
-quantize/quantize.egg-info
-quantize/*.so
-
-pytorch_minimax/build
-pytorch_minimax/dist
-pytorch_minimax/pytorch_minimax.egg-info
+actnn/build
+actnn/dist
+actnn/actnn.egg-info
+actnn/actnn/cpp_extension/*.so

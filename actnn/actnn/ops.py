@@ -7,7 +7,7 @@ import torch
 from torch.autograd.function import Function
 import torch.distributed as dist
 import torch.nn.functional as F
-from torch.nn.modules.utils import _pair
+from torch.nn.modules.utils import _single, _pair, _triple
 from torch.utils.cpp_extension import load
 
 from actnn.conf import config
@@ -138,9 +138,9 @@ conv2d_layer_ct = 0
 bn_layer_ct = 0
 total_act_mem = 0
 
-class conv2d(Function):
+class convnd(Function):
     @staticmethod
-    def forward(ctx, input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1, scheme=None):
+    def run_forward(n, forward_op, ctx, input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1, scheme=None):
         # if not ctx.needs_input_grad[1]:
         #     assert not ctx.needs_input_grad[0] and not ctx.needs_input_grad[1]
         #     return F.conv2d(input, weight, bias, stride, padding, dilation, groups)
@@ -154,16 +154,16 @@ class conv2d(Function):
 
         if config.debug_memory_op_forward:
             global conv2d_layer_ct, total_act_mem
-            print("========== conv2d forward %d ==========" % conv2d_layer_ct)
+            print("========== conv%dd forward %d ==========" % (d, conv2d_layer_ct))
             get_memory_usage(True)
             conv2d_layer_ct += 1
             total_act_mem += compute_tensor_bytes(quantized)
             print("Act mem: %.2f MB" % (total_act_mem / 1024 ** 2))
 
-        return F.conv2d(input, weight, bias, stride, padding, dilation, groups)
+        return forward_op(input, weight, bias, stride, padding, dilation, groups)
 
     @staticmethod
-    def backward(ctx, grad_output):
+    def run_backward(n, ctx, grad_output, bias_reduce_dims, aug):
         # if not ctx.needs_input_grad[1]:
         #     assert not ctx.needs_input_grad[0] and not ctx.needs_input_grad[1]
         #     return None, None, None, None, None, None, None, None
@@ -171,9 +171,9 @@ class conv2d(Function):
             ctx.scheme.set_scale(grad_output)
 
         q_input_shape, stride, padding, dilation, groups = ctx.other_args
-        padding = _pair(padding)
-        stride = _pair(stride)
-        dilation = _pair(dilation)
+        padding = aug(padding)
+        stride = aug(stride)
+        dilation = aug(dilation)
 
         quantized, weight, bias = ctx.saved
         input = dequantize_activation(quantized, q_input_shape)
@@ -183,7 +183,7 @@ class conv2d(Function):
 
         if config.debug_memory_op_backward:
             global conv2d_layer_ct
-            print("========== conv2d backward %d ==========" % conv2d_layer_ct)
+            print("========== conv%dd backward %d ==========" % (n, conv2d_layer_ct))
             get_memory_usage(True)
             conv2d_layer_ct += 1
             print("WS: %.2f MB" % (compute_tensor_bytes([grad_output, input, input]) / 1024 ** 2))
@@ -221,7 +221,7 @@ class conv2d(Function):
                 [ctx.needs_input_grad[0], ctx.needs_input_grad[1]])
 
         if bias is not None and ctx.needs_input_grad[2]:
-            grad_bias = grad_output.sum([0, 2, 3])
+            grad_bias = grad_output.sum(bias_reduce_dims)
         else:
             grad_bias = None
 
@@ -230,9 +230,39 @@ class conv2d(Function):
         return grad_input, grad_weight, grad_bias, None, None, None, None, None
 
 
-class conv_transpose2d(Function):
+class conv1d(Function):
     @staticmethod
-    def forward(ctx, input, weight, bias=None, stride=1, padding=0, output_padding=0, groups=1, dilation=1, scheme=None):
+    def forward(ctx, input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1, scheme=None):
+        return convnd.run_forward(1, F.conv1d, ctx, input, weight, bias, stride, padding, dilation, groups, scheme)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return convnd.run_backward(1, ctx, grad_output, [0, 2], _single)
+
+
+class conv2d(Function):
+    @staticmethod
+    def forward(ctx, input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1, scheme=None):
+        return convnd.run_forward(2, F.conv2d, ctx, input, weight, bias, stride, padding, dilation, groups, scheme)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return convnd.run_backward(2, ctx, grad_output, [0, 2, 3], _pair)
+
+
+class conv3d(Function):
+    @staticmethod
+    def forward(ctx, input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1, scheme=None):
+        return convnd.run_forward(3, F.conv3d, ctx, input, weight, bias, stride, padding, dilation, groups, scheme)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return convnd.run_backward(3, ctx, grad_output, [0, 2, 3, 4], _triple)
+
+
+class conv_transposend(Function):
+    @staticmethod
+    def run_forward(n, forward_op, ctx, input, weight, bias=None, stride=1, padding=0, output_padding=0, groups=1, dilation=1, scheme=None):
         quantized = quantize_activation(input, scheme)
 
         ctx.scheme = scheme
@@ -243,24 +273,24 @@ class conv_transpose2d(Function):
 
         if config.debug_memory_op_forward:
             global conv2d_layer_ct, total_act_mem
-            print("========== conv2d_transpose forward %d ==========" % conv2d_layer_ct)
+            print("========== conv%dd_transpose forward %d ==========" % (n, conv2d_layer_ct))
             get_memory_usage(True)
             conv2d_layer_ct += 1
             total_act_mem += compute_tensor_bytes(quantized)
             print("Act mem: %.2f MB" % (total_act_mem / 1024 ** 2))
 
-        return F.conv_transpose2d(input, weight, bias, stride, padding, output_padding, groups, dilation)
+        return forward_op(input, weight, bias, stride, padding, output_padding, groups, dilation)
 
     @staticmethod
-    def backward(ctx, grad_output):
+    def run_backward(n, ctx, grad_output, bias_reduce_dims, aug):
         if ctx.scheme:
             ctx.scheme.set_scale(grad_output)
 
         q_input_shape, stride, padding, output_padding, dilation, groups = ctx.other_args
-        padding = _pair(padding)
-        output_padding = _pair(output_padding)
-        stride = _pair(stride)
-        dilation = _pair(dilation)
+        padding = aug(padding)
+        output_padding = aug(output_padding)
+        stride = aug(stride)
+        dilation = aug(dilation)
 
         quantized, weight, bias = ctx.saved
         input = dequantize_activation(quantized, q_input_shape)
@@ -270,7 +300,7 @@ class conv_transpose2d(Function):
 
         if config.debug_memory_op_backward:
             global conv2d_layer_ct
-            print("========== conv2d_transpose backward %d ==========" % conv2d_layer_ct)
+            print("========== conv%dd_transpose backward %d ==========" % (n, conv2d_layer_ct))
             get_memory_usage(True)
             conv2d_layer_ct += 1
             print("WS: %.2f MB" % (compute_tensor_bytes([grad_output, input, input]) / 1024 ** 2))
@@ -302,26 +332,51 @@ class conv_transpose2d(Function):
             grad_input = raw_input
             grad_output = raw_grad_output
         else:
-            # print('Here')
-            # print(type(input), type(grad_output), type(weight))
-            # print(type(padding), type(output_padding), type(stride), type(dilation))
-            # print(type(groups), groups)
             grad_input, grad_weight = ext_backward_func.cudnn_convolution_transpose_backward(
                 input, grad_output, weight, padding, output_padding, stride, dilation, groups,
                 config.cudnn_benchmark_conv2d, False, False, [ctx.needs_input_grad[0], ctx.needs_input_grad[1]])
 
-        # grad_input, grad_weight = cudnn_convolution_transpose_backward(
-        #         input, grad_output, weight, padding, output_padding, stride, dilation, groups,
-        #         False, False, False, [ctx.needs_input_grad[0], ctx.needs_input_grad[1]])
-
         if bias is not None and ctx.needs_input_grad[2]:
-            grad_bias = grad_output.sum([0, 2, 3])
+            grad_bias = grad_output.sum(bias_reduce_dims)
         else:
             grad_bias = None
 
         if ctx.scheme:
             ctx.scheme.if_allocate_perlayer()
         return grad_input, grad_weight, grad_bias, None, None, None, None, None, None
+
+
+class conv_transpose1d(Function):
+    @staticmethod
+    def forward(ctx, input, weight, bias=None, stride=1, padding=0, output_padding=0, groups=1, dilation=1, scheme=None):
+        return conv_transposend.run_forward(1, F.conv_transpose1d, ctx, input, weight, bias, stride,
+                                            padding, output_padding, groups, dilation, scheme)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return conv_transposend.run_backward(1, ctx, grad_output, [0, 2], _single)
+
+
+class conv_transpose2d(Function):
+    @staticmethod
+    def forward(ctx, input, weight, bias=None, stride=1, padding=0, output_padding=0, groups=1, dilation=1, scheme=None):
+        return conv_transposend.run_forward(2, F.conv_transpose2d, ctx, input, weight, bias, stride,
+                                            padding, output_padding, groups, dilation, scheme)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return conv_transposend.run_backward(2, ctx, grad_output, [0, 2, 3], _pair)
+
+
+class conv_transpose3d(Function):
+    @staticmethod
+    def forward(ctx, input, weight, bias=None, stride=1, padding=0, output_padding=0, groups=1, dilation=1, scheme=None):
+        return conv_transposend.run_forward(3, F.conv_transpose3d, ctx, input, weight, bias, stride,
+                                            padding, output_padding, groups, dilation, scheme)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return conv_transposend.run_backward(3, ctx, grad_output, [0, 2, 3, 4], _triple)
 
 
 class linear(Function):

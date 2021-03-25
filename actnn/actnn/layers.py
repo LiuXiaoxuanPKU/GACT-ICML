@@ -6,20 +6,48 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.distributed
 from torch import Tensor
-from torch.nn.modules.pooling import _size_2_t, _pair, _MaxPoolNd, _AvgPoolNd
+from torch.nn.modules.pooling import _size_2_t, _single, _pair, _triple, _MaxPoolNd, _AvgPoolNd
 
 from actnn.qscheme import QScheme
 from actnn.qbnscheme import QBNScheme
 from actnn.conf import config
-from actnn.ops import linear, batch_norm, conv2d, sync_batch_norm, conv_transpose2d
+from actnn.ops import linear, batch_norm, conv1d, conv2d, conv3d, sync_batch_norm
+from actnn.ops import conv_transpose1d, conv_transpose2d, conv_transpose3d
 import actnn.cpp_extension.quantization as ext_quantization
+
+
+class QConv1d(nn.Conv1d):
+    def __init__(self, in_channels, out_channels, kernel_size,
+                 stride=1, padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros', group=0):
+        super(QConv1d, self).__init__(in_channels, out_channels, kernel_size,
+                                      stride, padding, dilation, groups, bias, padding_mode)
+        if isinstance(kernel_size, int):
+            num_locations = kernel_size
+        else:
+            num_locations = kernel_size[0]
+
+        if config.adaptive_conv_scheme:
+            self.scheme = QScheme(self, num_locations=num_locations, group=group, depthwise_groups=groups)
+        else:
+            self.scheme = None
+
+    def forward(self, input):
+        if config.training:
+            if self.padding_mode != 'zeros':
+                return conv1d.apply(F.pad(input, self._reversed_padding_repeated_twice, mode=self.padding_mode),
+                                    self.weight, self.bias, self.stride,
+                                    _single(0), self.dilation, self.groups, self.scheme)
+            return conv1d.apply(input, self.weight, self.bias, self.stride,
+                                 self.padding, self.dilation, self.groups, self.scheme)
+        else:
+            return super(QConv1d, self).forward(input)
 
 
 class QConv2d(nn.Conv2d):
     def __init__(self, in_channels, out_channels, kernel_size,
-                 stride=1, padding=0, dilation=1, groups=1, bias=True, group=0):
+                 stride=1, padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros', group=0):
         super(QConv2d, self).__init__(in_channels, out_channels, kernel_size,
-                                      stride, padding, dilation, groups, bias)
+                                      stride, padding, dilation, groups, bias, padding_mode)
         if isinstance(kernel_size, int):
             num_locations = kernel_size ** 2
         else:
@@ -40,6 +68,64 @@ class QConv2d(nn.Conv2d):
                                  self.padding, self.dilation, self.groups, self.scheme)
         else:
             return super(QConv2d, self).forward(input)
+        
+
+class QConv3d(nn.Conv3d):
+    def __init__(self, in_channels, out_channels, kernel_size,
+                 stride=1, padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros', group=0):
+        super(QConv3d, self).__init__(in_channels, out_channels, kernel_size,
+                                      stride, padding, dilation, groups, bias, padding_mode)
+        if isinstance(kernel_size, int):
+            num_locations = kernel_size ** 3
+        else:
+            num_locations = kernel_size[0] * kernel_size[1] * kernel_size[2]
+
+        if config.adaptive_conv_scheme:
+            self.scheme = QScheme(self, num_locations=num_locations, group=group, depthwise_groups=groups)
+        else:
+            self.scheme = None
+
+    def forward(self, input):
+        if config.training:
+            if self.padding_mode != 'zeros':
+                return conv3d.apply(F.pad(input, self._reversed_padding_repeated_twice, mode=self.padding_mode),
+                                    self.weight, self.bias, self.stride,
+                                    _triple(0), self.dilation, self.groups, self.scheme)
+            return conv3d.apply(input, self.weight, self.bias, self.stride,
+                                 self.padding, self.dilation, self.groups, self.scheme)
+        else:
+            return super(QConv3d, self).forward(input)
+
+
+class QConvTranspose1d(nn.ConvTranspose1d):
+    def __init__(self, in_channels, out_channels, kernel_size,
+                 stride=1, padding=0, output_padding=0, groups=1,
+                 bias=True, dilation=1, padding_mode='zeros', group=0):
+        super(QConvTranspose1d, self).__init__(in_channels, out_channels, kernel_size, stride,
+                                               padding, output_padding, groups, bias, dilation, padding_mode)
+        if isinstance(kernel_size, int):
+            num_locations = kernel_size
+        else:
+            num_locations = kernel_size[0]
+
+        if config.adaptive_conv_scheme:
+            self.scheme = QScheme(self, num_locations=num_locations, group=group, depthwise_groups=groups)
+        else:
+            self.scheme = None
+
+    def forward(self, input, output_size=None):
+        if config.training:
+            if self.padding_mode != 'zeros':
+                raise ValueError('Only `zeros` padding mode is supported for ConvTranspose1d')
+
+            output_padding = self._output_padding(
+                input, output_size, self.stride, self.padding, self.kernel_size, self.dilation)  # type: ignore
+
+            return conv_transpose1d.apply(
+                input, self.weight, self.bias, self.stride, self.padding,
+                output_padding, self.groups, self.dilation, self.scheme)
+        else:
+            return super(QConvTranspose1d, self).forward(input, output_size)
 
 
 class QConvTranspose2d(nn.ConvTranspose2d):
@@ -71,6 +157,37 @@ class QConvTranspose2d(nn.ConvTranspose2d):
                 output_padding, self.groups, self.dilation, self.scheme)
         else:
             return super(QConvTranspose2d, self).forward(input, output_size)
+
+
+class QConvTranspose3d(nn.ConvTranspose3d):
+    def __init__(self, in_channels, out_channels, kernel_size,
+                 stride=1, padding=0, output_padding=0, groups=1,
+                 bias=True, dilation=1, padding_mode='zeros', group=0):
+        super(QConvTranspose3d, self).__init__(in_channels, out_channels, kernel_size, stride,
+                                               padding, output_padding, groups, bias, dilation, padding_mode)
+        if isinstance(kernel_size, int):
+            num_locations = kernel_size ** 3
+        else:
+            num_locations = kernel_size[0] * kernel_size[1] * kernel_size[2]
+
+        if config.adaptive_conv_scheme:
+            self.scheme = QScheme(self, num_locations=num_locations, group=group, depthwise_groups=groups)
+        else:
+            self.scheme = None
+
+    def forward(self, input, output_size=None):
+        if config.training:
+            if self.padding_mode != 'zeros':
+                raise ValueError('Only `zeros` padding mode is supported for ConvTranspose3d')
+
+            output_padding = self._output_padding(
+                input, output_size, self.stride, self.padding, self.kernel_size, self.dilation)  # type: ignore
+
+            return conv_transpose3d.apply(
+                input, self.weight, self.bias, self.stride, self.padding,
+                output_padding, self.groups, self.dilation, self.scheme)
+        else:
+            return super(QConvTranspose3d, self).forward(input, output_size)
 
 
 class QLinear(nn.Linear):

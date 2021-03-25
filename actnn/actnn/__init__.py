@@ -2,7 +2,8 @@ from . import dataloader
 from . import ops
 from .conf import config
 from .dataloader import DataLoader
-from .layers import QConv2d, QConvTranspose2d, QBatchNorm2d, QLinear, QReLU, QSyncBatchNorm, QMaxPool2d
+from .layers import QConv1d, QConv2d, QConv3d, QConvTranspose1d, QConvTranspose2d, QConvTranspose3d, QBatchNorm2d, \
+    QLinear, QReLU, QSyncBatchNorm, QMaxPool2d
 from .module import QModule
 from .qscheme import QScheme
 from .qbnscheme import QBNScheme

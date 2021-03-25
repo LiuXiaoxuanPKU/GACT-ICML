@@ -230,6 +230,100 @@ class conv2d(Function):
         return grad_input, grad_weight, grad_bias, None, None, None, None, None
 
 
+class conv_transpose2d(Function):
+    @staticmethod
+    def forward(ctx, input, weight, bias=None, stride=1, padding=0, output_padding=0, groups=1, dilation=1, scheme=None):
+        quantized = quantize_activation(input, scheme)
+
+        ctx.scheme = scheme
+        ctx.saved = quantized, weight, bias
+        ctx.other_args = (input.shape, stride, padding, output_padding, dilation, groups)
+
+        empty_cache(config.empty_cache_threshold)
+
+        if config.debug_memory_op_forward:
+            global conv2d_layer_ct, total_act_mem
+            print("========== conv2d_transpose forward %d ==========" % conv2d_layer_ct)
+            get_memory_usage(True)
+            conv2d_layer_ct += 1
+            total_act_mem += compute_tensor_bytes(quantized)
+            print("Act mem: %.2f MB" % (total_act_mem / 1024 ** 2))
+
+        return F.conv_transpose2d(input, weight, bias, stride, padding, output_padding, groups, dilation)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        if ctx.scheme:
+            ctx.scheme.set_scale(grad_output)
+
+        q_input_shape, stride, padding, output_padding, dilation, groups = ctx.other_args
+        padding = _pair(padding)
+        output_padding = _pair(output_padding)
+        stride = _pair(stride)
+        dilation = _pair(dilation)
+
+        quantized, weight, bias = ctx.saved
+        input = dequantize_activation(quantized, q_input_shape)
+        del quantized, ctx.saved
+
+        empty_cache(config.empty_cache_threshold)
+
+        if config.debug_memory_op_backward:
+            global conv2d_layer_ct
+            print("========== conv2d_transpose backward %d ==========" % conv2d_layer_ct)
+            get_memory_usage(True)
+            conv2d_layer_ct += 1
+            print("WS: %.2f MB" % (compute_tensor_bytes([grad_output, input, input]) / 1024 ** 2))
+
+        use_pipeline = False
+        if config.pipeline_threshold:
+            ws_mem = compute_tensor_bytes([grad_output, input, input])
+            if (ws_mem > config.pipeline_threshold and
+                ctx.needs_input_grad[1] and ctx.needs_input_grad[0]):
+                use_pipeline = True
+
+        if use_pipeline:
+            micro_batch_size = (ws_mem + config.pipeline_threshold) // config.pipeline_threshold
+            raw_input = input
+            raw_grad_output = grad_output
+            input = torch.chunk(input, micro_batch_size)
+            grad_output = torch.chunk(grad_output,  micro_batch_size)
+            grad_weight = None
+
+            for i in range(micro_batch_size):
+                input[i][:], grad_weight_tmp = ext_backward_func.cudnn_convolution_transpose_backward(
+                        input[i], grad_output[i], weight, padding, output_padding, stride, dilation, groups,
+                        config.cudnn_benchmark_conv2d, False, False,
+                        [ctx.needs_input_grad[0], ctx.needs_input_grad[1]])
+                if grad_weight is None:
+                    grad_weight = grad_weight_tmp
+                else:
+                    grad_weight += grad_weight_tmp
+            grad_input = raw_input
+            grad_output = raw_grad_output
+        else:
+            # print('Here')
+            # print(type(input), type(grad_output), type(weight))
+            # print(type(padding), type(output_padding), type(stride), type(dilation))
+            # print(type(groups), groups)
+            grad_input, grad_weight = ext_backward_func.cudnn_convolution_transpose_backward(
+                input, grad_output, weight, padding, output_padding, stride, dilation, groups,
+                config.cudnn_benchmark_conv2d, False, False, [ctx.needs_input_grad[0], ctx.needs_input_grad[1]])
+
+        # grad_input, grad_weight = cudnn_convolution_transpose_backward(
+        #         input, grad_output, weight, padding, output_padding, stride, dilation, groups,
+        #         False, False, False, [ctx.needs_input_grad[0], ctx.needs_input_grad[1]])
+
+        if bias is not None and ctx.needs_input_grad[2]:
+            grad_bias = grad_output.sum([0, 2, 3])
+        else:
+            grad_bias = None
+
+        if ctx.scheme:
+            ctx.scheme.if_allocate_perlayer()
+        return grad_input, grad_weight, grad_bias, None, None, None, None, None, None
+
+
 class linear(Function):
     @staticmethod
     def forward(ctx, input, weight, bias=None, scheme=None):

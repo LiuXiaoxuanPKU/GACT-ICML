@@ -12,7 +12,7 @@ class QScheme(object):
     update_scale = True
     layers = []
 
-    def __init__(self, layer, group=0, num_locations=1):
+    def __init__(self, layer, group=0, num_locations=1, depthwise_groups=1):
         self.initial_bits = config.initial_bits
         self.bits = config.activation_compression_bits[group]
         if config.use_gradient:
@@ -23,7 +23,8 @@ class QScheme(object):
         QScheme.layers.append(self)
         self.C = None
         self.dim = None
-        self.num_locations = num_locations
+        self.num_locations = num_locations      # Kernel size
+        self.depthwise_groups = depthwise_groups    # Depthwise separable conv
         self.layer = layer
         self.group = group
 
@@ -66,18 +67,18 @@ class QScheme(object):
             input_flatten = torch.cat([input_flatten,
                                        torch.zeros([N, delta], dtype=input.dtype, device=input.device)], 1)
 
-        input_groups = input_flatten.view(-1, config.group_size)
+        input_groups = input_flatten.view(-1, config.group_size)    # [-1, group_size]
         mn, mx = ext_minimax.minimax(input_groups)
         if not config.pergroup:    # No per group quantization
             mn = torch.ones_like(mn) * mn.min()
             mx = torch.ones_like(mx) * mx.max()
 
-        # Average range over pixels
+        # Average range over pixels     G * ||R_n||^2 / I
         Range_sqr = torch.norm((mx - mn).view(N, -1), dim=1).square() * (config.group_size / num_pixels)
 
         # greedy
         grad_sum = self.get_scale().cuda()
-        C = (self.num_locations / 4 * Range_sqr * grad_sum).cpu()
+        C = (self.num_locations / 4 / self.depthwise_groups * Range_sqr * grad_sum).cpu()
         b = torch.ones(N, dtype=torch.int32) * self.initial_bits
         w = torch.ones(N, dtype=torch.int32)
         b = ext_calc_precision.calc_precision(b, C, w, int(self.bits * N))         # N

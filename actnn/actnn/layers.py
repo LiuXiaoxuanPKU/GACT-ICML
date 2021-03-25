@@ -11,7 +11,7 @@ from torch.nn.modules.pooling import _size_2_t, _pair, _MaxPoolNd, _AvgPoolNd
 from actnn.qscheme import QScheme
 from actnn.qbnscheme import QBNScheme
 from actnn.conf import config
-from actnn.ops import linear, batch_norm, conv2d, sync_batch_norm
+from actnn.ops import linear, batch_norm, conv2d, sync_batch_norm, conv_transpose2d
 import actnn.cpp_extension.quantization as ext_quantization
 
 
@@ -26,7 +26,7 @@ class QConv2d(nn.Conv2d):
             num_locations = kernel_size[0] * kernel_size[1]
 
         if config.adaptive_conv_scheme:
-            self.scheme = QScheme(self, num_locations=num_locations, group=group)
+            self.scheme = QScheme(self, num_locations=num_locations, group=group, depthwise_groups=groups)
         else:
             self.scheme = None
 
@@ -40,6 +40,37 @@ class QConv2d(nn.Conv2d):
                                  self.padding, self.dilation, self.groups, self.scheme)
         else:
             return super(QConv2d, self).forward(input)
+
+
+class QConvTranspose2d(nn.ConvTranspose2d):
+    def __init__(self, in_channels, out_channels, kernel_size,
+                 stride=1, padding=0, output_padding=0, groups=1,
+                 bias=True, dilation=1, padding_mode='zeros', group=0):
+        super(QConvTranspose2d, self).__init__(in_channels, out_channels, kernel_size, stride,
+                                               padding, output_padding, groups, bias, dilation, padding_mode)
+        if isinstance(kernel_size, int):
+            num_locations = kernel_size ** 2
+        else:
+            num_locations = kernel_size[0] * kernel_size[1]
+
+        if config.adaptive_conv_scheme:
+            self.scheme = QScheme(self, num_locations=num_locations, group=group, depthwise_groups=groups)
+        else:
+            self.scheme = None
+
+    def forward(self, input, output_size=None):
+        if config.training:
+            if self.padding_mode != 'zeros':
+                raise ValueError('Only `zeros` padding mode is supported for ConvTranspose2d')
+
+            output_padding = self._output_padding(
+                input, output_size, self.stride, self.padding, self.kernel_size, self.dilation)  # type: ignore
+
+            return conv_transpose2d.apply(
+                input, self.weight, self.bias, self.stride, self.padding,
+                output_padding, self.groups, self.dilation, self.scheme)
+        else:
+            return super(QConvTranspose2d, self).forward(input, output_size)
 
 
 class QLinear(nn.Linear):

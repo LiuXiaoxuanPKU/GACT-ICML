@@ -19,7 +19,8 @@ class QBNScheme(QScheme):
             self.prev_linear = None
 
     def compute_quantization_bits(self, input):
-        N, D, H, W = input.shape
+        N = input.shape[0]
+        D = input.shape[1]
         input_flatten = input.view(N, -1)
         num_features = input_flatten.shape[1]
         num_pixels = num_features // D

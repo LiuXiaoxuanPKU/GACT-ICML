@@ -5,7 +5,9 @@ import torch
 import torch.nn as nn
 from torch import Tensor, device, dtype
 
-from actnn.layers import QConv2d, QBatchNorm2d, QReLU, QLinear, QMaxPool2d, QAvgPool2d
+from actnn.layers import QConv1d, QConv2d, QConv3d, QConvTranspose1d, QConvTranspose2d, QConvTranspose3d, \
+    QBatchNorm1d, QBatchNorm2d, QBatchNorm3d, QSyncBatchNorm, \
+    QReLU, QLinear, QMaxPool2d, QAvgPool2d
 from actnn.conf import config
 
 
@@ -19,15 +21,43 @@ class QModule(nn.Module):
     def convert_layers(module):
         for name, child in module.named_children():
             # Do not convert layers that are already quantized
-            if isinstance(child, (QConv2d, QBatchNorm2d, QReLU, QMaxPool2d, QLinear)):
+            if isinstance(child, (QConv1d, QConv2d, QConv3d, QConvTranspose1d, QConvTranspose2d, QConvTranspose3d,
+                                  QBatchNorm1d, QBatchNorm2d, QBatchNorm3d, QSyncBatchNorm,
+                                  QReLU, QLinear, QMaxPool2d, QAvgPool2d)):
                 continue
 
-            if isinstance(child, nn.Conv2d):
+            if isinstance(child, nn.Conv1d):
+                setattr(module, name, QConv1d(child.in_channels, child.out_channels,
+                    child.kernel_size, child.stride, child.padding, child.dilation,
+                    child.groups, child.bias is not None, child.padding_mode))
+            elif isinstance(child, nn.Conv2d):
                 setattr(module, name, QConv2d(child.in_channels, child.out_channels,
                     child.kernel_size, child.stride, child.padding, child.dilation,
-                    child.groups, child.bias is not None))
+                    child.groups, child.bias is not None, child.padding_mode))
+            elif isinstance(child, nn.Conv3d):
+                setattr(module, name, QConv3d(child.in_channels, child.out_channels,
+                    child.kernel_size, child.stride, child.padding, child.dilation,
+                    child.groups, child.bias is not None, child.padding_mode))
+            elif isinstance(child, nn.ConvTranspose1d):
+                setattr(module, name, QConvTranspose1d(child.in_channels, child.out_channels,
+                    child.kernel_size, child.stride, child.padding, child.output_padding,
+                    child.groups, child.bias, child.dilation, child.padding_mode))
+            elif isinstance(child, nn.ConvTranspose2d):
+                setattr(module, name, QConvTranspose2d(child.in_channels, child.out_channels,
+                    child.kernel_size, child.stride, child.padding, child.output_padding,
+                    child.groups, child.bias, child.dilation, child.padding_mode))
+            elif isinstance(child, nn.ConvTranspose3d):
+                setattr(module, name, QConvTranspose3d(child.in_channels, child.out_channels,
+                    child.kernel_size, child.stride, child.padding, child.output_padding,
+                    child.groups, child.bias, child.dilation, child.padding_mode))
+            elif isinstance(child, nn.BatchNorm1d) and config.enable_quantized_bn:
+                setattr(module, name, QBatchNorm1d(child.num_features, child.eps, child.momentum,
+                    child.affine, child.track_running_stats))
             elif isinstance(child, nn.BatchNorm2d) and config.enable_quantized_bn:
                 setattr(module, name, QBatchNorm2d(child.num_features, child.eps, child.momentum,
+                    child.affine, child.track_running_stats))
+            elif isinstance(child, nn.BatchNorm3d) and config.enable_quantized_bn:
+                setattr(module, name, QBatchNorm3d(child.num_features, child.eps, child.momentum,
                     child.affine, child.track_running_stats))
             elif isinstance(child, nn.Linear):
                 setattr(module, name, QLinear(child.in_features, child.out_features,

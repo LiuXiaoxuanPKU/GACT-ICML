@@ -126,6 +126,9 @@ class QScheme(object):
     def if_allocate_perlayer(self):
         if not config.perlayer:
             return
+        for layer in QScheme.layers:
+            if layer.C is None:
+                return
 
         first_layer = None
         for layer in QScheme.layers:

@@ -44,9 +44,9 @@ std::pair<Tensor, Tensor> pack_mixed_precision(Tensor data,
                                                Tensor max,
                                                Tensor bits,
                                                bool stochastic) {
-  CHECK_CUDA_TENSOR_DIM_TYPE(data, 3, torch::kFloat32);
-  CHECK_CUDA_TENSOR_DIM_TYPE(min, 3, torch::kFloat32);
-  CHECK_CUDA_TENSOR_DIM_TYPE(max, 3, torch::kFloat32);
+  CHECK_CUDA_TENSOR_DIM_FLOAT(data, 3);
+  CHECK_CUDA_TENSOR_DIM_FLOAT(min, 3);
+  CHECK_CUDA_TENSOR_DIM_FLOAT(max, 3);
   CHECK_CUDA_TENSOR_DIM_TYPE(bits, 1, torch::kInt32);
 
   return pack_mixed_precision_cuda(data, min, max, bits, stochastic);
@@ -61,8 +61,8 @@ Tensor unpack_mixed_precision(Tensor data,
                               int group_size) {
   CHECK_CUDA_TENSOR_DIM_TYPE(data, 1, torch::kInt32);
   CHECK_CUDA_TENSOR_DIM_TYPE(bits, 1, torch::kInt32);
-  CHECK_CUDA_TENSOR_DIM_TYPE(scale, 3, torch::kFloat32);
-  CHECK_CUDA_TENSOR_DIM_TYPE(min, 3, torch::kFloat32);
+  CHECK_CUDA_TENSOR_DIM_FLOAT(scale, 3);
+  CHECK_CUDA_TENSOR_DIM_FLOAT(min, 3);
 
   return unpack_mixed_precision_cuda(data, bits, scale, min,
                                      N, num_groups, group_size);
@@ -75,9 +75,9 @@ std::pair<Tensor, Tensor> pack_single_precision(Tensor data,
                                                 Tensor max,
                                                 int bits,
                                                 bool stochastic) {
-  CHECK_CUDA_TENSOR_DIM_TYPE(data, 3, torch::kFloat32);
-  CHECK_CUDA_TENSOR_DIM_TYPE(min, 3, torch::kFloat32);
-  CHECK_CUDA_TENSOR_DIM_TYPE(max, 3, torch::kFloat32);
+  CHECK_CUDA_TENSOR_DIM_FLOAT(data, 3);
+  CHECK_CUDA_TENSOR_DIM_FLOAT(min, 3);
+  CHECK_CUDA_TENSOR_DIM_FLOAT(max, 3);
 
   return pack_single_precision_cuda(data, min, max, bits, stochastic);
 }
@@ -90,8 +90,8 @@ Tensor unpack_single_precision(Tensor data,
                                int num_groups,
                                int group_size) {
   CHECK_CUDA_TENSOR_DIM_TYPE(data, 1, torch::kInt8);
-  CHECK_CUDA_TENSOR_DIM_TYPE(scale, 3, torch::kFloat32);
-  CHECK_CUDA_TENSOR_DIM_TYPE(min, 3, torch::kFloat32);
+  CHECK_CUDA_TENSOR_DIM_FLOAT(scale, 3);
+  CHECK_CUDA_TENSOR_DIM_FLOAT(min, 3);
 
   return unpack_single_precision_cuda(data, bits, scale, min,
                                       N, num_groups, group_size);
@@ -115,7 +115,7 @@ class ActQuantizedReLU : public Function<ActQuantizedReLU> {
 };
 
 Tensor act_quantized_relu(Tensor input) {
-  CHECK_CUDA_TENSOR_TYPE(input, torch::kFloat32);
+  CHECK_CUDA_TENSOR_FLOAT(input);
   return ActQuantizedReLU::apply(input);
 }
 
@@ -163,7 +163,7 @@ class ActQuantizedMaxPool2d : public Function<ActQuantizedMaxPool2d> {
 
 Tensor act_quantized_max_pool2d(Tensor input, IntArrayRef kernel_size,
     IntArrayRef stride, IntArrayRef padding, IntArrayRef dilation, bool ceil_mode, bool return_indices) {
-  CHECK_CUDA_TENSOR_TYPE(input, torch::kFloat32);
+  CHECK_CUDA_TENSOR_FLOAT(input);
   return ActQuantizedMaxPool2d::apply(input, kernel_size, stride, padding, dilation, ceil_mode, return_indices);
 }
 

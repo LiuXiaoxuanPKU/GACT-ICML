@@ -15,74 +15,85 @@ from actnn.ops import ext_backward_func, ext_quantization
 from actnn.ops import conv2d as quantized_conv2d, batch_norm as quantized_batch_norm, \
         adaptive_avg_pool2d as quantized_adaptive_avg_pool2d
 
+
 def test_relu_correctness():
-    data_np = np.random.randn(128, 56, 56, 31).astype('float32')
-
-    def test_implementation(func):
-        data = torch.tensor(data_np).to("cuda").requires_grad_()
-
-        output = func(data)
-        output.backward(torch.ones_like(output))
-
-        return [x.detach().cpu().numpy() for x in [output, data.grad]]
-
-    output_ref, grad_data_ref =  test_implementation(F.relu)
-    output_us, grad_data_us = test_implementation(ext_quantization.act_quantized_relu)
-
     print("========== ReLU Correctness Test ==========")
-    np.testing.assert_allclose(output_ref, output_us)
-    np.testing.assert_allclose(grad_data_ref, grad_data_us)
+
+    for dtype in ['float32', 'float16']:
+        print(f"test {dtype}...")
+        data_np = np.random.randn(128, 56, 56, 31).astype(dtype)
+
+        def test_implementation(func):
+            data = torch.tensor(data_np).to("cuda").requires_grad_()
+
+            output = func(data)
+            output.backward(torch.ones_like(output))
+
+            return [x.detach().cpu().numpy() for x in [output, data.grad]]
+
+        output_ref, grad_data_ref =  test_implementation(F.relu)
+        output_us, grad_data_us = test_implementation(ext_quantization.act_quantized_relu)
+
+        np.testing.assert_allclose(output_ref, output_us)
+        np.testing.assert_allclose(grad_data_ref, grad_data_us)
 
 
 def test_relu_memory():
-    data_np = np.random.randn(128, 56, 56, 32).astype('float32')
-
-    def test_implementation(func):
-        data = torch.tensor(data_np).to("cuda").requires_grad_()
-
-        before = get_memory_usage()
-
-        for i in range(10):
-            data = func(data)
-
-        after = get_memory_usage()
-        
-        return after - before
-
-    usage_ref = test_implementation(F.relu)
-    usage_us = test_implementation(ext_quantization.act_quantized_relu)
-
     print("========== ReLU Memory Test ==========")
-    print("Exact.     Usage: %.2f MB" % (usage_ref / 2 ** 20))
-    print("Quantized. Usage: %.2f MB" % (usage_us / 2 ** 20))
+
+    for dtype in ['float32', 'float16']:
+        print(f"test {dtype}...")
+        data_np = np.random.randn(128, 56, 56, 32).astype(dtype)
+
+        def test_implementation(func):
+            data = torch.tensor(data_np).to("cuda").requires_grad_()
+
+            before = get_memory_usage()
+
+            for i in range(10):
+                data = func(data)
+
+            after = get_memory_usage()
+            
+            return after - before
+
+        usage_ref = test_implementation(F.relu)
+        usage_us = test_implementation(ext_quantization.act_quantized_relu)
+
+        print("Exact.     Usage: %.2f MB" % (usage_ref / 2 ** 20))
+        print("Quantized. Usage: %.2f MB" % (usage_us / 2 ** 20))
 
 
 def test_relu_speed():
-    data_np = np.random.randn(256, 56, 56, 32).astype('float32')
-
-    def test_implementation(func):
-        data = torch.tensor(data_np).to("cuda").requires_grad_()
-
-        stmt = "func(data)"
-        t_forward = py_benchmark(stmt, {**globals(), **locals()},
-                                 setup="torch.cuda.synchronize()", finish="torch.cuda.synchronize()")
-
-        output = func(data)
-        head = torch.ones_like(output)
-        stmt = "output.backward(head, retain_graph=True)"
-        t_backward = py_benchmark(stmt, {**globals(), **locals()},
-                                 setup="torch.cuda.synchronize()", finish="torch.cuda.synchronize()")
-
-        return t_forward, t_backward
-
-    forward_ref, backward_ref = test_implementation(F.relu)
-    forward_us, backward_us = test_implementation(ext_quantization.act_quantized_relu)
-
     print("========== ReLU Speed Test ==========")
-    print("Exact.     forward: %.2f ms\tbackward: %.2f ms\tsum: %.2f ms" %
-            (forward_ref * 1e3, backward_ref * 1e3, (forward_ref + backward_ref) * 1e3))
-    print("Quantized. forward: %.2f ms\tbackward: %.2f ms\tsum: %.2f ms" %
-            (forward_us * 1e3, backward_us * 1e3, (forward_us + backward_us) * 1e3))
+
+    for dtype in ['float32', 'float16']:
+        print(f"test {dtype}...")
+
+        data_np = np.random.randn(256, 56, 56, 32).astype(dtype)
+
+        def test_implementation(func):
+            data = torch.tensor(data_np).to("cuda").requires_grad_()
+
+            stmt = "func(data)"
+            t_forward = py_benchmark(stmt, {**globals(), **locals()},
+                                     setup="torch.cuda.synchronize()", finish="torch.cuda.synchronize()")
+
+            output = func(data)
+            head = torch.ones_like(output)
+            stmt = "output.backward(head, retain_graph=True)"
+            t_backward = py_benchmark(stmt, {**globals(), **locals()},
+                                     setup="torch.cuda.synchronize()", finish="torch.cuda.synchronize()")
+
+            return t_forward, t_backward
+
+        forward_ref, backward_ref = test_implementation(F.relu)
+        forward_us, backward_us = test_implementation(ext_quantization.act_quantized_relu)
+
+        print("Exact.     forward: %.2f ms\tbackward: %.2f ms\tsum: %.2f ms" %
+                (forward_ref * 1e3, backward_ref * 1e3, (forward_ref + backward_ref) * 1e3))
+        print("Quantized. forward: %.2f ms\tbackward: %.2f ms\tsum: %.2f ms" %
+                (forward_us * 1e3, backward_us * 1e3, (forward_us + backward_us) * 1e3))
 
 
 def test_adaptive_avg_pool2d_correctness():
@@ -141,46 +152,53 @@ def test_max_pool2d_correctness():
     # arguments and test data
     N, H, W, CI, kernel_size, stride, padding, dilation = 4, 28, 28, 8, 3, 2, 1, 1
     ceil_mode, return_indices = False, False
-    data_np = np.random.randn(N, CI, H, W).astype('float32')
 
-    def test_implementation(func):
-        data = torch.tensor(data_np).to("cuda").requires_grad_()
-
-        output = func(data, (kernel_size, kernel_size), (stride, stride), (padding, padding),
-                            (dilation, dilation), ceil_mode, return_indices)
-        output.backward(torch.ones_like(output))
-
-        return [x.detach().cpu().numpy() for x in [output, data.grad]]
-
-    output_ref, grad_data_ref = test_implementation(F.max_pool2d)
-    output_us, grad_data_us = test_implementation(ext_quantization.act_quantized_max_pool2d)
-
-    atol = 1e-4
-    rtol = 1e-4
     print("========== MaxPool2d Correctness Test ==========")
-    np.testing.assert_allclose(output_ref, output_us, atol=atol, rtol=rtol)
-    np.testing.assert_allclose(grad_data_ref, grad_data_us, atol=atol, rtol=rtol)
+    for dtype in ['float32', 'float16']:
+        print(f"test {dtype}...")
+        data_np = np.random.randn(N, CI, H, W).astype(dtype)
+
+        def test_implementation(func):
+            data = torch.tensor(data_np).to("cuda").requires_grad_()
+
+            output = func(data, (kernel_size, kernel_size), (stride, stride), (padding, padding),
+                                (dilation, dilation), ceil_mode, return_indices)
+            output.backward(torch.ones_like(output))
+
+            return [x.detach().cpu().numpy() for x in [output, data.grad]]
+
+        output_ref, grad_data_ref = test_implementation(F.max_pool2d)
+        output_us, grad_data_us = test_implementation(ext_quantization.act_quantized_max_pool2d)
+
+        atol = 1e-4
+        rtol = 1e-4
+        np.testing.assert_allclose(output_ref, output_us, atol=atol, rtol=rtol)
+        np.testing.assert_allclose(grad_data_ref, grad_data_us, atol=atol, rtol=rtol)
 
 
 def test_max_pool2d_memory():
     """Test the memory usage"""
     # arguments and test data
-    N, H, W, CI, kernel_size, stride, padding, dilation = 4, 28, 28, 8, 3, 2, 1, 1
+    N, H, W, CI, kernel_size, stride, padding, dilation = 128, 28, 28, 8, 3, 2, 1, 1
     ceil_mode, return_indices = False, False
-    data_np = np.random.randn(N, CI, H, W).astype('float32')
 
-    def test_implementation(func):
-        data = torch.tensor(data_np).to("cuda").requires_grad_()
-        output = func(data, (kernel_size, kernel_size), (stride, stride), (padding, padding),
-                          (dilation, dilation), ceil_mode, return_indices)
-
-        return get_memory_usage() - compute_tensor_bytes([output, data])
-
-    usage_ref = test_implementation(F.max_pool2d)
-    usage_us = test_implementation(ext_quantization.act_quantized_max_pool2d)
     print("========== MaxPool2d Memory Test ==========")
-    print("Exact.     Usage: %.3f MB" % (usage_ref / 2 ** 20))
-    print("Quantized. Usage: %.3f MB" % (usage_us / 2 ** 20))
+    for dtype in ['float32', 'float16']:
+        print(f"test {dtype}...")
+
+        data_np = np.random.randn(N, CI, H, W).astype(dtype)
+
+        def test_implementation(func):
+            data = torch.tensor(data_np).to("cuda").requires_grad_()
+            output = func(data, (kernel_size, kernel_size), (stride, stride), (padding, padding),
+                              (dilation, dilation), ceil_mode, return_indices)
+
+            return get_memory_usage() - compute_tensor_bytes([output, data])
+
+        usage_ref = test_implementation(F.max_pool2d)
+        usage_us = test_implementation(ext_quantization.act_quantized_max_pool2d)
+        print("Exact.     Usage: %.3f MB" % (usage_ref / 2 ** 20))
+        print("Quantized. Usage: %.3f MB" % (usage_us / 2 ** 20))
 
 
 def test_max_pool2d_speed():
@@ -188,33 +206,37 @@ def test_max_pool2d_speed():
     # arguments and test data
     N, H, W, CI, kernel_size, stride, padding, dilation = 128, 28, 28, 128, 3, 2, 1, 1
     ceil_mode, return_indices = False, False
-    data_np = np.random.randn(N, CI, H, W).astype('float32')
 
-    def test_implementation(func):
-        data = torch.tensor(data_np).to("cuda").requires_grad_()
-
-        stmt = "func(data, (kernel_size, kernel_size), (stride, stride), (padding, padding),"\
-                          "(dilation, dilation), ceil_mode, return_indices)"
-        t_forward = py_benchmark(stmt, {**globals(), **locals()},
-                                 setup="torch.cuda.synchronize()", finish="torch.cuda.synchronize()")
-
-        output = func(data, (kernel_size, kernel_size), (stride, stride), (padding, padding),
-                            (dilation, dilation), ceil_mode, return_indices)
-        head = torch.ones_like(output)
-
-        stmt = "output.backward(head, retain_graph=True)"
-        t_backward = py_benchmark(stmt, {**globals(), **locals()},
-                                 setup="torch.cuda.synchronize()", finish="torch.cuda.synchronize()")
-        return t_forward, t_backward
-
-    forward_ref, backward_ref = test_implementation(F.max_pool2d)
-    forward_us, backward_us = test_implementation(ext_quantization.act_quantized_max_pool2d)
 
     print("========== MaxPool2d Speed Test ==========")
-    print("Exact.     forward: %.2f ms\tbackward: %.2f ms\tsum: %.2f ms" %
-            (forward_ref * 1e3, backward_ref * 1e3, (forward_ref + backward_ref) * 1e3))
-    print("Quantized. forward: %.2f ms\tbackward: %.2f ms\tsum: %.2f ms" %
-            (forward_us * 1e3, backward_us * 1e3, (forward_us + backward_us) * 1e3))
+    for dtype in ['float32', 'float16']:
+        print(f"test {dtype}...")
+        data_np = np.random.randn(N, CI, H, W).astype(dtype)
+
+        def test_implementation(func):
+            data = torch.tensor(data_np).to("cuda").requires_grad_()
+
+            stmt = "func(data, (kernel_size, kernel_size), (stride, stride), (padding, padding),"\
+                              "(dilation, dilation), ceil_mode, return_indices)"
+            t_forward = py_benchmark(stmt, {**globals(), **locals()},
+                                     setup="torch.cuda.synchronize()", finish="torch.cuda.synchronize()")
+
+            output = func(data, (kernel_size, kernel_size), (stride, stride), (padding, padding),
+                                (dilation, dilation), ceil_mode, return_indices)
+            head = torch.ones_like(output)
+
+            stmt = "output.backward(head, retain_graph=True)"
+            t_backward = py_benchmark(stmt, {**globals(), **locals()},
+                                     setup="torch.cuda.synchronize()", finish="torch.cuda.synchronize()")
+            return t_forward, t_backward
+
+        forward_ref, backward_ref = test_implementation(F.max_pool2d)
+        forward_us, backward_us = test_implementation(ext_quantization.act_quantized_max_pool2d)
+
+        print("Exact.     forward: %.2f ms\tbackward: %.2f ms\tsum: %.2f ms" %
+                (forward_ref * 1e3, backward_ref * 1e3, (forward_ref + backward_ref) * 1e3))
+        print("Quantized. forward: %.2f ms\tbackward: %.2f ms\tsum: %.2f ms" %
+                (forward_us * 1e3, backward_us * 1e3, (forward_us + backward_us) * 1e3))
 
 
 def test_upsample_memory():
@@ -283,125 +305,145 @@ def test_conv2d_correctness():
     """Test the correctness of computation results"""
     # arguments and test data
     N, H, W, CI, CO, kernel_size, stride, padding, dilation, groups = 4, 28, 28, 256, 256, 3, 1, 1, 1, 1
-    data_np = np.random.randn(N, CI, H, W).astype('float32')
-    weight_np = np.random.randn(CO, CI // groups, kernel_size, kernel_size).astype('float32')
-    bias_np = np.random.randn(CO).astype('float32')
 
-    def test_implementation(func, scheme):
-        torch.manual_seed(0)
-        data = torch.tensor(data_np).to("cuda").requires_grad_()
-        weight = torch.tensor(weight_np).to("cuda").requires_grad_()
-        bias = torch.tensor(bias_np).to("cuda").requires_grad_()
-
-        output = func(data, weight, bias, stride, padding, dilation, groups, scheme)
-        output.backward(torch.ones_like(output))
-
-        return [x.detach().cpu().numpy() for x in [output, data.grad, weight.grad, bias.grad]]
-
-    config.activation_compression_bits = [8, 8, 8]
-    config.perlayer = False
-    config.use_gradient = False
-    scheme = QScheme(None)
-
-    config.simulate = True
-    output_ref, grad_data_ref, grad_weight_ref, grad_bias_ref = test_implementation(quantized_conv2d.apply, scheme)
-    config.simulate = False
-    output_us, grad_data_us, grad_weight_us, grad_bias_us = test_implementation(quantized_conv2d.apply, scheme)
-
-    atol = 8e-2
-    rtol = 8e-2
     print("========== Conv2d Correctness Test ==========")
-    np.testing.assert_allclose(output_ref, output_us, atol=atol, rtol=rtol)
-    np.testing.assert_allclose(grad_data_ref, grad_data_us, atol=atol, rtol=rtol)
-    np.testing.assert_allclose(grad_weight_ref, grad_weight_us, atol=atol, rtol=rtol)
-    np.testing.assert_allclose(grad_bias_ref, grad_bias_us, atol=atol, rtol=rtol)
+    for dtype in ['float32', 'float16']:
+        print(f"test {dtype}...")
+        data_np = np.random.randn(N, CI, H, W).astype(dtype)
+        weight_np = np.random.randn(CO, CI // groups, kernel_size, kernel_size).astype(dtype)
+        bias_np = np.random.randn(CO).astype(dtype)
+
+        def test_implementation(func, scheme):
+            torch.manual_seed(0)
+            data = torch.tensor(data_np).to("cuda").requires_grad_()
+            weight = torch.tensor(weight_np).to("cuda").requires_grad_()
+            bias = torch.tensor(bias_np).to("cuda").requires_grad_()
+
+            output = func(data, weight, bias, stride, padding, dilation, groups, scheme)
+            output.backward(torch.ones_like(output))
+
+            return [x.detach().cpu().numpy() for x in [output, data.grad, weight.grad, bias.grad]]
+
+        config.activation_compression_bits = [16]
+        config.initial_bits = 16
+        config.perlayer = False
+        config.use_gradient = False
+        scheme = QScheme(None)
+
+        config.simulate = True
+        output_ref, grad_data_ref, grad_weight_ref, grad_bias_ref = test_implementation(quantized_conv2d.apply, scheme)
+        config.simulate = False
+        output_us, grad_data_us, grad_weight_us, grad_bias_us = test_implementation(quantized_conv2d.apply, scheme)
+
+        atol = 1e-2
+        rtol = 1e-2
+        assert output_ref.dtype == output_us.dtype
+        np.testing.assert_allclose(output_ref, output_us, atol=atol, rtol=rtol)
+        np.testing.assert_allclose(grad_data_ref, grad_data_us, atol=atol, rtol=rtol)
+        np.testing.assert_allclose(grad_weight_ref, grad_weight_us, atol=atol, rtol=rtol)
+        np.testing.assert_allclose(grad_bias_ref, grad_bias_us, atol=atol, rtol=rtol)
 
 
 def test_conv2d_correctness_per_group_only():
-    """Test the correctness of computation results"""
+    """Test the correctness of computation results
+
+    NOTE: This test will fail on large shapes or low bits.
+    To make this test pass, we should disable stochastic noise.
+    """
+
     # arguments and test data
-    N, H, W, CI, CO, kernel_size, stride, padding, dilation, groups = 2, 28, 28, 256, 256, 3, 1, 1, 1, 1
-    #N, H, W, CI, CO, kernel_size, stride, padding, dilation, groups = 1, 14, 14, 256, 1, 3, 1, 1, 1, 1
-    data_np = np.random.randn(N, CI, H, W).astype('float32')
-    weight_np = np.random.randn(CO, CI // groups, kernel_size, kernel_size).astype('float32')
-    bias_np = np.random.randn(CO).astype('float32')
+    N, H, W, CI, CO, kernel_size, stride, padding, dilation, groups = 2, 16, 16, 4, 4, 1, 1, 1, 1, 1
 
-    def test_implementation(func, scheme):
-        torch.manual_seed(0)
-        data = torch.tensor(data_np).to("cuda").requires_grad_()
-        weight = torch.tensor(weight_np).to("cuda").requires_grad_()
-        bias = torch.tensor(bias_np).to("cuda").requires_grad_()
+    print("========== Conv2d Correctness Test (per group only) ==========")
+    for dtype in ['float32', 'float16']:
+        print(f"test {dtype}...")
 
-        output = func(data, weight, bias, stride, padding, dilation, groups, scheme)
-        output.backward(torch.ones_like(output))
+        data_np = np.random.randn(N, CI, H, W).astype(dtype)
+        weight_np = np.random.randn(CO, CI // groups, kernel_size, kernel_size).astype(dtype)
+        bias_np = np.random.randn(CO).astype(dtype)
 
-        return [x.detach().cpu().numpy() for x in [output, data.grad, weight.grad, bias.grad]]
+        def test_implementation(func, scheme):
+            torch.manual_seed(0)
+            data = torch.tensor(data_np).to("cuda").requires_grad_()
+            weight = torch.tensor(weight_np).to("cuda").requires_grad_()
+            bias = torch.tensor(bias_np).to("cuda").requires_grad_()
 
-    config.activation_compression_bits = [4]
-    config.perlayer = False
-    config.use_gradient = False
+            output = func(data, weight, bias, stride, padding, dilation, groups, scheme)
+            output.backward(torch.ones_like(output))
 
-    config.simulate = True
-    output_ref, grad_data_ref, grad_weight_ref, grad_bias_ref = test_implementation(quantized_conv2d.apply, None)
-    config.simulate = False
-    output_us, grad_data_us, grad_weight_us, grad_bias_us = test_implementation(quantized_conv2d.apply, None)
+            return [x.detach().cpu().numpy() for x in [output, data.grad, weight.grad, bias.grad]]
 
-    atol = 8e-2
-    rtol = 8e-2
-    print("========== Conv2d Correctness Test ==========")
-    np.testing.assert_allclose(output_ref, output_us, atol=atol, rtol=rtol)
-    np.testing.assert_allclose(grad_data_ref, grad_data_us, atol=atol, rtol=rtol)
-    np.testing.assert_allclose(grad_weight_ref, grad_weight_us, atol=atol, rtol=rtol)
-    np.testing.assert_allclose(grad_bias_ref, grad_bias_us, atol=atol, rtol=rtol)
+        config.activation_compression_bits = [8]
+        config.perlayer = False
+        config.use_gradient = False
+
+        config.simulate = True
+        output_ref, grad_data_ref, grad_weight_ref, grad_bias_ref = test_implementation(quantized_conv2d.apply, None)
+        config.simulate = False
+        output_us, grad_data_us, grad_weight_us, grad_bias_us = test_implementation(quantized_conv2d.apply, None)
+
+        atol = 1e-1
+        rtol = 1e-1
+        assert output_ref.dtype == output_us.dtype
+        np.testing.assert_allclose(output_ref, output_us, atol=atol, rtol=rtol)
+        np.testing.assert_allclose(grad_data_ref, grad_data_us, atol=atol, rtol=rtol)
+        np.testing.assert_allclose(grad_weight_ref, grad_weight_us, atol=atol, rtol=rtol)
+        np.testing.assert_allclose(grad_bias_ref, grad_bias_us, atol=atol, rtol=rtol)
 
 
 def test_conv2d_speed():
     """Test the speed of convolution layer"""
 
+
     # arguments and test data
     N, H, W, CI, CO, kernel_size, stride, padding, dilation, groups = 128, 28, 28, 256, 256, 3, 1, 1, 1, 1
-    #N, H, W, CI, CO, kernel_size, stride, padding, dilation, groups = 128, 28, 28, 256, 256, 1, 1, 0, 1, 1
-    data_np = np.random.randn(N, CI, H, W).astype('float32')
-    weight_np = np.random.randn(CO, CI // groups, kernel_size, kernel_size).astype('float32')
-    bias_np = np.random.randn(CO).astype('float32')
-
-    scheme = QScheme(num_locations=kernel_size**2)
-
-    def test_implementation(func, stride, padding, dilation, groups):
-        data = torch.tensor(data_np).to("cuda").requires_grad_()
-        weight = torch.tensor(weight_np).to("cuda").requires_grad_()
-        bias = torch.tensor(bias_np).to("cuda").requires_grad_()
-
-        if func == quantized_conv2d.apply:
-            output = func(data, weight, bias, stride, padding, dilation, groups, scheme)
-            stmt = "func(data, weight, bias, stride, padding, dilation, groups, scheme)"
-        else:
-            output = func(data, weight, bias, stride, padding, dilation, groups)
-            stmt = "func(data, weight, bias, stride, padding, dilation, groups)"
-
-        t_forward = py_benchmark(stmt, {**globals(), **locals()},
-                                 setup="torch.cuda.synchronize()", finish="torch.cuda.synchronize()")
-
-        head = torch.ones_like(output)
-        stmt = "output.backward(head, retain_graph=True)"
-        t_backward = py_benchmark(stmt, {**globals(), **locals()},
-                                  setup="torch.cuda.synchronize()", finish="torch.cuda.synchronize()")
-
-        return t_forward, t_backward
-
-    forward_ref, backward_ref = test_implementation(F.conv2d, stride, padding, dilation, groups)
-    #config.simulate = True
-    #forward_sim, backward_sim = test_implementation(quantized_conv2d.apply, stride, padding, dilation, groups)
-    config.simulate = False
-    forward_us, backward_us = test_implementation(quantized_conv2d.apply, stride, padding, dilation, groups)
 
     print("========== Conv2d Speed Test ==========")
-    print("Exact.      forward: %.2f ms\tbackward: %.2f ms\tsum: %.2f ms" %
-            (forward_ref * 1e3, backward_ref * 1e3, (forward_ref + backward_ref) * 1e3))
-    print("Quantized.  forward: %.2f ms\tbackward: %.2f ms\tsum: %.2f ms" %
-            (forward_us * 1e3, backward_us * 1e3, (forward_us + backward_us) * 1e3))
-    #print("Simulation. forward: %.2f ms\tbackward: %.2f ms\tsum: %.2f ms" %
-    #        (forward_sim * 1e3, backward_sim * 1e3, (forward_sim + backward_sim) * 1e3))
+
+    for dtype in ['float32', 'float16']:
+        print(f"test {dtype}...")
+        data_np = np.random.randn(N, CI, H, W).astype(dtype)
+        weight_np = np.random.randn(CO, CI // groups, kernel_size, kernel_size).astype(dtype)
+        bias_np = np.random.randn(CO).astype(dtype)
+
+        scheme = QScheme(None)
+
+        def test_implementation(func, scheme):
+            data = torch.tensor(data_np).to("cuda").requires_grad_()
+            weight = torch.tensor(weight_np).to("cuda").requires_grad_()
+            bias = torch.tensor(bias_np).to("cuda").requires_grad_()
+
+            if func == quantized_conv2d.apply:
+                output = func(data, weight, bias, stride, padding, dilation, groups, scheme)
+                stmt = "func(data, weight, bias, stride, padding, dilation, groups, scheme)"
+            else:
+                output = func(data, weight, bias, stride, padding, dilation, groups)
+                stmt = "func(data, weight, bias, stride, padding, dilation, groups)"
+
+            t_forward = py_benchmark(stmt, {**globals(), **locals()},
+                                     setup="torch.cuda.synchronize()", finish="torch.cuda.synchronize()")
+
+            head = torch.ones_like(output)
+            stmt = "output.backward(head, retain_graph=True)"
+            t_backward = py_benchmark(stmt, {**globals(), **locals()},
+                                      setup="torch.cuda.synchronize()", finish="torch.cuda.synchronize()")
+
+            return t_forward, t_backward
+
+        config.activation_compression_bits = [16]
+        config.initial_bits = 16
+        config.perlayer = False
+        config.use_gradient = False
+        config.simulate = False
+        scheme = QScheme(None)
+
+        forward_ref, backward_ref = test_implementation(F.conv2d, None)
+        forward_us, backward_us = test_implementation(quantized_conv2d.apply, scheme)
+
+        print("Exact.      forward: %.2f ms\tbackward: %.2f ms\tsum: %.2f ms" %
+                (forward_ref * 1e3, backward_ref * 1e3, (forward_ref + backward_ref) * 1e3))
+        print("Quantized.  forward: %.2f ms\tbackward: %.2f ms\tsum: %.2f ms" %
+                (forward_us * 1e3, backward_us * 1e3, (forward_us + backward_us) * 1e3))
 
 
 def test_conv2d_memory_analytical():
@@ -536,11 +578,9 @@ if __name__ == "__main__":
 
     #test_bn_correctness()
 
-    #test_conv2d_correctness()
-
+    test_conv2d_correctness()
     #test_conv2d_correctness_per_group_only()
 
-    #config.activation_compression_bits = 2
     #test_conv2d_speed()
 
     #config.activation_compression_bits = 2

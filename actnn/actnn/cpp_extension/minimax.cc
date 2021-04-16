@@ -5,7 +5,7 @@
 std::pair<torch::Tensor, torch::Tensor> minimax_cuda(torch::Tensor data);
 
 std::pair<torch::Tensor, torch::Tensor> minimax(torch::Tensor data) {
-  CHECK_CUDA_TENSOR_TYPE(data, torch::kFloat32);
+  CHECK_CUDA_TENSOR_FLOAT(data);
 
   return minimax_cuda(data);
 }

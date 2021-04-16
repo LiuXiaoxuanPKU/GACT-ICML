@@ -112,7 +112,10 @@ def quantize_activation(input, scheme):
     q_input, q_scale = quantize_and_pack(input_groups, q_bits, q_min, mx)
 
     # TODO convert q_bits to int8
-    return q_input, q_bits, q_scale.to(torch.bfloat16), q_min.to(torch.bfloat16)
+    if input.dtype == torch.float32:
+        return q_input, q_bits, q_scale.to(torch.bfloat16), q_min.to(torch.bfloat16)
+    else:
+        return q_input, q_bits, q_scale, q_min
 
 
 def dequantize_activation(quantized, q_input_shape):
@@ -123,8 +126,9 @@ def dequantize_activation(quantized, q_input_shape):
         return ret
 
     q_input, q_bits, q_scale, q_min = quantized
-    q_scale = q_scale.to(torch.float32)
-    q_min = q_min.to(torch.float32)
+    if q_scale.dtype == torch.bfloat16:
+        q_scale = q_scale.to(torch.float32)
+        q_min = q_min.to(torch.float32)
     input = dequantize_and_unpack(q_input, q_input_shape, q_bits, q_scale, q_min)
 
     # Remove padding

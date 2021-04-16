@@ -5,23 +5,28 @@
 
 using torch::Tensor;
 
-#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 700)
-#define __shfl_sync(mask, var, lane, width) \
-        __shfl((var), (lane), (width))
 
-#define __shfl_down_sync(mask, var, offset, width) \
-        __shfl_down((var), (offset), (width))
+__device__ __inline__ c10::Half __shfl_down_sync(const unsigned mask, const c10::Half var,
+                                                 const unsigned int delta, const int width) {
+  __half var_ = var;
+  return __shfl_down_sync(mask, var_, delta, width);
+}
 
-#define __shfl_up_sync(mask, var, offset, width) \
-        __shfl_up((var), (offset), (width))
-#endif
 
-__global__ void minimax_cuda_kernel(const float* __restrict__ data,
-                                    float* __restrict__ min,
-                                    float* __restrict__ max,
+__device__ __inline__ c10::Half __shfl_sync(const unsigned mask, const c10::Half var,
+                                            const unsigned int delta, const int width) {
+  __half var_ = var;
+  return __shfl_sync(mask, var_, delta, width);
+}
+
+
+template <typename scalar_t>
+__global__ void minimax_cuda_kernel(const scalar_t* __restrict__ data,
+                                    scalar_t* __restrict__ min,
+                                    scalar_t* __restrict__ max,
                                     int N,
                                     int D) {
-  float max_val, min_val;
+  scalar_t max_val, min_val;
   max_val = -1e30;
   min_val = 1e30;
 
@@ -31,7 +36,7 @@ __global__ void minimax_cuda_kernel(const float* __restrict__ data,
   }
 
   unsigned int mask;
-  float max_val_t, min_val_t;
+  scalar_t max_val_t, min_val_t;
   mask = __activemask();
 
   max_val_t = __shfl_down_sync(mask, max_val, 16, 32);
@@ -66,7 +71,7 @@ std::pair<Tensor, Tensor> minimax_cuda(torch::Tensor data) {
   int N = data.size(0);
   int D = data.size(1);
 
-  auto options = torch::TensorOptions().dtype(torch::kFloat32).device(data.device());
+  auto options = torch::TensorOptions().dtype(data.dtype()).device(data.device());
   Tensor min = torch::empty({N,}, options);
   Tensor max = torch::empty({N,}, options);
 
@@ -74,9 +79,11 @@ std::pair<Tensor, Tensor> minimax_cuda(torch::Tensor data) {
   int threads = 32;
   TORCH_CHECK(D % 32 == 0 && D > 32);
 
-  minimax_cuda_kernel<<<blocks, threads>>>(
-    data.data_ptr<float>(), min.data_ptr<float>(), max.data_ptr<float>(),
-    N, D);
+  AT_DISPATCH_FLOATING_TYPES_AND_HALF(data.scalar_type(), "minimax_cuda", ([&] {
+    minimax_cuda_kernel<scalar_t><<<blocks, threads>>>(
+      data.data_ptr<scalar_t>(), min.data_ptr<scalar_t>(), max.data_ptr<scalar_t>(),
+      N, D);
+  }));
 
   return std::make_pair(min, max);
 }

@@ -87,37 +87,12 @@ parser.add_argument('--get-macs', action='store_true')
 best_acc1 = 0
 
 def set_optimization_level(args):
-    QScheme.num_samples = 1300000   # the size of training set
-
     if args.alg == 'exact':
         pass
-    elif args.alg == 'actnn-L0':    # Do nothing
-        config.compress_activation = False
-        config.adaptive_conv_scheme = config.adaptive_bn_scheme = False
-    elif args.alg == 'actnn-L1':    # 4-bit conv + 32-bit bn
-        config.activation_compression_bits = [4]
-        config.adaptive_conv_scheme = config.adaptive_bn_scheme = False
-        config.enable_quantized_bn = False
-    elif args.alg == 'actnn-L2':    # 4-bit
-        config.activation_compression_bits = [4]
-        config.adaptive_conv_scheme = config.adaptive_bn_scheme = False
-    elif args.alg == 'actnn-L3':   # 2-bit
-        config.use_gradient = True
-    elif args.alg == 'actnn-L3.1': # 2-bit + light system optimization
-        config.use_gradient = True
-        config.cudnn_benchmark_conv2d = False
-        config.empty_cache_threshold = 0.2
-        config.pipeline_threshold = 3 * 1024**3
-    elif args.alg == 'actnn-L4':    # 2-bit + swap
-        config.use_gradient = True
-        config.swap = True
-    elif args.alg == 'actnn-L5':    # 2-bit + swap + defragmentation
-        config.use_gradient = True
-        config.swap = True
-        os.environ['PYTORCH_CACHE_THRESHOLD'] = '256000000'
+    elif args.alg.startswith('actnn-'):
+        actnn.set_optimization_level(args.alg[6:])
     elif args.alg == 'swap':
-        config.swap = True
-        config.compress_activation = False
+        actnn.set_optimization_level('swap')
     else:
         raise ValueError("Invalid algorithm: " + args.alg)
 
@@ -125,6 +100,7 @@ def main():
     args = parser.parse_args()
 
     set_optimization_level(args)
+    QScheme.num_samples = 1300000   # the size of training set
 
     if args.seed is not None:
         random.seed(args.seed)

@@ -7,11 +7,11 @@
 
 // Greedy algorithm
 torch::Tensor calc_precision(torch::Tensor b, torch::Tensor C, torch::Tensor w, double target) {
-    TORCH_CHECK(!b.type().is_cuda(), "b must be a CPU tensor!");
+    TORCH_CHECK(b.device().is_cpu(), "b must be a CPU tensor!");
     TORCH_CHECK(b.is_contiguous(), "b must be contiguous!");
-    TORCH_CHECK(!C.type().is_cuda(), "C must be a CPU tensor!");
+    TORCH_CHECK(C.device().is_cpu(), "C must be a CPU tensor!");
     TORCH_CHECK(C.is_contiguous(), "C must be contiguous!");
-    TORCH_CHECK(!w.type().is_cuda(), "w must be a CPU tensor!");
+    TORCH_CHECK(w.device().is_cpu(), "w must be a CPU tensor!");
     TORCH_CHECK(w.is_contiguous(), "w must be contiguous!");
 
     // min \sum_i C_i / (2^b_i - 1)^2, s.t., \sum_i b_i = N b
@@ -58,9 +58,9 @@ struct State {
 std::pair<torch::Tensor, torch::Tensor> calc_precision_dp(torch::Tensor A, torch::Tensor C, int max_b, int target, int states) {
     using namespace std;
 
-    TORCH_CHECK(!A.type().is_cuda(), "A must be a CPU tensor!");
+    TORCH_CHECK(A.device().is_cpu(), "A must be a CPU tensor!");
     TORCH_CHECK(A.is_contiguous(), "A must be contiguous!");
-    TORCH_CHECK(!C.type().is_cuda(), "C must be a CPU tensor!");
+    TORCH_CHECK(C.device().is_cpu(), "C must be a CPU tensor!");
     TORCH_CHECK(C.is_contiguous(), "C must be contiguous!");
     // min \sum_i (1-p_i)/p_i A_i + C_i / (p_i B_i^2),
     // s.t. \sum_i p_i b_i = N b
@@ -112,8 +112,6 @@ std::pair<torch::Tensor, torch::Tensor> calc_precision_dp(torch::Tensor A, torch
     // Backtrace
     auto b_vec = torch::zeros({N}, A.options());
     auto p_vec = torch::zeros({N}, A.options());
-    auto *b_data = b_vec.data_ptr<float>();
-    auto *p_data = p_vec.data_ptr<float>();
     int current_state = total_states;
     for (int i = N; i > 0; i--) {
         auto &state = f[i][current_state];

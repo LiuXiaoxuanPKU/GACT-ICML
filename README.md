@@ -3,8 +3,8 @@
 ## Install
 - Requirements
 ```
-torch==1.7.1
-torchvision==0.8.2
+torch>=1.7.1
+torchvision>=0.8.2
 ```
 
 - Build

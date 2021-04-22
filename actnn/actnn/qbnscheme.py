@@ -43,7 +43,7 @@ class QBNScheme(QScheme):
         Range_sqr = torch.norm((mx - mn).view(N, -1), dim=1).square() * (config.group_size / num_pixels)
 
         # greedy
-        C = Range_sqr.cpu()
+        C = Range_sqr.to(torch.float32).cpu()
         b = torch.ones(N, dtype=torch.int32) * self.initial_bits
         w = torch.ones(N, dtype=torch.int32)
         b = ext_calc_precision.calc_precision(b, C, w, int(self.bits * N))

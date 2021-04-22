@@ -398,9 +398,9 @@ __global__ void act_quantized_relu_forward_kernel(const scalar_t* __restrict__ d
                                                   int N,
                                                   int mask_len) {
   const int id = blockIdx.x * blockDim.x + threadIdx.x;
-  const int global_offset = blockIdx.x * blockDim.x / (sizeof(scalar_t) * 8);
-  const int shared_len = ACT_QUANTIZED_RELU_NUM_THREADS / (sizeof(scalar_t) * 8);
-  __shared__ int mask_shared[ACT_QUANTIZED_RELU_NUM_THREADS / (sizeof(scalar_t) * 8)];
+  const int global_offset = blockIdx.x * blockDim.x / (sizeof(int32_t) * 8);
+  const int shared_len = ACT_QUANTIZED_RELU_NUM_THREADS / (sizeof(int32_t) * 8);
+  __shared__ int mask_shared[ACT_QUANTIZED_RELU_NUM_THREADS / (sizeof(int32_t) * 8)];
 
   if (threadIdx.x * 2 < shared_len) {
     reinterpret_cast<int2*>(mask_shared)[threadIdx.x] = make_int2(0, 0);
@@ -453,8 +453,8 @@ __global__ void act_quantized_relu_backward_kernel(const scalar_t* __restrict__ 
                                                    scalar_t* __restrict__ grad_input,
                                                    int N) {
   int id = blockIdx.x * blockDim.x + threadIdx.x;
-  const int global_offset = blockIdx.x * blockDim.x / (sizeof(scalar_t) * 8);
-  const int shared_len = ACT_QUANTIZED_RELU_NUM_THREADS / (sizeof(scalar_t) * 8);
+  const int global_offset = blockIdx.x * blockDim.x / (sizeof(int32_t) * 8);
+  const int shared_len = ACT_QUANTIZED_RELU_NUM_THREADS / (sizeof(int32_t) * 8);
 
   if (id < N) {
     bool bit =  (mask[global_offset + threadIdx.x % shared_len] >> (threadIdx.x / shared_len)) & 1;

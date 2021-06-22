@@ -15,17 +15,19 @@ from actnn.utils import get_memory_usage, compute_tensor_bytes, empty_cache, swa
 import actnn.cpp_extension.quantization as ext_quantization
 import actnn.cpp_extension.minimax as ext_minimax
 import actnn.cpp_extension.backward_func as ext_backward_func
+import actnn.cpp_extension.calc_precision as ext_calc_precision
 
 QParams = namedtuple('QParams', ['range', 'zero_point', 'num_bits'])
 
 params = set()
+bits_info = {}
 
 def add_params(param):
     params.add(param)
 
 def register_parameters(model):
     for name, param in model.named_parameters():
-        print("Add param ", name, param.data_ptr())
+        # print("Add param ", name, param.data_ptr())
         params.add(param.data_ptr())
     for module in model.modules():
         if isinstance(module, torch.nn.modules.batchnorm.BatchNorm2d):
@@ -70,7 +72,30 @@ def quantize_and_pack(data, bits, mn, mx):
 
     return output, scale
 
+def no_scheme_quantize_pack_new(input):
+    N = input.shape[0]
+    input_flatten = input.contiguous().view(N, -1) # lily
+    num_features = input_flatten.shape[1]
 
+    # Compute min, max by groups
+    if num_features % config.group_size != 0:
+        # Padding
+        new_num_features = (num_features // config.group_size + 1) * config.group_size
+        delta = new_num_features - num_features
+        input_flatten = torch.cat([input_flatten,
+                                   torch.zeros([N, delta], dtype=input.dtype, device=input.device)], 1)
+
+    input_groups = input_flatten.view(-1, config.group_size)
+    input_groups = input_groups.contiguous()
+
+    pack_func = ext_quantization.minimax_quantize_single_precision
+    q_input, q_bits, q_scale, q_min = pack_func(input_groups, config.activation_compression_bits[0])
+    q_bits = int(q_bits[0])
+    if config.swap:
+        q_input = swap_to_cpu(q_input)
+
+    return q_input, q_bits, q_scale, q_min
+    
 def dequantize_and_unpack(data, shape, bits, scale, mn):
     if config.simulate:
         data = data / scale + mn
@@ -92,11 +117,24 @@ def dequantize_and_unpack(data, shape, bits, scale, mn):
         data = unpack_func(data, bits, scale, mn, N, num_features // group_size, group_size)
     return data
 
+def dequantize_and_unpack_new(data, shape, bits, scale, mn):
+    if config.swap:
+        data = data.cuda(non_blocking=True)
+
+    # Unpack bitstream
+    if isinstance(bits, int):
+        unpack_func = ext_quantization.unpack_single_precision
+    else:
+        raise NotImplementedError("Fused dequantize mixed precision unplemented")
+    
+    unpack_func = ext_quantization.minimax_dequantize_single_precision
+    data = unpack_func(data, bits, scale, mn, scale.shape[0], config.group_size)
+    return data
 
 def no_scheme_compute_quantization_bits(input):
     N = input.shape[0]
     D = input.shape[1]
-    input_flatten = input.view(N, -1)
+    input_flatten = input.contiguous().view(N, -1) # lily
     num_features = input_flatten.shape[1]
     num_pixels = num_features // D
 
@@ -117,43 +155,63 @@ def no_scheme_compute_quantization_bits(input):
 
 def check_quantize(input_tensor):
     if input_tensor.dtype != torch.float32:
-        # print("type not ok", input_tensor.dtype)
+        # print("type not ok", input_tensor.dtype, input_tensor.shape)
         return False
-    if input_tensor.data_ptr() in params:
+    data_ptr = input_tensor.data_ptr()
+    if data_ptr in params:
         # print("is param", input_tensor.shape, " ", input_tensor.data_ptr())
         return False
-    if len(input_tensor.shape) != 4:
-        # print("tensor dim != 4", input_tensor.shape)
+    # if data_ptr in bits_info.keys():
+    #     return bits_info[data_ptr] == 32
+    # # Check sensitivity
+    # b = torch.ones(1, dtype=torch.int32) * 8 # initial bits
+    # C = torch.ones(1) * 0.5 # initial sensitivity
+    # w = torch.tensor([input_tensor.dim()], dtype=torch.int)
+    # total_bits = w.sum() * 8 # budget
+    # b = ext_calc_precision.calc_precision(b, C, w, total_bits)
+    # if b[0] > 4:
+    #     bits_info[data_ptr] = 32
+    #     print("No quantize ------ ", total_bits, w, input_tensor.shape, b[0])
+    #     return False
+    # print("Quantize ------ ", total_bits, w, input_tensor.shape, "dst bit ", b[0])
+    # bits_info[data_ptr] = b[0]
+    if len(input_tensor.shape) <= 2:
+        # print("tensor dim  <= 2", input_tensor.shape)
         return False
     return True
 
 def quantize_activation(input, scheme):
     if not check_quantize(input):
-        return input, None, None, None, torch.tensor(False)
+        return input, None, None, None, False
 
     if not config.compress_activation:
         if config.swap:
             input = swap_to_cpu(input)
-        return input, None, None, None, torch.tensor(True)
+        return input, None, None, None, True
 
-    print("Quantize input------", input.shape)
-    N = input.shape[0]
-    if scheme:
-        input_groups, q_bits, q_min, mx = scheme.compute_quantization_bits(input)
-    else:
-        input_groups, q_bits, q_min, mx = no_scheme_compute_quantization_bits(input)
+    # print("Quantize input------", type(input._grad_fn), input.shape)
+    
+    q_input, q_bits, q_scale, q_min = no_scheme_quantize_pack_new(input)
+    # print("[Input]----------", input[-1][0][0][0], q_input[0])
+    # print("Quanzie result-----",q_scale[-10:])
+    # if scheme:
+    #     input_groups, q_bits, q_min, mx = scheme.compute_quantization_bits(input)
+    # else:
+    #     input_groups, q_bits, q_min, mx = no_scheme_compute_quantization_bits(input)
 
-    q_bits = q_bits.item()
-    q_input, q_scale = quantize_and_pack(input_groups, q_bits, q_min, mx)
+    # # print(q_min.shape, mx.shape, input_groups.shape)
+    # q_bits = q_bits.item()
+    # q_input, q_scale = quantize_and_pack(input_groups, q_bits, q_min, mx)
 
+    # print("Quantize result------", q_scale[-1][-1][0])
     # TODO convert q_bits to int8
     if input.dtype == torch.float32:
-        return q_input, q_bits, q_scale.to(torch.bfloat16), q_min.to(torch.bfloat16)
+        return q_input, q_bits, q_scale.to(torch.bfloat16), q_min.to(torch.bfloat16), True
     else:
-        return q_input, q_bits, q_scale, q_min
+        return q_input, q_bits, q_scale, q_min, True
 
 def dequantize_activation(quantized, q_input_shape):
-    if not quantized[4].item():
+    if not quantized[4]:
         # print("No Dequantize-----", quantized[0].sum())
         return quantized[0]
     if not config.compress_activation:
@@ -162,18 +220,29 @@ def dequantize_activation(quantized, q_input_shape):
             ret = ret.cuda(non_blocking=True)
         return ret
 
-    q_input, q_bits, q_scale, q_min = quantized
+    q_input, q_bits, q_scale, q_min, _ = quantized
     if q_scale.dtype == torch.bfloat16:
         q_scale = q_scale.to(torch.float32)
         q_min = q_min.to(torch.float32)
 
-    input = dequantize_and_unpack(q_input, q_input_shape, q_bits, q_scale, q_min)
+    # N = q_input_shape[0]
+    # q_scale = q_scale.reshape(N, -1, 1)
+    # q_min = q_min.reshape(N, -1, 1)
+    # print(q_min.sum())
+    # print(q_scale.sum())
+    # input = dequantize_and_unpack(q_input, q_input_shape, q_bits, q_scale, q_min)
+    # print("[Dequantize]-----", input.shape, input.mean())
+  
+    input = dequantize_and_unpack_new(q_input, q_input_shape, q_bits, q_scale, q_min)
+    print("[Dequantize]-----", input.shape, input.mean())
+ 
+
     # Remove padding
     N = q_input_shape[0]
     num_features = np.prod(q_input_shape[1:])
     input = input.view(N, -1)[:, :num_features]
-    input = input.reshape(*q_input_shape)
-    return input.contiguous()
+    input = input.reshape(*q_input_shape).contiguous()
+    return input
 
 conv2d_layer_ct = 0
 bn_layer_ct = 0

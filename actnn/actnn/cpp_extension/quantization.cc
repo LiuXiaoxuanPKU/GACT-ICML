@@ -23,6 +23,9 @@ std::pair<Tensor, Tensor> pack_single_precision_cuda(
     Tensor data, Tensor min, Tensor max, int bits, bool stochastic);
 Tensor unpack_single_precision_cuda(
     Tensor data, int bits, Tensor scale, Tensor min, int N, int num_groups, int group_size);
+tensor_list minimax_quantize_single_precision_cuda(Tensor data, int bits);
+Tensor minimax_dequantize_single_precision_cuda(
+    Tensor data, int bits, Tensor scale, Tensor min, int n, int group_size);
 
 // ActQuantizedReLU
 std::pair<Tensor, Tensor> act_quantized_relu_forward_cuda(Tensor data);
@@ -95,6 +98,18 @@ Tensor unpack_single_precision(Tensor data,
 
   return unpack_single_precision_cuda(data, bits, scale, min,
                                       N, num_groups, group_size);
+}
+
+tensor_list minimax_quantize_single_precision(Tensor data, int bits) {
+  CHECK_CUDA_TENSOR_DIM_FLOAT(data, 2);
+  return minimax_quantize_single_precision_cuda(data, bits);
+}
+
+Tensor minimax_dequantize_single_precision(Tensor data, int bits, Tensor scale, Tensor min, int N, int group_size) {
+  CHECK_CUDA_TENSOR_DIM_TYPE(data, 1, torch::kInt8);
+  CHECK_CUDA_TENSOR_DIM_FLOAT(scale, 1);
+  CHECK_CUDA_TENSOR_DIM_FLOAT(min, 1);
+  return minimax_dequantize_single_precision_cuda(data, bits, scale, min, N, group_size);
 }
 
 
@@ -172,6 +187,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("unpack_mixed_precision", &unpack_mixed_precision);
   m.def("pack_single_precision", &pack_single_precision);
   m.def("unpack_single_precision", &unpack_single_precision);
+  m.def("minimax_quantize_single_precision", &minimax_quantize_single_precision);
+  m.def("minimax_dequantize_single_precision", &minimax_dequantize_single_precision);
   m.def("act_quantized_relu", &act_quantized_relu);
   m.def("act_quantized_max_pool2d", &act_quantized_max_pool2d);
 }

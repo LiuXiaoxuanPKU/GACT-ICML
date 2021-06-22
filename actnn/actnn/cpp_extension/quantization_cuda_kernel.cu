@@ -13,6 +13,7 @@
 
 using torch::IntArrayRef;
 using torch::Tensor;
+using torch::autograd::tensor_list;
 
 /****************************************/
 /****** Pack/Unpack Mixed Precision *****/
@@ -238,7 +239,7 @@ __global__ void pack_single_precision_kernel(int32_t bits,
 
     const int64_t id = (int64_t)(n * num_groups + group_id) * group_size + d;
     const float noise = curand_uniform(&state);
-    const int32_t val = __float2int_rn(fmax((data[id] - min[n * num_groups + group_id]) * scale[n * num_groups + group_id] + noise - 0.5, 0.0f));
+    const int32_t val = __float2int_rn(fmax((data[id] - min[n * num_groups + group_id]) * scale[n * num_groups + group_id] - 0.5, 0.0f));
     local_packed |= (val << (ni * bits));
   }
 
@@ -312,6 +313,179 @@ std::pair<Tensor, Tensor> pack_single_precision_cuda(Tensor data,
   }
 
   return std::make_pair(packed, scale);
+}
+
+template<typename scalar_t>
+__global__ void minimax_dequantize_single_precision_kernel(int32_t bits,
+                                                  const int8_t* __restrict__ data,
+                                                  scalar_t* __restrict__ scale,
+                                                  scalar_t* __restrict__ min,
+                                                  scalar_t* __restrict__ unpacked,
+                                                  int N,
+                                                  int group_size) {
+  // int group_id = blockIdx.x;
+  // int item_per_int = 8 / bits;
+  // uint8_t packed_value = data[group_id * group_size / item_per_int + threadIdx.x / item_per_int];
+  // int mask = ((1 << bits) - 1);
+  // packed_value = (packed_value >> (8 - bits * (threadIdx.x % item_per_int + 1))) & mask;
+  // unpacked[group_id * group_size + threadIdx.x] = 
+  // ((scalar_t)packed_value) / scale[group_id] + min[group_id];
+
+  int group_id = blockIdx.x;
+  int tid = threadIdx.x;
+  int work_per_thread = 8 / bits;
+  scalar_t scale_v = scale[group_id];
+  scalar_t min_v = min[group_id];
+  int mask = ((1 << bits) - 1);
+  uint8_t packed_value = data[group_id * group_size / work_per_thread + tid];
+  for (int i = 0; i < work_per_thread; i++) {
+    int val = (packed_value >> ((work_per_thread - i - 1) * bits)) & mask;
+    unpacked[group_id * group_size + tid * work_per_thread + i] = ((scalar_t)val) / scale_v + min_v;
+  }
+}
+
+Tensor minimax_dequantize_single_precision_cuda(Tensor data,
+                                                int bits,
+                                                Tensor scale,
+                                                Tensor min,
+                                                int N, int group_size) {
+  auto options = torch::TensorOptions().dtype(scale.dtype()).device(data.device());
+  Tensor unpacked = torch::empty({N, group_size}, options);
+
+  // int threads = group_size;
+
+  int work_per_thread = 8 / bits;
+  int threads = group_size / work_per_thread;
+  int blocks = N;
+  
+  AT_DISPATCH_FLOATING_TYPES_AND_HALF(scale.scalar_type(), "minimax_dequantize_single_precision", ([&] {
+    minimax_dequantize_single_precision_kernel<scalar_t><<<blocks, threads>>>(
+      bits,
+      data.data_ptr<int8_t>(),
+      scale.data_ptr<scalar_t>(),
+      min.data_ptr<scalar_t>(),
+      unpacked.data_ptr<scalar_t>(),
+      N, group_size
+    );
+  }));
+
+  return unpacked;
+}
+
+// Pack float16/32 data into int8 bit stream
+template<typename scalar_t>
+__global__ void minimax_quantize_single_precision_kernel(int32_t bits,
+                                             const scalar_t* __restrict__ data,
+                                             int8_t* __restrict__ packed,
+                                             scalar_t* scale,
+                                             scalar_t* min,
+                                             std::pair<uint64_t, uint64_t> seeds,
+                                             int N,
+                                             int group_size) {
+  __shared__ scalar_t min_red[256];
+  __shared__ scalar_t max_red[256];
+  scalar_t thread_data[10];
+
+  const int work_per_thread = 8 / bits;
+  unsigned int tid = threadIdx.x;
+  unsigned int group_id = blockIdx.x;
+  unsigned int global_thread_id = blockIdx.x * group_size + tid * work_per_thread;
+  scalar_t tmp_min_val = 1e30;
+  scalar_t tmp_max_val = -1e30;
+  for (int i = 0; i < work_per_thread; i++) {
+    scalar_t cur_val = data[global_thread_id + i];
+    thread_data[i] = cur_val;
+    tmp_min_val = fmin(tmp_min_val, cur_val);
+    tmp_max_val = fmax(tmp_max_val, cur_val);
+  }
+  min_red[tid] = tmp_min_val;
+  max_red[tid] = tmp_max_val; 
+  __syncthreads();
+  
+  // calculate min and max
+  for (int s = blockDim.x / 2; s>0; s>>=1) {
+    if (tid < s) {
+      min_red[tid] = fmin(min_red[tid], min_red[tid + s]);
+      max_red[tid] = fmax(max_red[tid], max_red[tid + s]);
+    }
+    __syncthreads();
+  }
+
+  if (tid == 0) {
+    scalar_t group_min = min_red[0];
+    scalar_t group_max= max_red[0];
+    scalar_t group_scale = ((scalar_t)((1 << bits) - 1)) / (group_max - group_min + 2e-6);
+    min[group_id] = group_min;
+    scale[group_id] = group_scale;
+  }
+  __syncthreads();
+
+  // quantize
+  curandStatePhilox4_32_10_t state;
+  curand_init(seeds.first, global_thread_id, seeds.second, &state);
+
+  scalar_t min_val = min[group_id];
+  scalar_t scale_val = scale[group_id];
+  uint8_t local_packed = 0;
+  for (int ni = 0; ni < work_per_thread; ni++) {
+    int n = tid * work_per_thread + ni;
+    const float noise = curand_uniform(&state);
+    const int32_t val = __float2int_rn(fmax((thread_data[ni] - min_val) * scale_val - 0.5, 0.0f));
+    local_packed |= (val << ((work_per_thread - ni - 1) * bits));
+  }
+  packed[group_id * group_size / work_per_thread + tid] = local_packed;
+}
+
+tensor_list minimax_quantize_single_precision_cuda(Tensor data, int bits) {
+  int N = data.size(0);
+  int group_size = data.size(1);
+
+  const int work_per_thread = 8 / bits;
+  int threads = group_size / work_per_thread;
+  // int threads = group_size;
+  int blocks = N;
+  TORCH_CHECK(8 % bits == 0);
+
+  // packed, q_bits, q_scale, q_min
+  // int64_t total_bits = ((int64_t)bits) * N * group_size;
+
+  int64_t total_bits = (group_size * bits + 7) / 8 * 8 * N;
+  auto options_packed = torch::TensorOptions().dtype(torch::kInt8).device(data.device());
+  Tensor packed = torch::empty({ total_bits / 8,}, options_packed);
+
+  auto options_minimax = torch::TensorOptions().dtype(data.scalar_type()).device(data.device());
+  Tensor min = torch::empty({N,}, options_minimax);
+  Tensor scale = torch::empty({N,}, options_minimax);
+
+  // Random number generator
+  auto gen = at::check_generator<at::CUDAGeneratorImpl>(at::cuda::detail::getDefaultCUDAGenerator());
+  std::pair<uint64_t, uint64_t> rng_engine_inputs;
+  {
+    // See Note [Acquire lock when using random generators]
+    std::lock_guard<std::mutex> lock(gen->mutex_);
+    rng_engine_inputs = gen->philox_engine_inputs(threads * work_per_thread);
+  };
+
+  AT_DISPATCH_FLOATING_TYPES_AND_HALF(data.scalar_type(), "minimax_quantize_single_precision", ([&] {
+    minimax_quantize_single_precision_kernel<scalar_t><<<blocks, threads>>>(
+      bits,
+      data.data_ptr<scalar_t>(),
+      packed.data_ptr<int8_t>(),
+      scale.data_ptr<scalar_t>(),
+      min.data_ptr<scalar_t>(),
+      rng_engine_inputs,
+      N, group_size
+    );
+  }));
+
+  tensor_list ret;
+  ret.push_back(packed);
+  Tensor bits_tensor = torch::ones(1);
+  bits_tensor[0] = bits;
+  ret.push_back(Tensor(bits_tensor));
+  ret.push_back(scale);
+  ret.push_back(min);
+  return ret;
 }
 
 // Unpack int32 bit stream to float16/32 data

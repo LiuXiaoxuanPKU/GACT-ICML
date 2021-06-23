@@ -101,7 +101,9 @@ Tensor unpack_single_precision(Tensor data,
 }
 
 tensor_list minimax_quantize_single_precision(Tensor data, int bits) {
-  CHECK_CUDA_TENSOR_DIM_FLOAT(data, 2);
+  // CHECK_CUDA_TENSOR_DIM_FLOAT(data, 2);
+  // return minimax_quantize_single_precision_cuda(data, bits);
+  CHECK_CUDA_TENSOR_DIM_FLOAT(data, 3);
   return minimax_quantize_single_precision_cuda(data, bits);
 }
 

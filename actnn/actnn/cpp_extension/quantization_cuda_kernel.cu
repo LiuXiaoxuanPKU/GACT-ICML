@@ -338,6 +338,7 @@ __global__ void minimax_dequantize_single_precision_kernel(int32_t bits,
   scalar_t min_v = min[group_id];
   int mask = ((1 << bits) - 1);
   uint8_t packed_value = data[group_id * group_size / work_per_thread + tid];
+  #pragma unroll
   for (int i = 0; i < work_per_thread; i++) {
     int val = (packed_value >> ((work_per_thread - i - 1) * bits)) & mask;
     unpacked[group_id * group_size + tid * work_per_thread + i] = ((scalar_t)val) / scale_v + min_v;
@@ -382,9 +383,9 @@ __global__ void minimax_quantize_single_precision_kernel(int32_t bits,
                                              std::pair<uint64_t, uint64_t> seeds,
                                              int N,
                                              int group_size) {
-  __shared__ scalar_t min_red[256];
-  __shared__ scalar_t max_red[256];
-  scalar_t thread_data[10];
+  __shared__ scalar_t min_red[1024];
+  __shared__ scalar_t max_red[1024];
+  scalar_t thread_data[5];
 
   const int work_per_thread = 8 / bits;
   unsigned int tid = threadIdx.x;
@@ -427,56 +428,175 @@ __global__ void minimax_quantize_single_precision_kernel(int32_t bits,
   scalar_t min_val = min[group_id];
   scalar_t scale_val = scale[group_id];
   uint8_t local_packed = 0;
+  #pragma unroll
   for (int ni = 0; ni < work_per_thread; ni++) {
     int n = tid * work_per_thread + ni;
     const float noise = curand_uniform(&state);
     const int32_t val = __float2int_rn(fmax((thread_data[ni] - min_val) * scale_val - 0.5, 0.0f));
-    local_packed |= (val << ((work_per_thread - ni - 1) * bits));
+    local_packed <<= bits;
+    local_packed |= val;
   }
   packed[group_id * group_size / work_per_thread + tid] = local_packed;
 }
 
+template<typename scalar_t, bool boundary_check>
+__global__ void fuse_single_precision_kernel (int32_t bits,
+                                             const scalar_t* __restrict__ data,
+                                             int8_t* __restrict__ packed,
+                                             scalar_t* __restrict__ scale,
+                                             scalar_t* __restrict__ min,
+                                             std::pair<uint64_t, uint64_t> seeds,
+                                             int N,
+                                             int num_groups,
+                                             int group_size) {
+  const int no = blockIdx.y;
+  const int group_id = blockIdx.x;
+  const int d = threadIdx.x;
+  const int work_per_thread = 8 / bits;
+  const int64_t global_thread_id = (int64_t)(no * num_groups + group_id) * group_size + d;
+
+  __shared__ scalar_t min_red[4 * 256];
+  __shared__ scalar_t max_red[4 * 256];
+  __shared__ scalar_t group_data[4 * 256];
+  __shared__ scalar_t tmp_scale[5];
+  
+  for (int ni = 0; ni < work_per_thread; ni++) {
+    const int n = no * work_per_thread + ni;
+
+    if (boundary_check && n >= N) { break; }
+
+    const int64_t id = (int64_t)(n * num_groups + group_id) * group_size + d;
+
+    scalar_t cur_val = data[id];
+    int idx = ni * 256 + d;
+    min_red[idx] = cur_val;
+    max_red[idx] = cur_val;
+    group_data[idx] = cur_val;
+  }
+
+  __syncthreads();
+
+  // for (int ni = 0; ni < work_per_thread; ni++) {
+  for (int s = group_size / 2; s>0; s>>=1) {
+    if (d < s) {
+      for (int ni = 0; ni < work_per_thread; ni++) {
+        int idx = ni*256 + d;
+        int ids = idx + s;
+        min_red[idx] = fmin(min_red[idx], min_red[ids]);
+        max_red[idx] = fmax(max_red[idx], max_red[ids]);
+      }
+    }
+    __syncthreads();
+  }
+  // }
+
+  if (d == 0) {
+    for (int ni = 0; ni < work_per_thread; ni++) {
+      const int n = no * work_per_thread + ni;
+      scalar_t group_min = min_red[ni * 256];
+      scalar_t group_max= max_red[ni * 256];
+      tmp_scale[ni] = ((scalar_t)((1 << bits) - 1)) / (group_max - group_min + 2e-6);
+      scalar_t group_scale = 1 / tmp_scale[ni];
+      min[n * num_groups + group_id] = group_min;
+      scale[n * num_groups + group_id] = group_scale;
+    }
+  }
+  __syncthreads();
+
+  curandStatePhilox4_32_10_t state;
+  curand_init(seeds.first, global_thread_id, seeds.second, &state);
+
+  uint8_t local_packed = 0;
+  for (int ni = 0; ni < work_per_thread; ni++) {
+    const int n = no * work_per_thread + ni;
+
+    // if (boundary_check && n >= N) { break; }
+
+    // const int64_t id = (int64_t)(n * num_groups + group_id) * group_size + d;
+    const float noise = curand_uniform(&state);
+    // const int32_t val = __float2int_rn(fmax((group_data[ni*256+d] -tmp[ni * 4]) * tmp[ni * 4 + 1] - 0.5, 0.0f));
+    const int32_t val = __float2int_rn(fmax((group_data[ni * 256+d] - min[n * num_groups + group_id]) * tmp_scale[ni] - 0.5, 0.0f));
+    // const int32_t val = __float2int_rn(fmax((data[id] - min[n * num_groups + group_id]) * scale[n * num_groups + group_id] - 0.5, 0.0f));
+    local_packed |= (val << (ni * bits));
+  }
+  packed[global_thread_id] = local_packed;
+}
+
 tensor_list minimax_quantize_single_precision_cuda(Tensor data, int bits) {
+  // int N = data.size(0);
+  // int group_size = data.size(1);
+
   int N = data.size(0);
-  int group_size = data.size(1);
+  int num_groups = data.size(1);
+  int group_size = data.size(2);
 
   const int work_per_thread = 8 / bits;
-  int threads = group_size / work_per_thread;
-  // int threads = group_size;
-  int blocks = N;
+  // int threads = group_size / work_per_thread;
+  // // int threads = group_size;
+  // int blocks = N;
   TORCH_CHECK(8 % bits == 0);
 
-  // packed, q_bits, q_scale, q_min
-  // int64_t total_bits = ((int64_t)bits) * N * group_size;
+  // int64_t total_bits = (group_size * bits + 7) / 8 * 8 * N;
+  // auto options_packed = torch::TensorOptions().dtype(torch::kInt8).device(data.device());
+  // Tensor packed = torch::empty({ total_bits / 8,}, options_packed);
 
-  int64_t total_bits = (group_size * bits + 7) / 8 * 8 * N;
-  auto options_packed = torch::TensorOptions().dtype(torch::kInt8).device(data.device());
-  Tensor packed = torch::empty({ total_bits / 8,}, options_packed);
+  int N_round = N + (work_per_thread - N % work_per_thread) % work_per_thread;
+  int64_t total_bits = ((int64_t)bits) * (N_round * num_groups * group_size);
+  auto options = torch::TensorOptions().dtype(torch::kInt8).device(data.device());
+  Tensor packed = torch::empty({(total_bits + 8) / 8,}, options);
 
   auto options_minimax = torch::TensorOptions().dtype(data.scalar_type()).device(data.device());
-  Tensor min = torch::empty({N,}, options_minimax);
-  Tensor scale = torch::empty({N,}, options_minimax);
+  Tensor min = torch::empty({N, num_groups, 1}, options_minimax);
+  Tensor scale = torch::empty({N, num_groups, 1}, options_minimax);
 
   // Random number generator
   auto gen = at::check_generator<at::CUDAGeneratorImpl>(at::cuda::detail::getDefaultCUDAGenerator());
   std::pair<uint64_t, uint64_t> rng_engine_inputs;
   {
+    int threads = 256;
     // See Note [Acquire lock when using random generators]
     std::lock_guard<std::mutex> lock(gen->mutex_);
     rng_engine_inputs = gen->philox_engine_inputs(threads * work_per_thread);
   };
 
+  // Pack
+  dim3 block_dim(num_groups, (N + work_per_thread - 1) / work_per_thread, 1);
+  dim3 thread_dim(group_size, 1, 1);
+
+  if (N % work_per_thread == 0) {
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(data.scalar_type(), "minimax_quantize_single_precision", ([&] {
-    minimax_quantize_single_precision_kernel<scalar_t><<<blocks, threads>>>(
+    fuse_single_precision_kernel<scalar_t, false><<<block_dim, thread_dim>>>(
       bits,
       data.data_ptr<scalar_t>(),
       packed.data_ptr<int8_t>(),
       scale.data_ptr<scalar_t>(),
       min.data_ptr<scalar_t>(),
       rng_engine_inputs,
-      N, group_size
+      N, num_groups, group_size
     );
   }));
+  } else {
+    AT_DISPATCH_FLOATING_TYPES_AND_HALF(data.scalar_type(), "minimax_quantize_single_precision", ([&] {
+      fuse_single_precision_kernel<scalar_t, true><<<block_dim, thread_dim>>>(
+        bits,
+        data.data_ptr<scalar_t>(), packed.data_ptr<int8_t>(),
+        scale.data_ptr<scalar_t>(), min.data_ptr<scalar_t>(),
+        rng_engine_inputs,
+        N, num_groups, group_size);
+    }));
+  }
+
+  // AT_DISPATCH_FLOATING_TYPES_AND_HALF(data.scalar_type(), "minimax_quantize_single_precision", ([&] {
+  //   minimax_quantize_single_precision_kernel<scalar_t><<<blocks, threads>>>(
+  //     bits,
+  //     data.data_ptr<scalar_t>(),
+  //     packed.data_ptr<int8_t>(),
+  //     scale.data_ptr<scalar_t>(),
+  //     min.data_ptr<scalar_t>(),
+  //     rng_engine_inputs,
+  //     N, group_size
+  //   );
+  // }));
 
   tensor_list ret;
   ret.push_back(packed);
@@ -514,7 +634,8 @@ __global__ void unpack_single_precision_kernel(int32_t bits,
 
     const int val = (local_packed >> (ni * bits)) & mask;
     const int64_t id = (int64_t)(n * num_groups + group_id) * group_size + d;
-    unpacked[id] = ((scalar_t)val) / scale[n * num_groups + group_id] + min[n * num_groups + group_id];
+    // unpacked[id] = ((scalar_t)val) / scale[n * num_groups + group_id] + min[n * num_groups + group_id];
+    unpacked[id] = ((scalar_t)val) * scale[n * num_groups + group_id] + min[n * num_groups + group_id];
   }
 }
 

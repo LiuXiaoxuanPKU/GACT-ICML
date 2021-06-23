@@ -85,7 +85,8 @@ def no_scheme_quantize_pack_new(input):
         input_flatten = torch.cat([input_flatten,
                                    torch.zeros([N, delta], dtype=input.dtype, device=input.device)], 1)
 
-    input_groups = input_flatten.view(-1, config.group_size)
+    # input_groups = input_flatten.view(-1, config.group_size)
+    input_groups = input_flatten.view(N, -1, config.group_size)
     input_groups = input_groups.contiguous()
 
     pack_func = ext_quantization.minimax_quantize_single_precision
@@ -230,11 +231,11 @@ def dequantize_activation(quantized, q_input_shape):
     # q_min = q_min.reshape(N, -1, 1)
     # print(q_min.sum())
     # print(q_scale.sum())
-    # input = dequantize_and_unpack(q_input, q_input_shape, q_bits, q_scale, q_min)
-    # print("[Dequantize]-----", input.shape, input.mean())
-  
-    input = dequantize_and_unpack_new(q_input, q_input_shape, q_bits, q_scale, q_min)
+    input = dequantize_and_unpack(q_input, q_input_shape, q_bits, q_scale, q_min)
     print("[Dequantize]-----", input.shape, input.mean())
+  
+    # input = dequantize_and_unpack_new(q_input, q_input_shape, q_bits, q_scale, q_min)
+    # print("[Dequantize]-----", input.shape, input.mean())
  
 
     # Remove padding

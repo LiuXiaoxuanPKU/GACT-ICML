@@ -193,8 +193,6 @@ def quantize_activation(input, scheme):
     # print("Quantize input------", type(input._grad_fn), input.shape)
     
     q_input, q_bits, q_scale, q_min = no_scheme_quantize_pack_new(input)
-    # print("[Input]----------", input[-1][0][0][0], q_input[0])
-    # print("Quanzie result-----",q_scale[-10:])
     # if scheme:
     #     input_groups, q_bits, q_min, mx = scheme.compute_quantization_bits(input)
     # else:
@@ -232,7 +230,7 @@ def dequantize_activation(quantized, q_input_shape):
     # print(q_min.sum())
     # print(q_scale.sum())
     input = dequantize_and_unpack(q_input, q_input_shape, q_bits, q_scale, q_min)
-    print("[Dequantize]-----", input.shape, input.mean())
+    # print("[Dequantize]-----", input.shape, input.mean())
   
     # input = dequantize_and_unpack_new(q_input, q_input_shape, q_bits, q_scale, q_min)
     # print("[Dequantize]-----", input.shape, input.mean())

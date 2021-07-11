@@ -9,7 +9,7 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
-
+#include <cuda_fp16.h>
 
 using torch::IntArrayRef;
 using torch::Tensor;
@@ -455,10 +455,10 @@ __global__ void fuse_single_precision_kernel (int32_t bits,
   const int work_per_thread = 8 / bits;
   const int64_t global_thread_id = (int64_t)(no * num_groups + group_id) * group_size + d;
 
-  __shared__ scalar_t min_red[4 * 256];
-  __shared__ scalar_t max_red[4 * 256];
-  __shared__ scalar_t group_data[4 * 256];
-  __shared__ scalar_t tmp_scale[5];
+  __shared__ half min_red[4 * 256];
+  __shared__ half max_red[4 * 256];
+  __shared__ half group_data[4 * 256];
+  __shared__ half tmp_scale[5];
   
   for (int ni = 0; ni < work_per_thread; ni++) {
     const int n = no * work_per_thread + ni;
@@ -467,7 +467,7 @@ __global__ void fuse_single_precision_kernel (int32_t bits,
 
     const int64_t id = (int64_t)(n * num_groups + group_id) * group_size + d;
 
-    scalar_t cur_val = data[id];
+    half cur_val = __float2half(data[id]);
     int idx = ni * 256 + d;
     min_red[idx] = cur_val;
     max_red[idx] = cur_val;
@@ -480,10 +480,10 @@ __global__ void fuse_single_precision_kernel (int32_t bits,
   for (int s = group_size / 2; s>0; s>>=1) {
     if (d < s) {
       for (int ni = 0; ni < work_per_thread; ni++) {
-        int idx = ni*256 + d;
+        int idx = ni * 256 + d;
         int ids = idx + s;
-        min_red[idx] = fmin(min_red[idx], min_red[ids]);
-        max_red[idx] = fmax(max_red[idx], max_red[ids]);
+        min_red[idx] = __hle(min_red[idx], min_red[ids]) ? min_red[idx] : min_red[ids];
+        max_red[idx] = __hgt(max_red[idx], max_red[ids]) ? max_red[idx] : max_red[ids];
       }
     }
     __syncthreads();
@@ -493,12 +493,14 @@ __global__ void fuse_single_precision_kernel (int32_t bits,
   if (d == 0) {
     for (int ni = 0; ni < work_per_thread; ni++) {
       const int n = no * work_per_thread + ni;
-      scalar_t group_min = min_red[ni * 256];
-      scalar_t group_max= max_red[ni * 256];
-      tmp_scale[ni] = ((scalar_t)((1 << bits) - 1)) / (group_max - group_min + 2e-6);
-      scalar_t group_scale = 1 / tmp_scale[ni];
-      min[n * num_groups + group_id] = group_min;
-      scale[n * num_groups + group_id] = group_scale;
+      half group_min = min_red[ni * 256];
+      half group_max= max_red[ni * 256];
+      tmp_scale[ni] = __hdiv(
+                        (__int2half_rn((1 << bits) - 1)),
+                        (__hadd(__hsub(group_max, group_min), __float2half(2e-6))));
+      half group_scale = __hdiv(__int2half_rn(1), tmp_scale[ni]);
+      min[n * num_groups + group_id] = __half2float(group_min);
+      scale[n * num_groups + group_id] = __half2float(group_scale);
     }
   }
   __syncthreads();
@@ -512,11 +514,13 @@ __global__ void fuse_single_precision_kernel (int32_t bits,
 
     // if (boundary_check && n >= N) { break; }
 
-    // const int64_t id = (int64_t)(n * num_groups + group_id) * group_size + d;
-    const float noise = curand_uniform(&state);
-    // const int32_t val = __float2int_rn(fmax((group_data[ni*256+d] -tmp[ni * 4]) * tmp[ni * 4 + 1] - 0.5, 0.0f));
-    const int32_t val = __float2int_rn(fmax((group_data[ni * 256+d] - min[n * num_groups + group_id]) * tmp_scale[ni] - 0.5, 0.0f));
-    // const int32_t val = __float2int_rn(fmax((data[id] - min[n * num_groups + group_id]) * scale[n * num_groups + group_id] - 0.5, 0.0f));
+    // const float noise = curand_uniform(&state);
+    half quantized = __hsub(__hmul(
+                              __hsub(group_data[ni * 256 + d], min_red[ni * 256]), 
+                              tmp_scale[ni]),
+                            __float2half (0.5));
+    quantized = __hgt(quantized, __float2half (0.0)) ? quantized : __float2half (0.0);
+    const int32_t val = __half2int_rn(quantized);
     local_packed |= (val << (ni * bits));
   }
   packed[global_thread_id] = local_packed;

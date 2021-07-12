@@ -102,6 +102,8 @@ def dequantize_and_unpack(data, shape, bits, scale, mn):
         data = data / scale + mn
     else:
         if config.swap:
+            torch.cuda.synchronize()
+            # print("--------", data.to(torch.float).mean())
             data = data.cuda(non_blocking=True)
 
         # Pad to group_size
@@ -232,7 +234,7 @@ def dequantize_activation(quantized, q_input_shape):
     # print(q_min.sum())
     # print(q_scale.sum())
     input = dequantize_and_unpack(q_input, q_input_shape, q_bits, q_scale, q_min)
-    print("[Dequantize]-----", input.shape, input.mean())
+    # print("[Dequantize]-----", input.shape, input.mean())
   
     # input = dequantize_and_unpack_new(q_input, q_input_shape, q_bits, q_scale, q_min)
     # print("[Dequantize]-----", input.shape, input.mean())

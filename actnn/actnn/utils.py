@@ -8,8 +8,11 @@ import json
 
 
 def swap_to_cpu(tensor):
-    tensor_cpu = torch.empty(tensor.shape, dtype=tensor.dtype, device='cpu', pin_memory=True)
-    tensor_cpu.copy_(tensor, non_blocking=True)
+    s = torch.cuda.Stream()
+    s.wait_stream(torch.cuda.current_stream())
+    with torch.cuda.stream(s):
+        tensor_cpu = torch.empty(tensor.shape, dtype=tensor.dtype, device='cpu', pin_memory=True)
+        tensor_cpu.copy_(tensor, non_blocking=True)
     return tensor_cpu
 
 

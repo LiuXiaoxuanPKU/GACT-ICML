@@ -102,6 +102,8 @@ def dequantize_and_unpack(data, shape, bits, scale, mn):
         data = data / scale + mn
     else:
         if config.swap:
+            torch.cuda.synchronize()
+            # print("--------", data.to(torch.float).mean())
             data = data.cuda(non_blocking=True)
 
         # Pad to group_size

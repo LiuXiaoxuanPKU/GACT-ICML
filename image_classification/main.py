@@ -9,13 +9,13 @@ import torch.utils.data
 import torch.utils.data.distributed
 from actnn import config, QScheme, QModule
 
-try:
-    # from apex.parallel import DistributedDataParallel as DDP
-    from torch.nn.parallel import DistributedDataParallel as DDP
-    from apex.fp16_utils import *
-    from apex import amp
-except ImportError:
-    raise ImportError("Please install apex from https://www.github.com/nvidia/apex to run this example.")
+# try:
+#     # from apex.parallel import DistributedDataParallel as DDP
+#     from torch.nn.parallel import DistributedDataParallel as DDP
+#     from apex.fp16_utils import *
+#     from apex import amp
+# except ImportError:
+#     raise ImportError("Please install apex from https://www.github.com/nvidia/apex to run this example.")
 
 from image_classification.smoothing import LabelSmoothing
 from image_classification.mixup import NLLMultiLabelSmooth, MixUpWrapper
@@ -146,7 +146,8 @@ def add_parser_arguments(parser):
 
 
 def main(args):
-    config.compress_activation = args.ca
+    # config.compress_activation = args.ca
+    config.compress_activation = True
     config.stochastic = args.sq
     if args.calg == 'naive':
         config.activation_compression_bits = [int(args.cabits)]

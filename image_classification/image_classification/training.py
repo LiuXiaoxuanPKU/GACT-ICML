@@ -10,15 +10,21 @@ from . import utils
 from .debug import get_var, get_var_during_training
 from actnn import config, QScheme, QModule, get_memory_usage, compute_tensor_bytes, exp_recorder
 from copy import copy
+import actnn
 
-try:
-    # from apex.parallel import DistributedDataParallel as DDP
-    from torch.nn.parallel import DistributedDataParallel as DDP
-    from apex.fp16_utils import *
-    from apex import amp
-except ImportError:
-    raise ImportError("Please install apex from https://www.github.com/nvidia/apex to run this example.")
+# try:
+#     # from apex.parallel import DistributedDataParallel as DDP
+#     from torch.nn.parallel import DistributedDataParallel as DDP
+#     from apex.fp16_utils import *
+#     from apex import amp
+# except ImportError:
+#     raise ImportError("Please install apex from https://www.github.com/nvidia/apex to run this example.")
 
+def to_python_float(t):
+    if hasattr(t, 'item'):
+        return t.item()
+    else:
+        return t[0]
 
 MB = 1024**2
 GB = 1024**3
@@ -51,6 +57,7 @@ class ModelAndLoss(nn.Module):
 
         self.model = model
         self.loss = criterion
+        actnn.ops.register_parameters(self.model)
 
     def forward(self, data, target):
         output = self.model(data)
@@ -227,7 +234,8 @@ def get_train_step(model_and_loss, optimizer, fp16, use_amp = False, batch_size_
             loss.backward()
 
         if optimizer_step:
-            opt = optimizer.optimizer if isinstance(optimizer, FP16_Optimizer) else optimizer
+            # opt = optimizer.optimizer if isinstance(optimizer, FP16_Optimizer) else optimizer
+            opt = optimizer
             for param_group in opt.param_groups:
                 for param in param_group['params']:
                     param.grad /= batch_size_multiplier

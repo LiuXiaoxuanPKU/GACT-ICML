@@ -26,19 +26,25 @@ tensor_id = 0
 def add_params(param):
     params.add(param)
 
+param_size = 0
 def register_parameters(model):
+    global param_size
     for name, param in model.named_parameters():
         params.add(param.data_ptr())
+        param_size += np.prod(param.shape) * 4
     for module in model.modules():
         if isinstance(module, torch.nn.modules.batchnorm.BatchNorm2d):
             params.add((module.running_mean.data_ptr()))
             params.add((module.running_var.data_ptr()))
+            param_size += np.prod(module.running_mean.shape) * 4
+            param_size += np.prod(module.running_var.shape) * 4
             # print("running mean ", module.running_mean.data_ptr())
             # print("running var ", module.running_var.data_ptr())
             # attrs = (dir(module))
             # for i in range(len(module)):
             #     print(attrs[i], getattr(module, attrs[i]))
     # print(params)
+    print("Parameter size %d MB" %(param_size / 1024 / 1024))
 
 def quantize_and_pack(data, bits, mn, mx):
     if config.simulate:
@@ -168,13 +174,17 @@ def check_quantize(input_tensor):
     return True
 
 def quantize_activation(input, scheme):
+    print("Quantize input, ", input.shape, " type, "
+            , input.dtype, check_quantize(input), input.data_ptr() in params, input.grad_fn)
+    print("---------------")
+
     if not check_quantize(input):
         return input, None, None, None, False
 
     if not config.compress_activation:
         if config.swap:
             input = swap_to_cpu(input)
-        return input, None, None, None, True
+        return input, None, None, None, False
 
     q_input, q_bits, q_scale, q_min = no_scheme_quantize_pack_new(input)
     # if scheme:

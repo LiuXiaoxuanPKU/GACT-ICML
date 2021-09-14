@@ -493,6 +493,7 @@ __global__ void fuse_single_precision_kernel (int32_t bits,
   if (d == 0) {
     for (int ni = 0; ni < work_per_thread; ni++) {
       const int n = no * work_per_thread + ni;
+      if (boundary_check && n >= N) { break; }
       half group_min = min_red[ni * 256];
       half group_max= max_red[ni * 256];
       tmp_scale[ni] = __hdiv(
@@ -512,7 +513,7 @@ __global__ void fuse_single_precision_kernel (int32_t bits,
   for (int ni = 0; ni < work_per_thread; ni++) {
     const int n = no * work_per_thread + ni;
 
-    // if (boundary_check && n >= N) { break; }
+    if (boundary_check && n >= N) { break; }
 
     // const float noise = curand_uniform(&state);
     half quantized = __hsub(__hmul(

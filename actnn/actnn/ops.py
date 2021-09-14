@@ -174,10 +174,6 @@ def check_quantize(input_tensor):
     return True
 
 def quantize_activation(input, scheme):
-    print("Quantize input, ", input.shape, " type, "
-            , input.dtype, check_quantize(input), input.data_ptr() in params, input.grad_fn)
-    print("---------------")
-
     if not check_quantize(input):
         return input, None, None, None, False
 
@@ -208,7 +204,6 @@ def quantize_activation(input, scheme):
 
 def dequantize_activation(quantized, q_input_shape):
     if not quantized[-1]:
-        # print("No Dequantize-----", quantized[0].sum())
         return quantized[0]
     if not config.compress_activation:
         ret = quantized[0]

@@ -91,7 +91,6 @@ def no_scheme_quantize_pack_new(input):
         input_flatten = torch.cat([input_flatten,
                                    torch.zeros([N, delta], dtype=input.dtype, device=input.device)], 1)
 
-    # input_groups = input_flatten.view(-1, config.group_size)
     input_groups = input_flatten.view(N, -1, config.group_size)
     input_groups = input_groups.contiguous()
 
@@ -175,24 +174,25 @@ def check_quantize(input_tensor):
 
 def quantize_activation(input, scheme):
     if not check_quantize(input):
-        return input, None, None, None, False
+        return input, None, None, None, -1, False
 
     if not config.compress_activation:
         if config.swap:
             input = swap_to_cpu(input)
-        return input, None, None, None, False
+        return input, None, None, None, -1, False
 
     q_input, q_bits, q_scale, q_min = no_scheme_quantize_pack_new(input)
+    # if torch.isinf(q_scale).sum() > 0:
+    #    print("scale is inf", input, flush=True)
+    #    return input, None, None, None, -1, False
     # if scheme:
     #     input_groups, q_bits, q_min, mx = scheme.compute_quantization_bits(input)
     # else:
     #     input_groups, q_bits, q_min, mx = no_scheme_compute_quantization_bits(input)
 
-    # # print(q_min.shape, mx.shape, input_groups.shape)
     # q_bits = q_bits.item()
     # q_input, q_scale = quantize_and_pack(input_groups, q_bits, q_min, mx)
 
-    # print("Quantize result------", q_scale[-1][-1][0])
     # TODO convert q_bits to int8
     global tensor_id
     ret_tensor_id = tensor_id
@@ -216,24 +216,14 @@ def dequantize_activation(quantized, q_input_shape):
         q_scale = q_scale.to(torch.float32)
         q_min = q_min.to(torch.float32)
 
-    # N = q_input_shape[0]
-    # q_scale = q_scale.reshape(N, -1, 1)
-    # q_min = q_min.reshape(N, -1, 1)
-    # print(q_min.sum())
-    # print(q_scale.sum())
     input = dequantize_and_unpack(q_input, q_input_shape, q_bits, q_scale, q_min, tid)
-    # print("[Dequantize]-----", input.shape, input.mean())
-  
-    # input = dequantize_and_unpack_new(q_input, q_input_shape, q_bits, q_scale, q_min)
-    # print("[Dequantize]-----", input.shape, input.mean())
- 
 
     # Remove padding
     N = q_input_shape[0]
     num_features = np.prod(q_input_shape[1:])
     input = input.view(N, -1)[:, :num_features]
     input = input.reshape(*q_input_shape).contiguous()
-    return input
+    return input, q_min, q_scale
 
 conv2d_layer_ct = 0
 bn_layer_ct = 0

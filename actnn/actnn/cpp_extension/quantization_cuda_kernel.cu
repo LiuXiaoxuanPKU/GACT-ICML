@@ -239,7 +239,7 @@ __global__ void pack_single_precision_kernel(int32_t bits,
 
     const int64_t id = (int64_t)(n * num_groups + group_id) * group_size + d;
     const float noise = curand_uniform(&state);
-    const int32_t val = __float2int_rn(fmax((data[id] - min[n * num_groups + group_id]) * scale[n * num_groups + group_id] - 0.5, 0.0f));
+    const int32_t val = __float2int_rn(fmax((data[id] - min[n * num_groups + group_id]) * scale[n * num_groups + group_id] + noise - 0.5, 0.0f));
     local_packed |= (val << (ni * bits));
   }
 
@@ -315,132 +315,88 @@ std::pair<Tensor, Tensor> pack_single_precision_cuda(Tensor data,
   return std::make_pair(packed, scale);
 }
 
-template<typename scalar_t>
-__global__ void minimax_dequantize_single_precision_kernel(int32_t bits,
-                                                  const int8_t* __restrict__ data,
-                                                  scalar_t* __restrict__ scale,
-                                                  scalar_t* __restrict__ min,
-                                                  scalar_t* __restrict__ unpacked,
-                                                  int N,
-                                                  int group_size) {
-  // int group_id = blockIdx.x;
-  // int item_per_int = 8 / bits;
-  // uint8_t packed_value = data[group_id * group_size / item_per_int + threadIdx.x / item_per_int];
-  // int mask = ((1 << bits) - 1);
-  // packed_value = (packed_value >> (8 - bits * (threadIdx.x % item_per_int + 1))) & mask;
-  // unpacked[group_id * group_size + threadIdx.x] = 
-  // ((scalar_t)packed_value) / scale[group_id] + min[group_id];
-
-  int group_id = blockIdx.x;
-  int tid = threadIdx.x;
-  int work_per_thread = 8 / bits;
-  scalar_t scale_v = scale[group_id];
-  scalar_t min_v = min[group_id];
-  int mask = ((1 << bits) - 1);
-  uint8_t packed_value = data[group_id * group_size / work_per_thread + tid];
-  #pragma unroll
-  for (int i = 0; i < work_per_thread; i++) {
-    int val = (packed_value >> ((work_per_thread - i - 1) * bits)) & mask;
-    unpacked[group_id * group_size + tid * work_per_thread + i] = ((scalar_t)val) / scale_v + min_v;
-  }
-}
-
-Tensor minimax_dequantize_single_precision_cuda(Tensor data,
-                                                int bits,
-                                                Tensor scale,
-                                                Tensor min,
-                                                int N, int group_size) {
-  auto options = torch::TensorOptions().dtype(scale.dtype()).device(data.device());
-  Tensor unpacked = torch::empty({N, group_size}, options);
-
-  // int threads = group_size;
-
-  int work_per_thread = 8 / bits;
-  int threads = group_size / work_per_thread;
-  int blocks = N;
-  
-  AT_DISPATCH_FLOATING_TYPES_AND_HALF(scale.scalar_type(), "minimax_dequantize_single_precision", ([&] {
-    minimax_dequantize_single_precision_kernel<scalar_t><<<blocks, threads>>>(
-      bits,
-      data.data_ptr<int8_t>(),
-      scale.data_ptr<scalar_t>(),
-      min.data_ptr<scalar_t>(),
-      unpacked.data_ptr<scalar_t>(),
-      N, group_size
-    );
-  }));
-
-  return unpacked;
-}
-
-// Pack float16/32 data into int8 bit stream
-template<typename scalar_t>
-__global__ void minimax_quantize_single_precision_kernel(int32_t bits,
+template<typename scalar_t, bool boundary_check>
+__global__ void fuse_single_precision_kernel (int32_t bits,
                                              const scalar_t* __restrict__ data,
                                              int8_t* __restrict__ packed,
-                                             scalar_t* scale,
-                                             scalar_t* min,
+                                             scalar_t* __restrict__ scale,
+                                             scalar_t* __restrict__ min,
                                              std::pair<uint64_t, uint64_t> seeds,
                                              int N,
+                                             int num_groups,
                                              int group_size) {
-  __shared__ scalar_t min_red[1024];
-  __shared__ scalar_t max_red[1024];
-  scalar_t thread_data[5];
-
+  const int no = blockIdx.y;
+  const int group_id = blockIdx.x;
+  const int d = threadIdx.x;
   const int work_per_thread = 8 / bits;
-  unsigned int tid = threadIdx.x;
-  unsigned int group_id = blockIdx.x;
-  unsigned int global_thread_id = blockIdx.x * group_size + tid * work_per_thread;
-  scalar_t tmp_min_val = 1e30;
-  scalar_t tmp_max_val = -1e30;
-  for (int i = 0; i < work_per_thread; i++) {
-    scalar_t cur_val = data[global_thread_id + i];
-    thread_data[i] = cur_val;
-    tmp_min_val = fmin(tmp_min_val, cur_val);
-    tmp_max_val = fmax(tmp_max_val, cur_val);
-  }
-  min_red[tid] = tmp_min_val;
-  max_red[tid] = tmp_max_val; 
-  __syncthreads();
+  const int64_t global_thread_id = (int64_t)(no * num_groups + group_id) * group_size + d;
+
+  __shared__ scalar_t min_red[4 * 256];
+  __shared__ scalar_t max_red[4 * 256];
+  __shared__ scalar_t group_data[4 * 256];
+  __shared__ scalar_t tmp_scale[5];
   
-  // calculate min and max
-  for (int s = blockDim.x / 2; s>0; s>>=1) {
-    if (tid < s) {
-      min_red[tid] = fmin(min_red[tid], min_red[tid + s]);
-      max_red[tid] = fmax(max_red[tid], max_red[tid + s]);
+  for (int ni = 0; ni < work_per_thread; ni++) {
+    const int n = no * work_per_thread + ni;
+
+    if (boundary_check && n >= N) { break; }
+
+    const int64_t id = (int64_t)(n * num_groups + group_id) * group_size + d;
+
+    scalar_t cur_val = data[id];
+    int idx = ni * 256 + d;
+    min_red[idx] = cur_val;
+    max_red[idx] = cur_val;
+    group_data[idx] = cur_val;
+  }
+
+  __syncthreads();
+
+  for (int s = group_size / 2; s>0; s>>=1) {
+    if (d < s) {
+      for (int ni = 0; ni < work_per_thread; ni++) {
+        int idx = ni * 256 + d;
+        int ids = idx + s;
+        min_red[idx] = (min_red[idx] < min_red[ids]) ? min_red[idx] : min_red[ids];
+        max_red[idx] = (max_red[idx] > max_red[ids]) ? max_red[idx] : max_red[ids];
+      }
     }
     __syncthreads();
   }
 
-  if (tid == 0) {
-    scalar_t group_min = min_red[0];
-    scalar_t group_max= max_red[0];
-    scalar_t group_scale = ((scalar_t)((1 << bits) - 1)) / (group_max - group_min + 2e-6);
-    min[group_id] = group_min;
-    scale[group_id] = group_scale;
+  if (d == 0) {
+    for (int ni = 0; ni < work_per_thread; ni++) {
+      const int n = no * work_per_thread + ni;
+      if (boundary_check && n >= N) { break; }
+      scalar_t group_min = min_red[ni * 256];
+      scalar_t group_max= max_red[ni * 256];
+      tmp_scale[ni] = scalar_t((1 << bits) - 1) /
+                        (group_max -  group_min + 2e-6);
+      min[n * num_groups + group_id] = group_min;
+      scale[n * num_groups + group_id] = tmp_scale[ni];
+    }
   }
   __syncthreads();
 
-  // quantize
   curandStatePhilox4_32_10_t state;
   curand_init(seeds.first, global_thread_id, seeds.second, &state);
 
-  scalar_t min_val = min[group_id];
-  scalar_t scale_val = scale[group_id];
   uint8_t local_packed = 0;
-  #pragma unroll
   for (int ni = 0; ni < work_per_thread; ni++) {
-    int n = tid * work_per_thread + ni;
+    const int n = no * work_per_thread + ni;
+
+    if (boundary_check && n >= N) { break; }
+
     const float noise = curand_uniform(&state);
-    const int32_t val = __float2int_rn(fmax((thread_data[ni] - min_val) * scale_val - 0.5, 0.0f));
-    local_packed <<= bits;
-    local_packed |= val;
+    scalar_t quantized = fmax((group_data[ni * 256 + d] - min_red[ni * 256]) * tmp_scale[ni] + noise - 0.5, 0.0f);
+    const int32_t val = __float2int_rn(quantized);
+    local_packed |= (val << (ni * bits));
   }
-  packed[group_id * group_size / work_per_thread + tid] = local_packed;
+  packed[global_thread_id] = local_packed;
 }
 
 template<typename scalar_t, bool boundary_check>
-__global__ void fuse_single_precision_kernel (int32_t bits,
+__global__ void fuse_single_precision_half_kernel (int32_t bits,
                                              const scalar_t* __restrict__ data,
                                              int8_t* __restrict__ packed,
                                              scalar_t* __restrict__ scale,
@@ -476,7 +432,6 @@ __global__ void fuse_single_precision_kernel (int32_t bits,
 
   __syncthreads();
 
-  // for (int ni = 0; ni < work_per_thread; ni++) {
   for (int s = group_size / 2; s>0; s>>=1) {
     if (d < s) {
       for (int ni = 0; ni < work_per_thread; ni++) {
@@ -488,7 +443,6 @@ __global__ void fuse_single_precision_kernel (int32_t bits,
     }
     __syncthreads();
   }
-  // }
 
   if (d == 0) {
     for (int ni = 0; ni < work_per_thread; ni++) {
@@ -498,10 +452,9 @@ __global__ void fuse_single_precision_kernel (int32_t bits,
       half group_max= max_red[ni * 256];
       tmp_scale[ni] = __hdiv(
                         (__int2half_rn((1 << bits) - 1)),
-                        (__hadd(__hsub(group_max, group_min), __float2half(2e-6))));
-      half group_scale = __hdiv(__int2half_rn(1), tmp_scale[ni]);
+                        (__hadd(__hsub(group_max, group_min), __float2half(5e-3))));
       min[n * num_groups + group_id] = __half2float(group_min);
-      scale[n * num_groups + group_id] = __half2float(group_scale);
+      scale[n * num_groups + group_id] = __half2float(tmp_scale[ni]);
     }
   }
   __syncthreads();
@@ -515,11 +468,15 @@ __global__ void fuse_single_precision_kernel (int32_t bits,
 
     if (boundary_check && n >= N) { break; }
 
-    // const float noise = curand_uniform(&state);
-    half quantized = __hsub(__hmul(
-                              __hsub(group_data[ni * 256 + d], min_red[ni * 256]), 
-                              tmp_scale[ni]),
-                            __float2half (0.5));
+    const float noise = curand_uniform(&state);
+    half quantized = __hsub(
+                      __hadd(
+                        __hmul(
+                          __hsub(group_data[ni * 256 + d],
+                                  min_red[ni * 256]), 
+                          tmp_scale[ni]),
+                        __float2half(noise)),
+                      __float2half (0.5));
     quantized = __hgt(quantized, __float2half (0.0)) ? quantized : __float2half (0.0);
     const int32_t val = __half2int_rn(quantized);
     local_packed |= (val << (ni * bits));
@@ -528,22 +485,12 @@ __global__ void fuse_single_precision_kernel (int32_t bits,
 }
 
 tensor_list minimax_quantize_single_precision_cuda(Tensor data, int bits) {
-  // int N = data.size(0);
-  // int group_size = data.size(1);
-
   int N = data.size(0);
   int num_groups = data.size(1);
   int group_size = data.size(2);
 
   const int work_per_thread = 8 / bits;
-  // int threads = group_size / work_per_thread;
-  // // int threads = group_size;
-  // int blocks = N;
   TORCH_CHECK(8 % bits == 0);
-
-  // int64_t total_bits = (group_size * bits + 7) / 8 * 8 * N;
-  // auto options_packed = torch::TensorOptions().dtype(torch::kInt8).device(data.device());
-  // Tensor packed = torch::empty({ total_bits / 8,}, options_packed);
 
   int N_round = N + (work_per_thread - N % work_per_thread) % work_per_thread;
   int64_t total_bits = ((int64_t)bits) * (N_round * num_groups * group_size);
@@ -591,18 +538,6 @@ tensor_list minimax_quantize_single_precision_cuda(Tensor data, int bits) {
     }));
   }
 
-  // AT_DISPATCH_FLOATING_TYPES_AND_HALF(data.scalar_type(), "minimax_quantize_single_precision", ([&] {
-  //   minimax_quantize_single_precision_kernel<scalar_t><<<blocks, threads>>>(
-  //     bits,
-  //     data.data_ptr<scalar_t>(),
-  //     packed.data_ptr<int8_t>(),
-  //     scale.data_ptr<scalar_t>(),
-  //     min.data_ptr<scalar_t>(),
-  //     rng_engine_inputs,
-  //     N, group_size
-  //   );
-  // }));
-
   tensor_list ret;
   ret.push_back(packed);
   Tensor bits_tensor = torch::ones(1);
@@ -639,8 +574,8 @@ __global__ void unpack_single_precision_kernel(int32_t bits,
 
     const int val = (local_packed >> (ni * bits)) & mask;
     const int64_t id = (int64_t)(n * num_groups + group_id) * group_size + d;
-    // unpacked[id] = ((scalar_t)val) / scale[n * num_groups + group_id] + min[n * num_groups + group_id];
-    unpacked[id] = ((scalar_t)val) * scale[n * num_groups + group_id] + min[n * num_groups + group_id];
+    unpacked[id] = ((scalar_t)val) / scale[n * num_groups + group_id] + min[n * num_groups + group_id];
+    // unpacked[id] = ((scalar_t)val) * scale[n * num_groups + group_id] + min[n * num_groups + group_id];
   }
 }
 

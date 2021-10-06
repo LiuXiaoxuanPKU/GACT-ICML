@@ -24,8 +24,6 @@ std::pair<Tensor, Tensor> pack_single_precision_cuda(
 Tensor unpack_single_precision_cuda(
     Tensor data, int bits, Tensor scale, Tensor min, int N, int num_groups, int group_size);
 tensor_list minimax_quantize_single_precision_cuda(Tensor data, int bits);
-Tensor minimax_dequantize_single_precision_cuda(
-    Tensor data, int bits, Tensor scale, Tensor min, int n, int group_size);
 
 // ActQuantizedReLU
 std::pair<Tensor, Tensor> act_quantized_relu_forward_cuda(Tensor data);
@@ -107,14 +105,6 @@ tensor_list minimax_quantize_single_precision(Tensor data, int bits) {
   return minimax_quantize_single_precision_cuda(data, bits);
 }
 
-Tensor minimax_dequantize_single_precision(Tensor data, int bits, Tensor scale, Tensor min, int N, int group_size) {
-  CHECK_CUDA_TENSOR_DIM_TYPE(data, 1, torch::kInt8);
-  CHECK_CUDA_TENSOR_DIM_FLOAT(scale, 1);
-  CHECK_CUDA_TENSOR_DIM_FLOAT(min, 1);
-  return minimax_dequantize_single_precision_cuda(data, bits, scale, min, N, group_size);
-}
-
-
 // Activation quantized relu: use compressed bit stream to store activation
 class ActQuantizedReLU : public Function<ActQuantizedReLU> {
  public:
@@ -190,7 +180,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("pack_single_precision", &pack_single_precision);
   m.def("unpack_single_precision", &unpack_single_precision);
   m.def("minimax_quantize_single_precision", &minimax_quantize_single_precision);
-  m.def("minimax_dequantize_single_precision", &minimax_dequantize_single_precision);
   m.def("act_quantized_relu", &act_quantized_relu);
   m.def("act_quantized_max_pool2d", &act_quantized_max_pool2d);
 }

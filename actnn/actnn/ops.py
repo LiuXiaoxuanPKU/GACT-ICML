@@ -11,53 +11,36 @@ from torch.nn.modules.utils import _single, _pair, _triple
 from torch.utils.cpp_extension import load
 
 from actnn.conf import config
-from actnn.utils import get_memory_usage, compute_tensor_bytes, empty_cache, swap_to_cpu, swap_to_gpu
+from actnn.utils import (
+    get_memory_usage,
+    compute_tensor_bytes,
+    empty_cache,
+    swap_to_cpu,
+    swap_to_gpu,
+)
 import actnn.cpp_extension.quantization as ext_quantization
 import actnn.cpp_extension.minimax as ext_minimax
 import actnn.cpp_extension.backward_func as ext_backward_func
 import actnn.cpp_extension.calc_precision as ext_calc_precision
 
-QParams = namedtuple('QParams', ['range', 'zero_point', 'num_bits'])
+QParams = namedtuple("QParams", ["range", "zero_point", "num_bits"])
 
-params = set()
-bits_info = {}
-tensor_id = 0
-
-def add_params(param):
-    params.add(param)
-
-param_size = 0
-def register_parameters(model):
-    global param_size
-    for name, param in model.named_parameters():
-        params.add(param.data_ptr())
-        param_size += np.prod(param.shape) * 4
-    for module in model.modules():
-        if isinstance(module, torch.nn.modules.batchnorm.BatchNorm2d):
-            params.add((module.running_mean.data_ptr()))
-            params.add((module.running_var.data_ptr()))
-            param_size += np.prod(module.running_mean.shape) * 4
-            param_size += np.prod(module.running_var.shape) * 4
-            # print("running mean ", module.running_mean.data_ptr())
-            # print("running var ", module.running_var.data_ptr())
-            # attrs = (dir(module))
-            # for i in range(len(module)):
-            #     print(attrs[i], getattr(module, attrs[i]))
-    # print(params)
-    print("Parameter size %d MB" %(param_size / 1024 / 1024))
+unrelated_tensors = set()
 
 def quantize_and_pack(data, bits, mn, mx):
     if config.simulate:
         N = data.shape[0]
-        output = data   # N, groups, group_dim
+        output = data  # N, groups, group_dim
 
-        if isinstance(bits, int):  # Handle the case when config.adaptive_scheme is False
-            bits = torch.ones(N, dtype=torch.int32, device='cuda') * bits
+        if isinstance(
+            bits, int
+        ):  # Handle the case when config.adaptive_scheme is False
+            bits = torch.ones(N, dtype=torch.int32, device="cuda") * bits
 
         B = (2 ** bits - 1).view(N, 1, 1)
         mn = mn - 1e-6
         mx = mx + 1e-6
-        scale = B / (mx - mn)     # N, groups, 1
+        scale = B / (mx - mn)  # N, groups, 1
         output = (output - mn) * scale
 
         if config.stochastic:
@@ -78,9 +61,10 @@ def quantize_and_pack(data, bits, mn, mx):
 
     return output, scale
 
-def no_scheme_quantize_pack_new(input):
+
+def no_scheme_quantize_pack(input, q_bit):
     N = input.shape[0]
-    input_flatten = input.contiguous().view(N, -1) # lily
+    input_flatten = input.contiguous().view(N, -1)  # lily
     num_features = input_flatten.shape[1]
 
     # Compute min, max by groups
@@ -88,45 +72,84 @@ def no_scheme_quantize_pack_new(input):
         # Padding
         new_num_features = (num_features // config.group_size + 1) * config.group_size
         delta = new_num_features - num_features
-        input_flatten = torch.cat([input_flatten,
-                                   torch.zeros([N, delta], dtype=input.dtype, device=input.device)], 1)
+        input_flatten = torch.cat(
+            [
+                input_flatten,
+                torch.zeros([N, delta], dtype=input.dtype, device=input.device),
+            ],
+            1,
+        )
 
     input_groups = input_flatten.view(N, -1, config.group_size)
     input_groups = input_groups.contiguous()
 
     pack_func = ext_quantization.minimax_quantize_single_precision
-    q_input, q_bits, q_scale, q_min = pack_func(input_groups, config.activation_compression_bits[0])
-    q_bits = int(q_bits[0])
+    q_input, q_scale, q_min = pack_func(input_groups, q_bit)
+
+    return q_input, q_scale, q_min
+
+
+def no_scheme_quantize_pack_new(input):
+    N = input.shape[0]
+    input_flatten = input.contiguous().view(N, -1)  # lily
+    num_features = input_flatten.shape[1]
+
+    # Compute min, max by groups
+    if num_features % config.group_size != 0:
+        # Padding
+        new_num_features = (num_features // config.group_size + 1) * config.group_size
+        delta = new_num_features - num_features
+        input_flatten = torch.cat(
+            [
+                input_flatten,
+                torch.zeros([N, delta], dtype=input.dtype, device=input.device),
+            ],
+            1,
+        )
+
+    input_groups = input_flatten.view(N, -1, config.group_size)
+    input_groups = input_groups.contiguous()
+
+    pack_func = ext_quantization.minimax_quantize_single_precision
+    q_input, q_scale, q_min = pack_func(
+        input_groups, config.activation_compression_bits[0]
+    )
     if config.swap:
         global tensor_id
         q_input = swap_to_cpu(q_input, tensor_id)
 
-    return q_input, q_bits, q_scale, q_min
-    
-def dequantize_and_unpack(data, shape, bits, scale, mn, tid):
+    return q_input, q_scale, q_min
+
+
+def dequantize_and_unpack(data, shape, bits, scale, mn, tid=-1):
     if config.simulate:
         data = data / scale + mn
     else:
-        if config.swap:
+        if config.swap and tid != -1:
             data = swap_to_gpu(tid)
         # Pad to group_size
         N = shape[0]
         num_features = int(np.prod(shape[1:]))
         group_size = config.group_size
-        num_features = (num_features + (group_size - num_features % group_size) % group_size)
+        num_features = (
+            num_features + (group_size - num_features % group_size) % group_size
+        )
 
         # Unpack bitstream
         if isinstance(bits, int):
             unpack_func = ext_quantization.unpack_single_precision
         else:
             unpack_func = ext_quantization.unpack_mixed_precision
-        data = unpack_func(data, bits, scale, mn, N, num_features // group_size, group_size)
+        data = unpack_func(
+            data, bits, scale, mn, N, num_features // group_size, group_size
+        )
     return data
+
 
 def no_scheme_compute_quantization_bits(input):
     N = input.shape[0]
     D = input.shape[1]
-    input_flatten = input.contiguous().view(N, -1) # lily
+    input_flatten = input.contiguous().view(N, -1)  # lily
     num_features = input_flatten.shape[1]
     num_pixels = num_features // D
 
@@ -135,42 +158,59 @@ def no_scheme_compute_quantization_bits(input):
         # Padding
         new_num_features = (num_features // config.group_size + 1) * config.group_size
         delta = new_num_features - num_features
-        input_flatten = torch.cat([input_flatten,
-                                   torch.zeros([N, delta], dtype=input.dtype, device=input.device)], 1)
+        input_flatten = torch.cat(
+            [
+                input_flatten,
+                torch.zeros([N, delta], dtype=input.dtype, device=input.device),
+            ],
+            1,
+        )
 
     input_groups = input_flatten.view(-1, config.group_size)
     input_groups = input_groups.contiguous()
     mn, mx = ext_minimax.minimax(input_groups)
 
     b = config.activation_compression_bits[0]
-    return input_groups.view(N, -1, config.group_size), torch.tensor(b).cuda(), mn.view(N, -1, 1), mx.view(N, -1, 1)
+    return (
+        input_groups.view(N, -1, config.group_size),
+        torch.tensor(b).cuda(),
+        mn.view(N, -1, 1),
+        mx.view(N, -1, 1),
+    )
+
 
 def check_quantize(input_tensor):
     if input_tensor.dtype != torch.float32:
-        # print("type not ok", input_tensor.dtype, input_tensor.shape)
         return False
-    data_ptr = input_tensor.data_ptr()
-    if data_ptr in params:
-        # print("is param", input_tensor.shape, " ", input_tensor.data_ptr())
+    if input_tensor.requires_grad is False:
         return False
-    # if data_ptr in bits_info.keys():
-    #     return bits_info[data_ptr] == 32
-    # # Check sensitivity
-    # b = torch.ones(1, dtype=torch.int32) * 8 # initial bits
-    # C = torch.ones(1) * 0.5 # initial sensitivity
-    # w = torch.tensor([input_tensor.dim()], dtype=torch.int)
-    # total_bits = w.sum() * 8 # budget
-    # b = ext_calc_precision.calc_precision(b, C, w, total_bits)
-    # if b[0] > 4:
-    #     bits_info[data_ptr] = 32
-    #     print("No quantize ------ ", total_bits, w, input_tensor.shape, b[0])
-    #     return False
-    # print("Quantize ------ ", total_bits, w, input_tensor.shape, "dst bit ", b[0])
-    # bits_info[data_ptr] = b[0]
-    if len(input_tensor.shape) <= 2:
-        # print("tensor dim  <= 2", input_tensor.shape)
+    if (len(input_tensor.shape) != 3) and (len(input_tensor.shape) != 4):
+        return False
+    if input_tensor.data_ptr() in unrelated_tensors:
+        return False
+    if input_tensor.data_ptr() in quantized_tensors:
         return False
     return True
+
+
+def op_quantize(input, q_bit):
+    print("[Quantize] ", input.shape, flush=True)
+    q_input, q_scale, q_min = no_scheme_quantize_pack(input, q_bit)
+    print(q_input.to(float).mean())
+    return (q_input, q_bit, q_scale, q_min)
+
+
+def op_dequantize(input, input_shape):
+    q_input, q_bit, q_scale, q_min = input
+    input = dequantize_and_unpack(q_input, input_shape, q_bit, q_scale, q_min)
+
+    # Remove padding
+    N = q_input[0]
+    num_features = np.prod(q_input[1:])
+    input = input.view(N, -1)[:, :num_features]
+    input = input.reshape(*input_shape).contiguous()
+    return input
+
 
 def quantize_activation(input, scheme):
     if not check_quantize(input):
@@ -181,26 +221,23 @@ def quantize_activation(input, scheme):
             input = swap_to_cpu(input)
         return input, None, None, None, -1, False
 
-    q_input, q_bits, q_scale, q_min = no_scheme_quantize_pack_new(input)
-    # if torch.isinf(q_scale).sum() > 0:
-    #    print("scale is inf", input, flush=True)
-    #    return input, None, None, None, -1, False
-    # if scheme:
-    #     input_groups, q_bits, q_min, mx = scheme.compute_quantization_bits(input)
-    # else:
-    #     input_groups, q_bits, q_min, mx = no_scheme_compute_quantization_bits(input)
-
-    # q_bits = q_bits.item()
-    # q_input, q_scale = quantize_and_pack(input_groups, q_bits, q_min, mx)
+    q_input, q_scale, q_min = no_scheme_quantize_pack_new(input)
 
     # TODO convert q_bits to int8
     global tensor_id
     ret_tensor_id = tensor_id
     tensor_id += 1
     if input.dtype == torch.float32:
-        return q_input, q_bits, q_scale.to(torch.bfloat16), q_min.to(torch.bfloat16), ret_tensor_id, True
+        return (
+            q_input,
+            q_scale.to(torch.bfloat16),
+            q_min.to(torch.bfloat16),
+            ret_tensor_id,
+            True,
+        )
     else:
-        return q_input, q_bits, q_scale, q_min, ret_tensor_id, True
+        return q_input, q_scale, q_min, ret_tensor_id, True
+
 
 def dequantize_activation(quantized, q_input_shape):
     if not quantized[-1]:
@@ -225,13 +262,27 @@ def dequantize_activation(quantized, q_input_shape):
     input = input.reshape(*q_input_shape).contiguous()
     return input, q_min, q_scale
 
+
 conv2d_layer_ct = 0
 bn_layer_ct = 0
 total_act_mem = 0
 
+
 class convnd(Function):
     @staticmethod
-    def run_forward(n, forward_op, ctx, input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1, scheme=None):
+    def run_forward(
+        n,
+        forward_op,
+        ctx,
+        input,
+        weight,
+        bias=None,
+        stride=1,
+        padding=0,
+        dilation=1,
+        groups=1,
+        scheme=None,
+    ):
         # if not ctx.needs_input_grad[1]:
         #     assert not ctx.needs_input_grad[0] and not ctx.needs_input_grad[1]
         #     return F.conv2d(input, weight, bias, stride, padding, dilation, groups)
@@ -277,28 +328,48 @@ class convnd(Function):
             print("========== conv%dd backward %d ==========" % (n, conv2d_layer_ct))
             get_memory_usage(True)
             conv2d_layer_ct += 1
-            print("WS: %.2f MB" % (compute_tensor_bytes([grad_output, input, input]) / 1024 ** 2))
+            print(
+                "WS: %.2f MB"
+                % (compute_tensor_bytes([grad_output, input, input]) / 1024 ** 2)
+            )
 
         use_pipeline = False
         if config.pipeline_threshold:
             ws_mem = compute_tensor_bytes([grad_output, input, input])
-            if (ws_mem > config.pipeline_threshold and
-                ctx.needs_input_grad[1] and ctx.needs_input_grad[0]):
+            if (
+                ws_mem > config.pipeline_threshold
+                and ctx.needs_input_grad[1]
+                and ctx.needs_input_grad[0]
+            ):
                 use_pipeline = True
 
         if use_pipeline:
-            micro_batch_size = (ws_mem + config.pipeline_threshold) // config.pipeline_threshold
+            micro_batch_size = (
+                ws_mem + config.pipeline_threshold
+            ) // config.pipeline_threshold
             raw_input = input
             raw_grad_output = grad_output
             input = torch.chunk(input, micro_batch_size)
-            grad_output = torch.chunk(grad_output,  micro_batch_size)
+            grad_output = torch.chunk(grad_output, micro_batch_size)
             grad_weight = None
 
             for i in range(micro_batch_size):
-                input[i][:], grad_weight_tmp = ext_backward_func.cudnn_convolution_backward(
-                        input[i], grad_output[i], weight, padding, stride, dilation, groups,
-                        config.cudnn_benchmark_conv2d, False, False,
-                        [ctx.needs_input_grad[0], ctx.needs_input_grad[1]])
+                (
+                    input[i][:],
+                    grad_weight_tmp,
+                ) = ext_backward_func.cudnn_convolution_backward(
+                    input[i],
+                    grad_output[i],
+                    weight,
+                    padding,
+                    stride,
+                    dilation,
+                    groups,
+                    config.cudnn_benchmark_conv2d,
+                    False,
+                    False,
+                    [ctx.needs_input_grad[0], ctx.needs_input_grad[1]],
+                )
                 if grad_weight is None:
                     grad_weight = grad_weight_tmp
                 else:
@@ -307,9 +378,18 @@ class convnd(Function):
             grad_output = raw_grad_output
         else:
             grad_input, grad_weight = ext_backward_func.cudnn_convolution_backward(
-                input, grad_output, weight, padding, stride, dilation, groups,
-                config.cudnn_benchmark_conv2d, False, False,
-                [ctx.needs_input_grad[0], ctx.needs_input_grad[1]])
+                input,
+                grad_output,
+                weight,
+                padding,
+                stride,
+                dilation,
+                groups,
+                config.cudnn_benchmark_conv2d,
+                False,
+                False,
+                [ctx.needs_input_grad[0], ctx.needs_input_grad[1]],
+            )
 
         if bias is not None and ctx.needs_input_grad[2]:
             grad_bias = grad_output.sum(bias_reduce_dims)
@@ -323,8 +403,30 @@ class convnd(Function):
 
 class conv1d(Function):
     @staticmethod
-    def forward(ctx, input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1, scheme=None):
-        return convnd.run_forward(1, F.conv1d, ctx, input, weight, bias, stride, padding, dilation, groups, scheme)
+    def forward(
+        ctx,
+        input,
+        weight,
+        bias=None,
+        stride=1,
+        padding=0,
+        dilation=1,
+        groups=1,
+        scheme=None,
+    ):
+        return convnd.run_forward(
+            1,
+            F.conv1d,
+            ctx,
+            input,
+            weight,
+            bias,
+            stride,
+            padding,
+            dilation,
+            groups,
+            scheme,
+        )
 
     @staticmethod
     def backward(ctx, grad_output):
@@ -333,8 +435,30 @@ class conv1d(Function):
 
 class conv2d(Function):
     @staticmethod
-    def forward(ctx, input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1, scheme=None):
-        return convnd.run_forward(2, F.conv2d, ctx, input, weight, bias, stride, padding, dilation, groups, scheme)
+    def forward(
+        ctx,
+        input,
+        weight,
+        bias=None,
+        stride=1,
+        padding=0,
+        dilation=1,
+        groups=1,
+        scheme=None,
+    ):
+        return convnd.run_forward(
+            2,
+            F.conv2d,
+            ctx,
+            input,
+            weight,
+            bias,
+            stride,
+            padding,
+            dilation,
+            groups,
+            scheme,
+        )
 
     @staticmethod
     def backward(ctx, grad_output):
@@ -343,8 +467,30 @@ class conv2d(Function):
 
 class conv3d(Function):
     @staticmethod
-    def forward(ctx, input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1, scheme=None):
-        return convnd.run_forward(3, F.conv3d, ctx, input, weight, bias, stride, padding, dilation, groups, scheme)
+    def forward(
+        ctx,
+        input,
+        weight,
+        bias=None,
+        stride=1,
+        padding=0,
+        dilation=1,
+        groups=1,
+        scheme=None,
+    ):
+        return convnd.run_forward(
+            3,
+            F.conv3d,
+            ctx,
+            input,
+            weight,
+            bias,
+            stride,
+            padding,
+            dilation,
+            groups,
+            scheme,
+        )
 
     @staticmethod
     def backward(ctx, grad_output):
@@ -353,31 +499,63 @@ class conv3d(Function):
 
 class conv_transposend(Function):
     @staticmethod
-    def run_forward(n, forward_op, ctx, input, weight, bias=None, stride=1, padding=0, output_padding=0, groups=1, dilation=1, scheme=None):
+    def run_forward(
+        n,
+        forward_op,
+        ctx,
+        input,
+        weight,
+        bias=None,
+        stride=1,
+        padding=0,
+        output_padding=0,
+        groups=1,
+        dilation=1,
+        scheme=None,
+    ):
         quantized = quantize_activation(input, scheme)
 
         ctx.scheme = scheme
         ctx.saved = quantized, weight, bias
-        ctx.other_args = (input.shape, stride, padding, output_padding, dilation, groups)
+        ctx.other_args = (
+            input.shape,
+            stride,
+            padding,
+            output_padding,
+            dilation,
+            groups,
+        )
 
         empty_cache(config.empty_cache_threshold)
 
         if config.debug_memory_op_forward:
             global conv2d_layer_ct, total_act_mem
-            print("========== conv%dd_transpose forward %d ==========" % (n, conv2d_layer_ct))
+            print(
+                "========== conv%dd_transpose forward %d =========="
+                % (n, conv2d_layer_ct)
+            )
             get_memory_usage(True)
             conv2d_layer_ct += 1
             total_act_mem += compute_tensor_bytes(quantized)
             print("Act mem: %.2f MB" % (total_act_mem / 1024 ** 2))
 
-        return forward_op(input, weight, bias, stride, padding, output_padding, groups, dilation)
+        return forward_op(
+            input, weight, bias, stride, padding, output_padding, groups, dilation
+        )
 
     @staticmethod
     def run_backward(n, ctx, grad_output, bias_reduce_dims, aug):
         if ctx.scheme:
             ctx.scheme.set_scale(grad_output)
 
-        q_input_shape, stride, padding, output_padding, dilation, groups = ctx.other_args
+        (
+            q_input_shape,
+            stride,
+            padding,
+            output_padding,
+            dilation,
+            groups,
+        ) = ctx.other_args
         padding = aug(padding)
         output_padding = aug(output_padding)
         stride = aug(stride)
@@ -391,31 +569,55 @@ class conv_transposend(Function):
 
         if config.debug_memory_op_backward:
             global conv2d_layer_ct
-            print("========== conv%dd_transpose backward %d ==========" % (n, conv2d_layer_ct))
+            print(
+                "========== conv%dd_transpose backward %d =========="
+                % (n, conv2d_layer_ct)
+            )
             get_memory_usage(True)
             conv2d_layer_ct += 1
-            print("WS: %.2f MB" % (compute_tensor_bytes([grad_output, input, input]) / 1024 ** 2))
+            print(
+                "WS: %.2f MB"
+                % (compute_tensor_bytes([grad_output, input, input]) / 1024 ** 2)
+            )
 
         use_pipeline = False
         if config.pipeline_threshold:
             ws_mem = compute_tensor_bytes([grad_output, input, input])
-            if (ws_mem > config.pipeline_threshold and
-                ctx.needs_input_grad[1] and ctx.needs_input_grad[0]):
+            if (
+                ws_mem > config.pipeline_threshold
+                and ctx.needs_input_grad[1]
+                and ctx.needs_input_grad[0]
+            ):
                 use_pipeline = True
 
         if use_pipeline:
-            micro_batch_size = (ws_mem + config.pipeline_threshold) // config.pipeline_threshold
+            micro_batch_size = (
+                ws_mem + config.pipeline_threshold
+            ) // config.pipeline_threshold
             raw_input = input
             raw_grad_output = grad_output
             input = torch.chunk(input, micro_batch_size)
-            grad_output = torch.chunk(grad_output,  micro_batch_size)
+            grad_output = torch.chunk(grad_output, micro_batch_size)
             grad_weight = None
 
             for i in range(micro_batch_size):
-                input[i][:], grad_weight_tmp = ext_backward_func.cudnn_convolution_transpose_backward(
-                        input[i], grad_output[i], weight, padding, output_padding, stride, dilation, groups,
-                        config.cudnn_benchmark_conv2d, False, False,
-                        [ctx.needs_input_grad[0], ctx.needs_input_grad[1]])
+                (
+                    input[i][:],
+                    grad_weight_tmp,
+                ) = ext_backward_func.cudnn_convolution_transpose_backward(
+                    input[i],
+                    grad_output[i],
+                    weight,
+                    padding,
+                    output_padding,
+                    stride,
+                    dilation,
+                    groups,
+                    config.cudnn_benchmark_conv2d,
+                    False,
+                    False,
+                    [ctx.needs_input_grad[0], ctx.needs_input_grad[1]],
+                )
                 if grad_weight is None:
                     grad_weight = grad_weight_tmp
                 else:
@@ -423,9 +625,23 @@ class conv_transposend(Function):
             grad_input = raw_input
             grad_output = raw_grad_output
         else:
-            grad_input, grad_weight = ext_backward_func.cudnn_convolution_transpose_backward(
-                input, grad_output, weight, padding, output_padding, stride, dilation, groups,
-                config.cudnn_benchmark_conv2d, False, False, [ctx.needs_input_grad[0], ctx.needs_input_grad[1]])
+            (
+                grad_input,
+                grad_weight,
+            ) = ext_backward_func.cudnn_convolution_transpose_backward(
+                input,
+                grad_output,
+                weight,
+                padding,
+                output_padding,
+                stride,
+                dilation,
+                groups,
+                config.cudnn_benchmark_conv2d,
+                False,
+                False,
+                [ctx.needs_input_grad[0], ctx.needs_input_grad[1]],
+            )
 
         if bias is not None and ctx.needs_input_grad[2]:
             grad_bias = grad_output.sum(bias_reduce_dims)
@@ -439,9 +655,32 @@ class conv_transposend(Function):
 
 class conv_transpose1d(Function):
     @staticmethod
-    def forward(ctx, input, weight, bias=None, stride=1, padding=0, output_padding=0, groups=1, dilation=1, scheme=None):
-        return conv_transposend.run_forward(1, F.conv_transpose1d, ctx, input, weight, bias, stride,
-                                            padding, output_padding, groups, dilation, scheme)
+    def forward(
+        ctx,
+        input,
+        weight,
+        bias=None,
+        stride=1,
+        padding=0,
+        output_padding=0,
+        groups=1,
+        dilation=1,
+        scheme=None,
+    ):
+        return conv_transposend.run_forward(
+            1,
+            F.conv_transpose1d,
+            ctx,
+            input,
+            weight,
+            bias,
+            stride,
+            padding,
+            output_padding,
+            groups,
+            dilation,
+            scheme,
+        )
 
     @staticmethod
     def backward(ctx, grad_output):
@@ -450,9 +689,32 @@ class conv_transpose1d(Function):
 
 class conv_transpose2d(Function):
     @staticmethod
-    def forward(ctx, input, weight, bias=None, stride=1, padding=0, output_padding=0, groups=1, dilation=1, scheme=None):
-        return conv_transposend.run_forward(2, F.conv_transpose2d, ctx, input, weight, bias, stride,
-                                            padding, output_padding, groups, dilation, scheme)
+    def forward(
+        ctx,
+        input,
+        weight,
+        bias=None,
+        stride=1,
+        padding=0,
+        output_padding=0,
+        groups=1,
+        dilation=1,
+        scheme=None,
+    ):
+        return conv_transposend.run_forward(
+            2,
+            F.conv_transpose2d,
+            ctx,
+            input,
+            weight,
+            bias,
+            stride,
+            padding,
+            output_padding,
+            groups,
+            dilation,
+            scheme,
+        )
 
     @staticmethod
     def backward(ctx, grad_output):
@@ -461,9 +723,32 @@ class conv_transpose2d(Function):
 
 class conv_transpose3d(Function):
     @staticmethod
-    def forward(ctx, input, weight, bias=None, stride=1, padding=0, output_padding=0, groups=1, dilation=1, scheme=None):
-        return conv_transposend.run_forward(3, F.conv_transpose3d, ctx, input, weight, bias, stride,
-                                            padding, output_padding, groups, dilation, scheme)
+    def forward(
+        ctx,
+        input,
+        weight,
+        bias=None,
+        stride=1,
+        padding=0,
+        output_padding=0,
+        groups=1,
+        dilation=1,
+        scheme=None,
+    ):
+        return conv_transposend.run_forward(
+            3,
+            F.conv_transpose3d,
+            ctx,
+            input,
+            weight,
+            bias,
+            stride,
+            padding,
+            output_padding,
+            groups,
+            dilation,
+            scheme,
+        )
 
     @staticmethod
     def backward(ctx, grad_output):
@@ -511,8 +796,18 @@ class linear(Function):
 
 class batch_norm(Function):
     @staticmethod
-    def forward(ctx, input, running_mean, running_var, weight, bias,
-                training, exponential_average_factor, eps, scheme):
+    def forward(
+        ctx,
+        input,
+        running_mean,
+        running_var,
+        weight,
+        bias,
+        training,
+        exponential_average_factor,
+        eps,
+        scheme,
+    ):
         # if not ctx.needs_input_grad[3]:
         #     assert not ctx.needs_input_grad[0] and not ctx.needs_input_grad[4]
         #     return ext_backward_func.cudnn_batch_norm(
@@ -531,15 +826,41 @@ class batch_norm(Function):
 
         if training:
             output, save_mean, save_var, reserve = ext_backward_func.cudnn_batch_norm(
-                input, weight, bias, running_mean, running_var, training, exponential_average_factor, eps)
+                input,
+                weight,
+                bias,
+                running_mean,
+                running_var,
+                training,
+                exponential_average_factor,
+                eps,
+            )
         else:
             output, save_mean, save_var = ext_backward_func.native_batch_norm(
-                input, weight, bias, running_mean, running_var, training, exponential_average_factor, eps)
+                input,
+                weight,
+                bias,
+                running_mean,
+                running_var,
+                training,
+                exponential_average_factor,
+                eps,
+            )
             reserve = None
 
         ctx.scheme = scheme
         ctx.other_args = input.shape
-        ctx.saved = (quantized, weight, running_mean, running_var, save_mean, save_var, training, eps, reserve)
+        ctx.saved = (
+            quantized,
+            weight,
+            running_mean,
+            running_var,
+            save_mean,
+            save_var,
+            training,
+            eps,
+            reserve,
+        )
 
         return output
 
@@ -548,7 +869,17 @@ class batch_norm(Function):
         # if not ctx.needs_input_grad[3]:
         #     assert not ctx.needs_input_grad[0] and not ctx.needs_input_grad[4]
         #     return None, None, None, None, None, None, None, None, None
-        quantized, weight, running_mean, running_var, save_mean, save_var, training, eps, reserve = ctx.saved
+        (
+            quantized,
+            weight,
+            running_mean,
+            running_var,
+            save_mean,
+            save_var,
+            training,
+            eps,
+            reserve,
+        ) = ctx.saved
 
         q_input_shape = ctx.other_args
 
@@ -565,12 +896,41 @@ class batch_norm(Function):
 
         if training:
             input = input.contiguous()
-            grad_input, grad_weight, grad_bias = ext_backward_func.cudnn_batch_norm_backward(
-                input, grad_output, weight, running_mean, running_var, save_mean, save_var, eps, reserve)
+            (
+                grad_input,
+                grad_weight,
+                grad_bias,
+            ) = ext_backward_func.cudnn_batch_norm_backward(
+                input,
+                grad_output,
+                weight,
+                running_mean,
+                running_var,
+                save_mean,
+                save_var,
+                eps,
+                reserve,
+            )
         else:
-            grad_input, grad_weight, grad_bias = ext_backward_func.native_batch_norm_backward(
-                grad_output, input, weight, running_mean, running_var, save_mean, save_var, training, eps,
-                [ctx.needs_input_grad[0], ctx.needs_input_grad[3], ctx.needs_input_grad[4]]
+            (
+                grad_input,
+                grad_weight,
+                grad_bias,
+            ) = ext_backward_func.native_batch_norm_backward(
+                grad_output,
+                input,
+                weight,
+                running_mean,
+                running_var,
+                save_mean,
+                save_var,
+                training,
+                eps,
+                [
+                    ctx.needs_input_grad[0],
+                    ctx.needs_input_grad[3],
+                    ctx.needs_input_grad[4],
+                ],
             )
 
         if ctx.scheme:
@@ -580,12 +940,24 @@ class batch_norm(Function):
 
 class sync_batch_norm(Function):
     @staticmethod
-    def forward(self, input, weight, bias, running_mean, running_var, eps, momentum, process_group, world_size, scheme):
+    def forward(
+        self,
+        input,
+        weight,
+        bias,
+        running_mean,
+        running_var,
+        eps,
+        momentum,
+        process_group,
+        world_size,
+        scheme,
+    ):
         input = input.contiguous()
 
-        count = torch.empty(1,
-                            dtype=running_mean.dtype,
-                            device=input.device).fill_(input.numel() // input.size(1))
+        count = torch.empty(1, dtype=running_mean.dtype, device=input.device).fill_(
+            input.numel() // input.size(1)
+        )
 
         # calculate mean/invstd for input.
         mean, invstd = torch.batch_norm_stats(input, eps)
@@ -594,9 +966,7 @@ class sync_batch_norm(Function):
         # C, C, 1 -> (2C + 1)
         combined = torch.cat([mean, invstd, count], dim=0)
         # world_size * (2C + 1)
-        combined_list = [
-            torch.empty_like(combined) for k in range(world_size)
-        ]
+        combined_list = [torch.empty_like(combined) for k in range(world_size)]
         # Use allgather instead of allreduce since I don't trust in-place operations ..
         dist.all_gather(combined_list, combined, process_group, async_op=False)
         combined = torch.stack(combined_list, dim=0)
@@ -605,7 +975,11 @@ class sync_batch_norm(Function):
 
         size = count_all.view(-1).long().sum()
         if size == 1:
-            raise ValueError('Expected more than 1 value per channel when training, got input size {}'.format(size))
+            raise ValueError(
+                "Expected more than 1 value per channel when training, got input size {}".format(
+                    size
+                )
+            )
 
         # calculate global mean & invstd
         mean, invstd = torch.batch_norm_gather_stats_with_counts(
@@ -616,7 +990,7 @@ class sync_batch_norm(Function):
             running_var,
             momentum,
             eps,
-            count_all.view(-1)
+            count_all.view(-1),
         )
 
         quantized = quantize_activation(input, scheme)
@@ -651,7 +1025,7 @@ class sync_batch_norm(Function):
             weight,
             self.needs_input_grad[0],
             self.needs_input_grad[1],
-            self.needs_input_grad[2]
+            self.needs_input_grad[2],
         )
 
         if self.needs_input_grad[0]:
@@ -660,7 +1034,8 @@ class sync_batch_norm(Function):
             num_channels = sum_dy.shape[0]
             combined = torch.cat([sum_dy, sum_dy_xmu], dim=0)
             torch.distributed.all_reduce(
-                combined, torch.distributed.ReduceOp.SUM, process_group, async_op=False)
+                combined, torch.distributed.ReduceOp.SUM, process_group, async_op=False
+            )
             sum_dy, sum_dy_xmu = torch.split(combined, num_channels)
 
             divisor = count_tensor.sum()
@@ -668,13 +1043,7 @@ class sync_batch_norm(Function):
             mean_dy_xmu = sum_dy_xmu / divisor
             # backward pass for gradient calculation
             grad_input = torch.batch_norm_backward_elemt(
-                grad_output,
-                saved_input,
-                mean,
-                invstd,
-                weight,
-                mean_dy,
-                mean_dy_xmu
+                grad_output, saved_input, mean, invstd, weight, mean_dy, mean_dy_xmu
             )
 
         # synchronizing of grad_weight / grad_bias is not needed as distributed
@@ -687,7 +1056,18 @@ class sync_batch_norm(Function):
 
         if self.scheme:
             self.scheme.if_allocate_perlayer()
-        return grad_input, grad_weight, grad_bias, None, None, None, None, None, None, None
+        return (
+            grad_input,
+            grad_weight,
+            grad_bias,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
 
 
 class adaptive_avg_pool2d(Function):
@@ -702,4 +1082,3 @@ class adaptive_avg_pool2d(Function):
         input_shape = ctx.saved
         repeat_size = [int(x / y) for x, y in zip(input_shape, grad_output.shape)]
         return grad_output.repeat(repeat_size) / np.prod(repeat_size), None
-

@@ -540,9 +540,6 @@ tensor_list minimax_quantize_single_precision_cuda(Tensor data, int bits) {
 
   tensor_list ret;
   ret.push_back(packed);
-  Tensor bits_tensor = torch::ones(1);
-  bits_tensor[0] = bits;
-  ret.push_back(Tensor(bits_tensor));
   ret.push_back(scale);
   ret.push_back(min);
   return ret;

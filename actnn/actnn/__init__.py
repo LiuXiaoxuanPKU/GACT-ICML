@@ -1,9 +1,24 @@
 from . import dataloader
 from . import ops
+from . import controller
+from . import autoprec
 from .conf import config, set_optimization_level
 from .dataloader import DataLoader
-from .layers import QConv1d, QConv2d, QConv3d, QConvTranspose1d, QConvTranspose2d, QConvTranspose3d, \
-    QBatchNorm1d, QBatchNorm2d, QBatchNorm3d, QLinear, QReLU, QSyncBatchNorm, QMaxPool2d
+from .layers import (
+    QConv1d,
+    QConv2d,
+    QConv3d,
+    QConvTranspose1d,
+    QConvTranspose2d,
+    QConvTranspose3d,
+    QBatchNorm1d,
+    QBatchNorm2d,
+    QBatchNorm3d,
+    QLinear,
+    QReLU,
+    QSyncBatchNorm,
+    QMaxPool2d,
+)
 from .module import QModule
 from .qscheme import QScheme
 from .qbnscheme import QBNScheme

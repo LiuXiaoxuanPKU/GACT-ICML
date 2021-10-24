@@ -5,16 +5,26 @@ from actnn.autoprec import AutoPrecision
 
 
 class Controller:
-    def __init__(self, check_error=False):
+    def __init__(self, default_bit=4, check_error=True, single_quantize=False):
         self.unrelated_tensors = set()
+
+        self.single_quantize = single_quantize
+        self.tensor_versions = {}
+        # tensors already quantized and referenced by other tensors
+        # key: tensor_id, value: tensor data
         self.quantized_tensors = {}
+        # tensors that do not need to be quantized
+        # the quantized results can be looked up in the self.quantized_tensors
+        # key: tensor_id, value: reference_tensor_id
+        self.not_quantize_tensors = {}
+
         self.tensor_id = 0  # tensor_id starts from 0
         self.init_iter = True
         self.check_error = check_error
         self.all_tensors = {}
 
         self.ap = None
-        self.default_bit = 4
+        self.default_bit = default_bit
         self.groups = []
         self.dims = []
         self.id2group = {}
@@ -40,6 +50,7 @@ class Controller:
             grad = torch.cat(grad, 0)
             self.ap.iterate(grad)
         self.tensor_id = 0
+        self.quantized_tensors = {}
 
     def check_quantize(self, input_tensor):
         if input_tensor.dtype != torch.float32:
@@ -58,6 +69,8 @@ class Controller:
         if not self.check_quantize(input):
             return False, input
 
+        cur_tensor_id = self.tensor_id
+        # Get quantize bit
         if self.init_iter:
             rank = len(input.shape)
             if rank not in self.id2group:
@@ -68,18 +81,36 @@ class Controller:
             dim = input.numel() // input.shape[0]
             self.dims.append(dim)
             q_bit = self.default_bit
+
+            if input.data_ptr() in self.tensor_versions and \
+                    input._version == self.tensor_versions[input.data_ptr()][1]:
+                self.not_quantize_tensors[cur_tensor_id] = \
+                    self.tensor_versions[input.data_ptr()][0]
+            else:
+                self.tensor_versions[input.data_ptr()] = (
+                    cur_tensor_id, input._version)
         else:
             q_bit = self.ap.bits[self.tensor_id]
             print("Layer = %d, bit = %d" % (self.tensor_id, q_bit), flush=True)
-            q_bit = 8
+            q_bit = max(2, q_bit.item())
 
-        cur_tensor_id = self.tensor_id
         if self.check_error:
             self.all_tensors[self.tensor_id] = input
 
-        q_input = op_quantize(input, q_bit)
-        self.tensor_id += 1
+        # Get quantized tensor
+        if not self.init_iter and self.single_quantize:
+            if cur_tensor_id in self.not_quantize_tensors:
+                print("Not quantize %d, Reference tensor %d" %
+                      (cur_tensor_id, self.not_quantize_tensors[cur_tensor_id]))
+                q_input = self.quantized_tensors[self.not_quantize_tensors[cur_tensor_id]]
+            else:
+                q_input = op_quantize(input, q_bit)
+                if cur_tensor_id in self.not_quantize_tensors.values():
+                    self.quantized_tensors[cur_tensor_id] = q_input
+        else:
+            q_input = op_quantize(input, q_bit)
 
+        self.tensor_id += 1
         return (True, q_input, input.shape, cur_tensor_id)
 
     # TODO: handle swap

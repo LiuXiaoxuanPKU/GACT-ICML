@@ -1,3 +1,4 @@
+from functools import total_ordering
 import torch
 from actnn.ops import op_quantize
 from actnn.ops import op_dequantize
@@ -21,6 +22,7 @@ class Controller:
         self.tensor_id = 0  # tensor_id starts from 0
         self.init_iter = True
         self.check_error = check_error
+        self.errors = []
         self.all_tensors = {}
 
         self.ap = None
@@ -36,7 +38,8 @@ class Controller:
 
     def iterate(self, model):
         if self.check_error and not self.init_iter:
-            exit(0)
+            pass
+            # exit(0)
 
         if self.init_iter:
             dims = torch.tensor(self.dims, dtype=torch.long)
@@ -48,8 +51,12 @@ class Controller:
                 if param.grad is not None:
                     grad.append(param.grad.detach().ravel())
             grad = torch.cat(grad, 0)
-            self.ap.iterate(grad)
+            # delats = 2**(-2 * self.ap.bits)
+            delats = torch.tensor(self.errors)
+            gsizes = torch.tensor(1.0)
+            self.ap.iterate(grad, delats, gsizes)
         self.tensor_id = 0
+        self.errors = []
         self.quantized_tensors = {}
 
     def check_quantize(self, input_tensor):
@@ -127,4 +134,5 @@ class Controller:
                 (self.all_tensors[cur_tensor_id]**2).sum()
             print("layer = %d, shape %s, diff ratio = %.10f" %
                   (cur_tensor_id, input_shape, diff_ratio.item()))
+            self.errors.insert(0, (diff_tensor**2).sum())
         return r

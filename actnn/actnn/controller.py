@@ -6,7 +6,7 @@ from actnn.autoprec import AutoPrecision
 
 
 class Controller:
-    def __init__(self, default_bit=4, check_error=True, single_quantize=False):
+    def __init__(self, default_bit=4, auto_prec=True, check_error=True, single_quantize=False):
         self.unrelated_tensors = set()
 
         self.single_quantize = single_quantize
@@ -25,12 +25,19 @@ class Controller:
         self.errors = []
         self.all_tensors = {}
 
+        self.auto_prec = auto_prec
         self.ap = None
         self.default_bit = default_bit
         self.groups = []
         self.dims = []
         self.id2group = {}
+        self.grad_fns = {}
         self.gcnt = 0
+
+        if self.auto_prec and not self.check_error:
+            print(
+                "[Controller Config Error] Check error must be True if using auto precision")
+            exit(0)
 
     def filter_tensors(self, pairs):
         for k, v in pairs:
@@ -42,22 +49,49 @@ class Controller:
             # exit(0)
 
         if self.init_iter:
-            dims = torch.tensor(self.dims, dtype=torch.long)
-            self.ap = AutoPrecision(self.default_bit, self.groups, dims)
             self.init_iter = False
-        else:
+            dims = torch.tensor(self.dims, dtype=torch.long)
+            group2id = {}
+            group_id = 0
+            for layer_id in self.grad_fns:
+                grad_fn = self.grad_fns[layer_id]
+                if grad_fn not in group2id:
+                    group2id[grad_fn] = group_id
+                    group_id += 1
+
+            groups = []
+            for i in range(self.tensor_id):
+                groups.append(group2id[self.grad_fns[i]])
+
+            # print(self.grad_fns)
+            # print(groups)
+            # exit(0)
+            if self.auto_prec:
+                self.ap = AutoPrecision(
+                    self.default_bit, groups, dims, warmup_iters=10)
+            # self.ap = AutoPrecision(
+            #     self.default_bit, self.groups, dims, warmup_iters=10)
+        elif self.auto_prec:
             grad = []
             for param in model.parameters():
                 if param.grad is not None:
-                    grad.append(param.grad.detach().ravel())
+                    param_grad = param.grad.detach().ravel()
+                    if torch.isnan(param_grad).any():
+                        print(param, " contains nan ", param.grad.shape)
+                        print(param.grad)
+                        exit(0)
+                    grad.append(param_grad)
             grad = torch.cat(grad, 0)
-            # delats = 2**(-2 * self.ap.bits)
+            # TODO hack
+            #grad[torch.isnan(grad)] = 0
+            # delats = 2**(-2.0 * self.ap.bits)
             delats = torch.tensor(self.errors)
-            gsizes = torch.tensor(1.0)
+            gsizes = torch.ones_like(delats)
             self.ap.iterate(grad, delats, gsizes)
         self.tensor_id = 0
         self.errors = []
         self.quantized_tensors = {}
+        self.all_tensors = {}
 
     def check_quantize(self, input_tensor):
         if input_tensor.dtype != torch.float32:
@@ -79,12 +113,20 @@ class Controller:
         cur_tensor_id = self.tensor_id
         # Get quantize bit
         if self.init_iter:
-            rank = len(input.shape)
-            if rank not in self.id2group:
-                self.gcnt += 1
-                self.id2group[rank] = self.gcnt
-            self.groups.append(self.id2group[rank])
-            # TODO: check the correctness of dim
+            # # method 1: use rank to categorize grops
+            # rank = len(input.shape)
+            # if rank not in self.id2group:
+            #    self.gcnt += 1
+            #    self.id2group[rank] = self.gcnt
+            # self.groups.append(self.id2group[rank])
+
+            # # method 2: each saved tensor is a independent group
+            # self.groups.append(cur_tensor_id)
+
+            # method 3: use grad_fn to categorize groups
+            # grad_fn indicates the operator of previous layer
+            self.grad_fns[cur_tensor_id] = type(input.grad_fn).__name__
+
             dim = input.numel() // input.shape[0]
             self.dims.append(dim)
             q_bit = self.default_bit
@@ -97,9 +139,18 @@ class Controller:
                 self.tensor_versions[input.data_ptr()] = (
                     cur_tensor_id, input._version)
         else:
-            q_bit = self.ap.bits[self.tensor_id]
-            print("Layer = %d, bit = %d" % (self.tensor_id, q_bit), flush=True)
-            q_bit = max(2, q_bit.item())
+            if self.auto_prec:
+                q_bit = self.ap.bits[self.tensor_id]
+                q_bit = q_bit.item()
+                if q_bit <= 2:
+                    q_bit = 2
+                elif q_bit <= 4:
+                    q_bit = 4
+                else:
+                    q_bit = 8
+            else:
+                q_bit = self.default_bit
+            # print("Layer = %d, bit = %d" % (self.tensor_id, q_bit), flush=True)
 
         if self.check_error:
             self.all_tensors[self.tensor_id] = input
@@ -132,7 +183,7 @@ class Controller:
             diff_tensor = self.all_tensors[cur_tensor_id] - r
             diff_ratio = (diff_tensor**2).sum() / \
                 (self.all_tensors[cur_tensor_id]**2).sum()
-            print("layer = %d, shape %s, diff ratio = %.10f" %
-                  (cur_tensor_id, input_shape, diff_ratio.item()))
+            # print("layer = %d, shape %s, diff ratio = %.10f" %
+            #       (cur_tensor_id, input_shape, diff_ratio.item()))
             self.errors.insert(0, (diff_tensor**2).sum())
         return r

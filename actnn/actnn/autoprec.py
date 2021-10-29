@@ -17,6 +17,7 @@ class AutoPrecision:
     5. call end_epoch
     # TODO make delta a moving average...
     """
+
     def __init__(self, bits, groups, dims,
                  momentum=0.999, warmup_iters=100, update_interval=10, sample_size=1000,
                  max_bits=8, adaptive=True, reg=1.0, delta_momentum=0.9):
@@ -61,6 +62,7 @@ class AutoPrecision:
         self.delta_normal = torch.ones(self.L, 1) * 1e9
         self.delta_momentum = delta_momentum
         # self.refresh_bits()
+        print('Initialized ', groups)
 
     def get_delta(self):
         return self.deltas / (self.delta_beta + 1e-9)
@@ -72,8 +74,10 @@ class AutoPrecision:
         # print((self.deltas / self.delta_normal)[0])
         # print((self.deltas / self.delta_normal)[-1])
         # torch.save([self.deltas, self.delta_normal], 'delta_normal.pkl')
-        self.bits = ext_calc_precision.calc_precision_table(self.bits, self.get_delta() / self.delta_normal,
-                                                      self.C, self.dims, total_bits)
+
+        delta = self.get_delta() / self.delta_normal
+        self.bits = ext_calc_precision.calc_precision_table(self.bits, delta,
+                                                            self.C, self.dims, total_bits)
 
         # Collect some data
         # prob_dist = torch.tensor([0.1, 0.4, 0.25, 0.15, 0.0, 0.0, 0.0, 0.1])
@@ -88,10 +92,18 @@ class AutoPrecision:
 
         if self.adaptive:       # TODO control the overall bits
             mask = (torch.rand(self.L) < 0.05).int()
-            new_bits = torch.randint_like(self.bits, 2) * 7 + 1
+            # print('Random mask ', mask)
+            new_bits = torch.randint_like(self.bits, 2) * 6 + 2
             self.bits = self.bits * (1 - mask) + mask * new_bits
 
+        print('Delta')
+        for l in range(self.L):
+            #print(self.bits[l], delta[l], self.C[l], self.dims[l])
+            #print(self.deltas[l], self.delta_beta[l], self.delta_normal[l])
+            print(self.bits[l], self.C[l])
+
         # torch.save([self.C, self.deltas / self.delta_normal, self.bits], 'used_b.pkl')
+        #self.bits = torch.ones_like(self.bits) * 8
 
     def generate_ls(self, grad):
         X_row = [0 for i in range(self.L)]
@@ -119,12 +131,13 @@ class AutoPrecision:
         if deltas is not None:
             for l in range(self.L):
                 self.deltas[l, self.bits[l] - 1] = self.deltas[l, self.bits[l] - 1] * self.delta_momentum + \
-                                                   (1 - self.delta_momentum) * deltas[l]
+                    (1 - self.delta_momentum) * deltas[l]
                 self.delta_beta[l, self.bits[l] - 1] = self.delta_beta[l, self.bits[l] - 1] * self.delta_momentum + \
-                                                       (1 - self.delta_momentum)
+                    (1 - self.delta_momentum)
 
         delta = self.get_delta()
-        self.delta_normal = delta[:, self.abits-1:self.abits] * 2 ** (2 * (self.abits - 1)) + 1e-9
+        self.delta_normal = delta[:, self.abits -
+                                  1:self.abits] * 2 ** (2 * (self.abits - 1)) + 1e-9
         # self.delta_normal = self.deltas.max(1, keepdims=True)[0] + 1e-9
 
         if gsizes is not None:
@@ -136,8 +149,9 @@ class AutoPrecision:
         # Update the underlying linear system
         if self.iter >= self.warmup_iters:
             X_row, y_row = self.generate_ls(grad)
+            # print('Cost:  ', y_row)
             self.reward += y_row
-            if y_row < 1e6:
+            if y_row < 1e12:
                 self.X.append(X_row)
                 self.y.append(y_row)
             if len(self.X) > self.sample_size:
@@ -148,9 +162,11 @@ class AutoPrecision:
 
         # Update batch gradient
         # beta1 will converge to 1
-        self.batch_grad_ema = self.momentum * self.batch_grad_ema + (1 - self.momentum) * grad
+        self.batch_grad_ema = self.momentum * \
+            self.batch_grad_ema + (1 - self.momentum) * grad
         self.beta1 = self.momentum * self.beta1 + (1 - self.momentum)
 
+        print('==================', self.iter)
         if self.iter >= 2 * self.warmup_iters and self.iter % self.update_interval == 0:
             self.update_coef()
 
@@ -159,12 +175,15 @@ class AutoPrecision:
         Update the per-tensor sensitivity by solving the linear system
         """
         # Normalize X
+        # print('X')
+        # print(self.X)
         gsizes_normal = self.gsizes.abs().mean()
         X = torch.tensor(self.X) / self.delta_normal.view(1, -1)
         P = torch.zeros(self.L, self.num_groups * 2)
         for l in range(self.L):
             P[l, self.groups[l]] = 1
-            P[l, self.groups[l] + self.num_groups] = self.gsizes[l] / gsizes_normal * 10
+            P[l, self.groups[l] + self.num_groups] = self.gsizes[l] / \
+                gsizes_normal * 10
 
         # X = np.array(X @ P)
         # y = np.array(self.y)

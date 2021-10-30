@@ -88,6 +88,7 @@ class Controller:
             delats = torch.tensor(self.errors)
             gsizes = torch.ones_like(delats)
             self.ap.iterate(grad, delats, gsizes)
+            print("=========Average", self.ap.bits)
         self.tensor_id = 0
         self.errors = []
         self.quantized_tensors = {}
@@ -150,7 +151,8 @@ class Controller:
                     q_bit = 8
             else:
                 q_bit = self.default_bit
-            # print("Layer = %d, bit = %d" % (self.tensor_id, q_bit), flush=True)
+                print("Layer = %d, bt = %d" %
+                      (self.tensor_id, q_bit), flush=True)
 
         if self.check_error:
             self.all_tensors[self.tensor_id] = input

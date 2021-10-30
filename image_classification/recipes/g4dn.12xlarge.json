@@ -1,8 +1,0 @@
-{
-  "ImageId": "ami-02c02d9051f0615d2",
-  "KeyName": "jianfei",
-  "InstanceType": "g4dn.12xlarge",
-  "Placement": {
-    "AvailabilityZone": "us-east-2b"
-  }
-}

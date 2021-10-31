@@ -11,7 +11,25 @@ from torch.autograd.function import Function
 from timeit_v2 import py_benchmark
 
 from actnn import get_memory_usage, compute_tensor_bytes
-from actnn.ops import ext_quantization
+from actnn.ops import ext_quantization, op_quantize, op_dequantize
+
+
+def error_rate(q_input, input):
+    print(((q_input - input)**2).sum() / (input**2).sum())
+
+
+def test_quantize_error():
+    input_shape = (64, 3, 224, 224)
+    input = torch.rand(input_shape).to("cuda")
+    print("==========  Quantization Error Rate Test ==========")
+    # print("1 bit error rate: ")
+    # error_rate(op_dequantize(op_quantize(input, 1), input_shape), input)
+    print("2 bit error rate: ")
+    error_rate(op_dequantize(op_quantize(input, 2), input_shape), input)
+    print("4 bit error rate: ")
+    error_rate(op_dequantize(op_quantize(input, 4), input_shape), input)
+    print("8 bit error rate: ")
+    error_rate(op_dequantize(op_quantize(input, 8), input_shape), input)
 
 
 def test_relu_correctness():
@@ -97,6 +115,7 @@ def test_relu_speed():
 
 
 if __name__ == "__main__":
-    test_relu_correctness()
-    test_relu_memory()
-    test_relu_speed()
+    test_quantize_error()
+    # test_relu_correctness()
+    # test_relu_memory()
+    # test_relu_speed()

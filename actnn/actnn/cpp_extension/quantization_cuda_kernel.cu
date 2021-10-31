@@ -34,10 +34,9 @@ __global__ void fuse_single_precision_kernel (int32_t bits,
   const int work_per_thread = 8 / bits;
   const int64_t global_thread_id = (int64_t)(no * num_groups + group_id) * group_size + d;
 
-  __shared__ scalar_t min_red[4 * 256];
-  __shared__ scalar_t max_red[4 * 256];
-  __shared__ scalar_t group_data[4 * 256];
-  __shared__ scalar_t tmp_scale[5];
+  __shared__ scalar_t min_red[8 * 256];
+  __shared__ scalar_t max_red[8 * 256];
+  __shared__ scalar_t tmp_scale[9];
   
   for (int ni = 0; ni < work_per_thread; ni++) {
     const int n = no * work_per_thread + ni;
@@ -50,7 +49,6 @@ __global__ void fuse_single_precision_kernel (int32_t bits,
     int idx = ni * 256 + d;
     min_red[idx] = cur_val;
     max_red[idx] = cur_val;
-    group_data[idx] = cur_val;
   }
 
   __syncthreads();
@@ -91,7 +89,8 @@ __global__ void fuse_single_precision_kernel (int32_t bits,
     if (boundary_check && n >= N) { break; }
 
     const float noise = curand_uniform(&state);
-    scalar_t quantized = fmax((group_data[ni * 256 + d] - min_red[ni * 256]) * tmp_scale[ni] + noise - 0.5, 0.0f);
+    const int64_t id = (int64_t)(n * num_groups + group_id) * group_size + d;
+    scalar_t quantized = fmax((data[id] - min_red[ni * 256]) * tmp_scale[ni] + noise - 0.5, 0.0f);
     const int32_t val = __float2int_rn(quantized);
     local_packed |= (val << (ni * bits));
   }

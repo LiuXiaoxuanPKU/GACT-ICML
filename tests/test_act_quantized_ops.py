@@ -21,9 +21,13 @@ def error_rate(q_input, input):
 def test_quantize_error():
     input_shape = (64, 3, 224, 224)
     input = torch.rand(input_shape).to("cuda")
+    ones_input = torch.ones(input_shape).to("cuda")
     print("==========  Quantization Error Rate Test ==========")
-    print("1 bit error rate: ")
+    print("1 bit error rate (value between 0 and 1): ")
     error_rate(op_dequantize(op_quantize(input, 1), input_shape), input)
+    print("1 bit error rate (value = 0 or 1): ")
+    error_rate(op_dequantize(op_quantize(
+        ones_input, 1), input_shape), ones_input)
     print("2 bit error rate: ")
     error_rate(op_dequantize(op_quantize(input, 2), input_shape), input)
     print("4 bit error rate: ")

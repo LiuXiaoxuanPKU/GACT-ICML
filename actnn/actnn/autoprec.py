@@ -92,7 +92,7 @@ class AutoPrecision:
             mask = (torch.rand(self.L) < 0.05).int()
             if self.verbose:
                 print('Random mask ', mask)
-            new_bits = torch.randint_like(self.bits, 2) * 6 + 2
+            new_bits = torch.randint_like(self.bits, 2) * 7 + 1
             self.bits = self.bits * (1 - mask) + mask * new_bits
 
         if self.verbose:

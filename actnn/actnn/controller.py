@@ -74,8 +74,8 @@ class Controller:
                     param_grad = param.grad.detach().ravel()
                     grad.append(param_grad)
             grad = torch.cat(grad, 0)
-            # delats = 2**(-2.0 * self.ap.bits)
-            delats = torch.tensor(self.errors)
+            delats = 2**(-2.0 * self.ap.bits)
+            # delats = torch.tensor(self.errors)
             gsizes = torch.ones_like(delats)
             self.ap.iterate(grad, delats, gsizes)
         self.tensor_id = 0
@@ -123,7 +123,7 @@ class Controller:
                 q_bit = self.ap.bits[self.tensor_id]
                 q_bit = q_bit.item()
                 if q_bit <= 2:
-                    q_bit = 2
+                    pass
                 elif q_bit <= 4:
                     q_bit = 4
                 else:
@@ -131,8 +131,8 @@ class Controller:
             else:
                 q_bit = self.default_bit
 
-        if self.auto_prec or self.verbose:
-            self.all_tensors[self.tensor_id] = input
+        # if self.auto_prec or self.verbose:
+        #     self.all_tensors[self.tensor_id] = input
 
         # Get quantized tensor
         if not self.init_iter and self.single_quantize:
@@ -158,12 +158,12 @@ class Controller:
 
         _, q_input, input_shape, cur_tensor_id = input
         r = op_dequantize(q_input, input_shape)
-        if self.verbose or self.auto_prec:
-            diff_tensor = self.all_tensors[cur_tensor_id] - r
-            diff_ratio = (diff_tensor**2).sum() / \
-                (self.all_tensors[cur_tensor_id]**2).sum()
-            if self.verbose:
-                print("layer = %d, shape %s, diff ratio = %.10f" %
-                      (cur_tensor_id, input_shape, diff_ratio.item()))
-            self.errors.insert(0, (diff_tensor**2).sum())
+        # if self.verbose or self.auto_prec:
+        #     diff_tensor = self.all_tensors[cur_tensor_id] - r
+        #     diff_ratio = (diff_tensor**2).sum() / \
+        #         (self.all_tensors[cur_tensor_id]**2).sum()
+        #     if self.verbose:
+        #         print("layer = %d, shape %s, diff ratio = %.10f" %
+        #               (cur_tensor_id, input_shape, diff_ratio.item()))
+        #     self.errors.insert(0, (diff_tensor**2).sum())
         return r

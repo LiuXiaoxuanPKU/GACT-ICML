@@ -72,7 +72,7 @@ torch::Tensor calc_precision_table(torch::Tensor b, torch::Tensor cost, torch::T
     auto get_obj = [&](int l, int b) {
         int best_b = -1;
         float best_cost = -1e20;
-        for (int b1 = 1; b1 <= b-1; b1++) if (b1 == 1 || b1 == 2 || b1 == 4) {
+        for (int b1 = 1; b1 <= b-1; b1++) if (b1 == 2 || b1 == 4) {
             float new_cost = C_data[l] * (cost_data[l * 8 + b - 1] - cost_data[l * 8 + b1 - 1]);
             if (new_cost > best_cost) {
                 best_cost = new_cost;

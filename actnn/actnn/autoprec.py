@@ -19,7 +19,7 @@ class AutoPrecision:
 
     def __init__(self, bits, groups, dims,
                  momentum=0.999, warmup_iters=100, update_interval=10, sample_size=1000,
-                 max_bits=8, adaptive=True, reg=1.0, delta_momentum=0.9, verbose=False):
+                 max_bits=8, adaptive=True, reg=1.0, delta_momentum=0.9, verbose=True):
         """
         :param bits: average number of bits (Python int)
         :param groups: group id of each tensor (Python list)
@@ -98,8 +98,8 @@ class AutoPrecision:
         if self.verbose:
             print('Delta')
             for l in range(self.L):
-                print(self.bits[l], delta[l], self.C[l], self.dims[l])
-                print(self.deltas[l], self.delta_beta[l], self.delta_normal[l])
+                # print(self.bits[l], delta[l], self.C[l], self.dims[l])
+                # print(self.deltas[l], self.delta_beta[l], self.delta_normal[l])
                 print(self.bits[l], self.C[l])
 
     def generate_ls(self, grad):
@@ -186,7 +186,6 @@ class AutoPrecision:
 
         X = X @ P
         y = torch.tensor(self.y, dtype=torch.float32)
-
         # Ridge Regression
         N = X.shape[0]
         X = torch.cat([X, torch.ones([N, 1])], 1)
@@ -199,5 +198,8 @@ class AutoPrecision:
 
         self.C = P @ coefs
         min_coef = self.C.min()
-        if min_coef < 0:
+        if min_coef < 0 and self.iter > 500:
+            torch.save(X, 'X.p')
+            torch.save(y, 'y.p')
             print('ActNN Warning: negative coefficient detected ', min_coef)
+            exit(0)

@@ -43,7 +43,6 @@ def no_scheme_quantize_pack(input, q_bit):
 
     pack_func = ext_quantization.minimax_quantize_single_precision
     q_input, q_scale, q_min = pack_func(input_groups, q_bit)
-
     return q_input, q_scale, q_min
 
 
@@ -73,7 +72,7 @@ def dequantize_and_unpack(data, shape, bits, scale, mn, tid=-1):
 
 def op_quantize(input, q_bit):
     q_input, q_scale, q_min = no_scheme_quantize_pack(input, q_bit)
-    return (q_input, q_bit, q_scale, q_min)
+    return [q_input, q_bit, q_scale, q_min]
 
 
 def op_dequantize(input, input_shape):

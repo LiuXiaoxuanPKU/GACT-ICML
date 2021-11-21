@@ -22,20 +22,21 @@ class TestNet(nn.Module):
         super().__init__()
         self.features = nn.Sequential(
             nn.Conv2d(3, 64, kernel_size=11, stride=4, padding=2),
-            nn.ReLU(inplace=False),
+            nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=3, stride=2),
             nn.Conv2d(64, 192, kernel_size=5, padding=2),
-            nn.ReLU(inplace=False),
+            nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=3, stride=2),
             nn.Conv2d(192, 384, kernel_size=3, padding=1),
-            nn.ReLU(inplace=False),
+            nn.ReLU(inplace=True),
             nn.Conv2d(384, 256, kernel_size=3, padding=1),
-            nn.ReLU(inplace=False),
+            nn.ReLU(inplace=True),
             nn.Conv2d(256, 256, kernel_size=3, padding=1),
-            nn.ReLU(inplace=False),
+            nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=3, stride=2),
         )
         self.classifier = nn.Sequential(
+            # nn.Linear(46656, num_classes)
             nn.Linear(9216, num_classes)
         )
 
@@ -125,9 +126,9 @@ if __name__ == "__main__":
     with torch.autograd.graph.saved_tensors_hooks(pack_hook, unpack_hook):
         q4_losses, q4_mems, q4_ips_list = train(controller)
 
-    # # 4 bit with swap
+    # 4 bit with swap
     swap_controller = Controller(
-        verbose=False, swap=True, debug=False)
+        verbose=False, swap=True, debug=False, prefetch=True)
 
     def pack_hook(tensor):
         return swap_controller.quantize(tensor)
@@ -144,6 +145,7 @@ if __name__ == "__main__":
     # test memory
     print("=========Test Memory============")
     print("original activation mems %d MB" % (org_mems[-1]/1024/1024))
+    print("4 bit debug mems %d MB" % (q4_debug_mems[-1]/1024/1024))
     print("4 bit activation mems %d MB" % (q4_mems[-1]/1024/1024))
     print("4 bit + swap activation mems %d MB" % (q4_swap_mems[-1]/1024/1024))
 

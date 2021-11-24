@@ -25,6 +25,8 @@ class Controller:
         self.compute_stream = torch.cuda.current_stream()
         self.ptr_qtensor_map = {}
         self.prefetch = prefetch
+        self.start_prefetch_event = torch.cuda.Event(blocking=True)
+        self.end_prefetch_event = torch.cuda.Event(blocking=True)
         self.layer_key_map = {}
         self.tid = 0
 
@@ -90,22 +92,27 @@ class Controller:
         _, key, input_shape, tid = input
         q_inputs, ref_cnt = self.ptr_qtensor_map[key]
 
-        # swap
+        # swap waits until prefetch finishes
+        if self.prefetch and self.swap:
+            self.end_prefetch_event.wait(self.compute_stream)
+
         if not q_inputs[0].is_cuda:
-            q_inputs[0] = q_inputs[0].cuda(non_blocking=True)
-            self.ptr_qtensor_map[key] = (q_inputs, ref_cnt)
+            q_inputs[0] = q_inputs[0].cuda(non_blocking=False)
+
+        # event: start_prefetch
+        self.start_prefetch_event.record()
 
         # prefetch previous layer
         if self.prefetch and self.swap:
             with torch.cuda.stream(self.swap_in_stream):
                 if tid > 0:
+                    self.start_prefetch_event.wait(self.swap_in_stream)
                     previous_key = self.layer_key_map[tid-1]
-                    q_previous_inputs, pre_ref_cnt = self.ptr_qtensor_map[previous_key]
+                    q_previous_inputs, _ = self.ptr_qtensor_map[previous_key]
                     if not q_previous_inputs[0].is_cuda:
                         q_previous_inputs[0] = q_previous_inputs[0].cuda(
                             non_blocking=True)
-                        self.ptr_qtensor_map[previous_key] = (
-                            q_previous_inputs, pre_ref_cnt)
+                    self.end_prefetch_event.record()
 
         ret = op_dequantize(q_inputs, input_shape)
 

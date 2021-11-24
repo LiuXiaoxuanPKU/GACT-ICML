@@ -1,5 +1,3 @@
-import time
-from functools import total_ordering
 import torch
 from actnn.ops import op_quantize
 from actnn.ops import op_dequantize
@@ -29,6 +27,7 @@ class Controller:
         self.end_prefetch_event = torch.cuda.Event(blocking=True)
         self.layer_key_map = {}
         self.tid = 0
+        self.start_bwd = True
 
     def filter_tensors(self, pairs):
         for k, v in pairs:
@@ -49,6 +48,7 @@ class Controller:
         del self.ptr_qtensor_map
         self.ptr_qtensor_map = {}
         self.tid = 0
+        self.start_bwd = True
 
     def quantize(self, input):
         if not self.check_quantize(input):
@@ -67,16 +67,18 @@ class Controller:
             # quantize
             q_inputs = op_quantize(input, self.default_bit)
             if self.swap:
-                q_input_cpu = torch.empty(
-                    q_inputs[0].shape, dtype=q_inputs[0].dtype, device='cpu', pin_memory=True)
-                q_input_cpu.copy_(q_inputs[0], non_blocking=True)
-                q_input_gpu = q_inputs[0]
-                del q_input_gpu
-                q_inputs[0] = q_input_cpu
-            self.ptr_qtensor_map[key] = (q_inputs, 1)
+                with torch.cuda.stream(self.swap_out_stream):
+                    self.swap_out_stream.wait_stream(self.compute_stream)
+                    q_input_cpu = torch.empty(
+                        q_inputs[0].shape, dtype=q_inputs[0].dtype, device='cpu', pin_memory=True)
+                    q_input_cpu.copy_(q_inputs[0], non_blocking=True)
+                    q_input_gpu = q_inputs[0]
+                    del q_input_gpu
+                    q_inputs[0] = q_input_cpu
+            self.ptr_qtensor_map[key] = [q_inputs, 1]
         else:
-            q_inputs, ref_cnt = self.ptr_qtensor_map[key]
-            self.ptr_qtensor_map[key] = (q_inputs, ref_cnt + 1)
+            # increase the ref count
+            self.ptr_qtensor_map[key][1] += 1
         return True, key, input_shape, tid
 
     def dequantize(self, input):
@@ -91,6 +93,10 @@ class Controller:
 
         _, key, input_shape, tid = input
         q_inputs, ref_cnt = self.ptr_qtensor_map[key]
+
+        if self.start_bwd and self.swap:
+            self.compute_stream.wait_stream(self.swap_out_stream)
+            self.start_bwd = False
 
         # swap waits until prefetch finishes
         if self.prefetch and self.swap:
@@ -120,5 +126,5 @@ class Controller:
         if ref_cnt == 0:
             del self.ptr_qtensor_map[key]
         else:
-            self.ptr_qtensor_map[key] = (q_inputs, ref_cnt)
+            self.ptr_qtensor_map[key] = [q_inputs, ref_cnt]
         return ret

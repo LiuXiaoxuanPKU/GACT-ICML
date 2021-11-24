@@ -20,7 +20,7 @@ import actnn.cpp_extension.quantization as ext_quantization
 
 def no_scheme_quantize_pack(input, q_bit):
     N = input.shape[0]
-    input_flatten = input.contiguous().view(N, -1)  # lily
+    input_flatten = input.view(N, -1)
     num_features = input_flatten.shape[1]
 
     # Compute min, max by groups
@@ -39,7 +39,6 @@ def no_scheme_quantize_pack(input, q_bit):
         )
 
     input_groups = input_flatten.view(N, -1, config.group_size)
-    input_groups = input_groups.contiguous()
 
     pack_func = ext_quantization.minimax_quantize_single_precision
     q_input, q_scale, q_min = pack_func(input_groups, q_bit)

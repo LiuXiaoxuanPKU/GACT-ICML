@@ -3,21 +3,19 @@ from functools import total_ordering
 import torch
 from actnn.ops import op_quantize
 from actnn.ops import op_dequantize
-from actnn.autoprec import AutoPrecision
 
 
 class Controller:
     '''
-    default_bit: if auto_prec = False, default_bit is the fix number of quantize bits
-                 if auto_prec = True, default_bit is the average number of quantize bits
-    auto_prec: if auto_prec = True, auto precision is turned on.
-    single_quantize: if single_quantize = True, tensors that share the same storage will only be quantized once
+    default_bit: the number of bits used to quantize
+    swap: if turned on, swap activation memory to CPU
+    prefetch: if turned on, activation of the previous layer will be prefetched. the parameter is meaningful only when swap is True
+    debug: if turned on, the same tensor that is saved twice will be quantized twice, which introduces memory overhead
     verbose: print debug log
     '''
 
-    def __init__(self, default_bit=4, verbose=False, swap=False, debug=False, prefetch=False):
+    def __init__(self, default_bit=4, swap=False, debug=False, prefetch=False):
         self.unrelated_tensors = set()
-        self.verbose = verbose
         self.default_bit = default_bit
         self.debug = debug
 
@@ -29,8 +27,6 @@ class Controller:
         self.prefetch = prefetch
         self.layer_key_map = {}
         self.tid = 0
-
-        self.start_bwd = True
 
     def filter_tensors(self, pairs):
         for k, v in pairs:
@@ -62,7 +58,7 @@ class Controller:
 
         tid = self.tid
         input_shape = input.shape
-        key = (input.data_ptr() + input.sum(), input._version)
+        key = (input.data_ptr(), input.sum().item(), input._version)
         self.layer_key_map[tid] = key
         self.tid += 1
         if key not in self.ptr_qtensor_map:
@@ -75,8 +71,10 @@ class Controller:
                 q_input_gpu = q_inputs[0]
                 del q_input_gpu
                 q_inputs[0] = q_input_cpu
-            self.ptr_qtensor_map[key] = q_inputs
-
+            self.ptr_qtensor_map[key] = (q_inputs, 1)
+        else:
+            q_inputs, ref_cnt = self.ptr_qtensor_map[key]
+            self.ptr_qtensor_map[key] = (q_inputs, ref_cnt + 1)
         return True, key, input_shape, tid
 
     def dequantize(self, input):
@@ -90,18 +88,30 @@ class Controller:
             return ret
 
         _, key, input_shape, tid = input
-        q_inputs = self.ptr_qtensor_map[key]
+        q_inputs, ref_cnt = self.ptr_qtensor_map[key]
+
+        # swap
         if not q_inputs[0].is_cuda:
-            self.ptr_qtensor_map[key][0] = q_inputs[0].cuda(non_blocking=True)
+            q_inputs[0] = q_inputs[0].cuda(non_blocking=True)
+            self.ptr_qtensor_map[key] = (q_inputs, ref_cnt)
 
         # prefetch previous layer
-        with torch.cuda.stream(self.swap_in_stream):
-            if tid > 0 and self.prefetch:
-                previous_key = self.layer_key_map[tid-1]
-                q_previous_inputs = self.ptr_qtensor_map[previous_key]
-                if not q_previous_inputs[0].is_cuda:
-                    self.ptr_qtensor_map[previous_key][0] = q_previous_inputs[0].cuda(
-                        non_blocking=True)
+        if self.prefetch and self.swap:
+            with torch.cuda.stream(self.swap_in_stream):
+                if tid > 0:
+                    previous_key = self.layer_key_map[tid-1]
+                    q_previous_inputs, pre_ref_cnt = self.ptr_qtensor_map[previous_key]
+                    if not q_previous_inputs[0].is_cuda:
+                        q_previous_inputs[0] = q_previous_inputs[0].cuda(
+                            non_blocking=True)
+                        self.ptr_qtensor_map[previous_key] = (
+                            q_previous_inputs, pre_ref_cnt)
 
         ret = op_dequantize(q_inputs, input_shape)
+
+        ref_cnt -= 1
+        if ref_cnt == 0:
+            del self.ptr_qtensor_map[key]
+        else:
+            self.ptr_qtensor_map[key] = (q_inputs, ref_cnt)
         return ret

@@ -16,12 +16,14 @@ gpu_act_tensors = {}
 cpu_act_tensors = {}
 last_last_layer = -1
 
+
 def swap_to_gpu(tid):
     global last_last_layer, cur_stream
     is_last_layer = tid == max(cpu_act_tensors.keys())
     if is_last_layer:
         for key in list(cpu_act_tensors.keys()):
-            cur_stream.wait_stream(swap_in_stream) # make sure CPU tensor has already been swapped to GPU before deleting
+            # make sure CPU tensor has already been swapped to GPU before deleting
+            cur_stream.wait_stream(swap_in_stream)
             if key <= last_last_layer:
                 del cpu_act_tensors[key]
         cur_stream.wait_stream(swap_out_stream)
@@ -37,19 +39,23 @@ def swap_to_gpu(tid):
         # prefetch previous layer
         prefetch_id = tid - 1
         if prefetch_id in cpu_act_tensors.keys():
-            gpu_act_tensors[prefetch_id] = cpu_act_tensors[prefetch_id].cuda(non_blocking=False)
+            gpu_act_tensors[prefetch_id] = cpu_act_tensors[prefetch_id].cuda(
+                non_blocking=False)
             gpu_act_tensors[prefetch_id].record_stream(cur_stream)
 
     return gpu_act_tensors.pop(tid, None)
+
 
 def swap_to_cpu(tensor, tid):
    # fwd_values[tid] = tensor.to(float).mean()
     cur_stream = torch.cuda.current_stream()
     swap_out_stream.wait_stream(cur_stream)
     with torch.cuda.stream(swap_out_stream):
-        tensor.record_stream(swap_out_stream) # tell default stream to keep tensor until swap_stream finishes swapping
-        tensor_cpu = torch.empty(tensor.shape, dtype=tensor.dtype, device='cpu', pin_memory=True)
-        tensor_cpu.copy_(tensor, non_blocking = True)
+        # tell default stream to keep tensor until swap_stream finishes swapping
+        tensor.record_stream(swap_out_stream)
+        tensor_cpu = torch.empty(
+            tensor.shape, dtype=tensor.dtype, device='cpu', pin_memory=True)
+        tensor_cpu.copy_(tensor, non_blocking=True)
         cpu_act_tensors[tid] = tensor_cpu
     return tensor_cpu
 
@@ -72,11 +78,11 @@ def compute_tensor_bytes(tensors):
     ret = 0
     for x in tensors:
         if x.dtype in [torch.float32, torch.int]:
-            ret += np.prod(x.size()) * 4 
+            ret += np.prod(x.size()) * 4
         elif x.dtype in [torch.bfloat16, torch.float16, torch.int16]:
             ret += np.prod(x.size()) * 2
         elif x.dtype in [torch.int8]:
-            ret += np.prod(x.size()) * 2
+            ret += np.prod(x.size()) * 1
 
     return ret
 
@@ -118,5 +124,5 @@ class GlobalExpRecorder:
     def clear():
         pass
 
-exp_recorder = GlobalExpRecorder()
 
+exp_recorder = GlobalExpRecorder()

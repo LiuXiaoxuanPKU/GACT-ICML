@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 import actnn.cpp_extension.calc_precision as ext_calc_precision
+from sklearn.linear_model import Ridge
 
 
 # Automatically compute the precision for each tensor
@@ -16,10 +17,9 @@ class AutoPrecision:
     5. call end_epoch
     # TODO make delta a moving average...
     """
-
     def __init__(self, bits, groups, dims,
                  momentum=0.999, warmup_iters=100, update_interval=10, sample_size=1000,
-                 max_bits=8, adaptive=True, reg=1.0, delta_momentum=0.9, verbose=True):
+                 max_bits=8, adaptive=True, reg=1.0, delta_momentum=0.9):
         """
         :param bits: average number of bits (Python int)
         :param groups: group id of each tensor (Python list)
@@ -56,14 +56,11 @@ class AutoPrecision:
         self.sample_size = sample_size
         self.reg = reg
         self.reward = 0
-        self.deltas = torch.zeros(self.L, 8)
-        self.delta_beta = torch.zeros(self.L, 8)
+        self.deltas = torch.rand(self.L, 8)
+        self.delta_beta = torch.ones(self.L, 8) * 0.01
         self.delta_normal = torch.ones(self.L, 1) * 1e9
         self.delta_momentum = delta_momentum
         # self.refresh_bits()
-        self.verbose = verbose
-        if self.verbose:
-            print('Initialized ', groups)
 
     def get_delta(self):
         return self.deltas / (self.delta_beta + 1e-9)
@@ -72,9 +69,15 @@ class AutoPrecision:
         total_bits = self.total_bits
 
         self.bits = torch.ones(self.L, dtype=torch.int32) * self.max_bits
+        # print((self.deltas / self.delta_normal)[0])
+        # print((self.deltas / self.delta_normal)[-1])
+        # torch.save([self.deltas, self.delta_normal], 'delta_normal.pkl')
+        self.bits = ext_calc_precision.calc_precision_table(self.bits, self.get_delta() / self.delta_normal,
+                                                      self.C, self.dims, total_bits)
+
         delta = self.get_delta() / self.delta_normal
-        self.bits = ext_calc_precision.calc_precision_table(self.bits, delta,
-                                                            self.C, self.dims, total_bits)
+        # for l in range(5):
+        #     print(self.bits[l].item(), delta[l], self.deltas[l], self.delta_beta[l], self.delta_normal[l].item())
 
         # Collect some data
         # prob_dist = torch.tensor([0.1, 0.4, 0.25, 0.15, 0.0, 0.0, 0.0, 0.1])
@@ -89,18 +92,10 @@ class AutoPrecision:
 
         if self.adaptive:       # TODO control the overall bits
             mask = (torch.rand(self.L) < 0.05).int()
-            if self.verbose:
-                print('Random mask ', mask)
-            # new_bits = torch.randint_like(self.bits, 2) * 7 + 1
-            new_bits = torch.randint_like(self.bits, 2) * 6 + 2
+            new_bits = torch.randint_like(self.bits, 2) * 7 + 1
             self.bits = self.bits * (1 - mask) + mask * new_bits
 
-        if self.verbose:
-            print('Delta')
-            for l in range(self.L):
-                # print(self.bits[l], delta[l], self.C[l], self.dims[l])
-                # print(self.deltas[l], self.delta_beta[l], self.delta_normal[l])
-                print(self.bits[l], self.C[l])
+        # torch.save([self.C, self.deltas / self.delta_normal, self.bits], 'used_b.pkl')
 
     def generate_ls(self, grad):
         X_row = [0 for i in range(self.L)]
@@ -112,6 +107,7 @@ class AutoPrecision:
         return X_row, y_row
 
     def iterate(self, grad, deltas=None, gsizes=None):
+        # print(grad)
         """
         Given the sampled gradient vector (gather selected dimensions from the full gradient)
         This procedure will calculate the bits allocation for next iteration, which
@@ -121,20 +117,32 @@ class AutoPrecision:
         - Deltas is a vector of quantization error:
           deltas[l] = ||Q(a_l) - a_l||^2, if not available, use 2^(-2b)
         - Gsizes[l] = (gradient**2).mean()
+          y = op(a, x), need to know loss'y
+          loss'x = g(loss'y, a)
           If not available, use 1
         """
         # Collect deltas
         if deltas is not None:
             for l in range(self.L):
                 self.deltas[l, self.bits[l] - 1] = self.deltas[l, self.bits[l] - 1] * self.delta_momentum + \
-                    (1 - self.delta_momentum) * deltas[l]
+                                                   (1 - self.delta_momentum) * deltas[l]
                 self.delta_beta[l, self.bits[l] - 1] = self.delta_beta[l, self.bits[l] - 1] * self.delta_momentum + \
-                    (1 - self.delta_momentum)
+                                                       (1 - self.delta_momentum)
 
         delta = self.get_delta()
-        self.delta_normal = delta[:, self.abits -
-                                  1:self.abits] * 2 ** (2 * (self.abits - 1)) + 1e-9
+        self.delta_normal = delta[:, self.abits-1:self.abits] * 2 ** (2 * (self.abits - 1)) + 1e-9
+        # self.delta_normal = delta[:, self.abits - 1].std() * 2 ** (2 * (self.abits - 1)) + 1e-9
         # self.delta_normal = self.deltas.max(1, keepdims=True)[0] + 1e-9
+
+#        for l in range(4):
+#            print(self.bits[l].item(), self.deltas[l].detach(), self.delta_beta[l].detach(), self.delta_normal[l].item(), delta[l]/self.delta_normal[l])
+        weights = torch.zeros(3)
+        print('iter ', self.iter)
+        for l in range(self.L):
+            d = delta[l] / self.delta_normal[l]
+            weights[self.groups[l]] += d[self.bits[l]-1]
+            print(self.bits[l].item(), self.groups[l], d[self.bits[l]-1])
+        print('weights', weights)
 
         if gsizes is not None:
             self.gsizes = gsizes
@@ -145,8 +153,6 @@ class AutoPrecision:
         # Update the underlying linear system
         if self.iter >= self.warmup_iters:
             X_row, y_row = self.generate_ls(grad)
-            if self.verbose:
-                print('Cost:  ', y_row)
             self.reward += y_row
             if y_row < 1e12:
                 self.X.append(X_row)
@@ -159,12 +165,9 @@ class AutoPrecision:
 
         # Update batch gradient
         # beta1 will converge to 1
-        self.batch_grad_ema = self.momentum * \
-            self.batch_grad_ema + (1 - self.momentum) * grad
+        self.batch_grad_ema = self.momentum * self.batch_grad_ema + (1 - self.momentum) * grad
         self.beta1 = self.momentum * self.beta1 + (1 - self.momentum)
 
-        if self.verbose:
-            print('==================', self.iter)
         if self.iter >= 2 * self.warmup_iters and self.iter % self.update_interval == 0:
             self.update_coef()
 
@@ -172,34 +175,60 @@ class AutoPrecision:
         """
         Update the per-tensor sensitivity by solving the linear system
         """
-        if self.verbose:
-            print('X')
-            print(self.X)
         # Normalize X
         gsizes_normal = self.gsizes.abs().mean()
         X = torch.tensor(self.X) / self.delta_normal.view(1, -1)
         P = torch.zeros(self.L, self.num_groups * 2)
         for l in range(self.L):
             P[l, self.groups[l]] = 1
-            P[l, self.groups[l] + self.num_groups] = self.gsizes[l] / \
-                gsizes_normal * 10
+            P[l, self.groups[l] + self.num_groups] = self.gsizes[l] / gsizes_normal * 10
 
+        # X = np.array(X @ P)
+        # y = np.array(self.y)
+        # torch.save([self.X, self.y], 'linear_system.pkl')
+        # print(X)
+        # print(y)
         X = X @ P
         y = torch.tensor(self.y, dtype=torch.float32)
-        # Ridge Regression
+
+        # Ridge Regression & Bagging
         N = X.shape[0]
         X = torch.cat([X, torch.ones([N, 1])], 1)
         F = X.shape[1]
-        V = torch.eye(F) * self.reg + X.t() @ X
-        Xy = (X * y.view(-1, 1)).sum(0)
-        coefs = V.inverse() @ Xy
+
+        # Bagging
+        coefs = []
+        for s in range(3):
+            idx = torch.randint(N, [N])
+            Xs = X[idx]
+            ys = y[idx]
+            Xys = (Xs * ys.view(-1, 1)).sum(0)
+            V = torch.eye(F) * self.reg + Xs.t() @ Xs
+            coefs.append(V.inverse() @ Xys)
+
+        coefs = torch.stack(coefs, 0)
+        coefs_mean = coefs.mean(0)
+        coefs_std = coefs.std(0)
+        alpha = -coefs_mean / coefs_std
+        m = torch.distributions.Normal(torch.tensor([0.0]), torch.tensor([1.0]))
+        Z = 1 - m.cdf(alpha)
+        coefs = coefs_mean + m.log_prob(alpha).exp() / Z * coefs_std
+
         intercept = coefs[-1]
         coefs = coefs[:-1]
 
+        # print('Intercept: ', intercept)
+        # C = P @ coefs
+        # C0 = P[:, :self.num_groups] @ coefs[:self.num_groups]
+        # for l in range(self.L):
+        #     print(C[l], C0[l])
+
+        # torch.save([X, y, self.deltas, self.delta_normal, coefs, intercept, P, self.gsizes], 'linear_system.pkl')
+
         self.C = P @ coefs
-        min_coef = self.C.min()
-        if min_coef < 0 and self.iter > 500:
-            torch.save(X, 'X.p')
-            torch.save(y, 'y.p')
-            print('ActNN Warning: negative coefficient detected ', min_coef)
-            exit(0)
+        # min_coef = self.C.min()
+        print('Coefficients: ', coefs)
+        print(coefs_mean)
+        print(coefs_std)
+        # if min_coef < 0:
+        #     print('ActNN Warning: negative coefficient detected ', min_coef)

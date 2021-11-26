@@ -1,6 +1,4 @@
 from collections import namedtuple
-import os
-import time
 
 import numpy as np
 import torch
@@ -8,13 +6,6 @@ import torch.nn.functional as F
 from torch.utils.cpp_extension import load
 
 from actnn.conf import config
-from actnn.utils import (
-    get_memory_usage,
-    compute_tensor_bytes,
-    empty_cache,
-    swap_to_cpu,
-    swap_to_gpu,
-)
 import actnn.cpp_extension.quantization as ext_quantization
 
 

@@ -1,0 +1,39 @@
+{
+    "data_dir": "~/imagenet",
+    "type": "mem",
+    "batch_size": [
+        16,
+        32,
+        64,
+        96,
+        128
+    ],
+    "train_info": {
+        "model": "resnet50",
+        "lr": 0.001,
+        "momentum": 0.9,
+        "weight_decay": 1e-4
+    },
+    "actnn": [
+        {
+            "bit": -1,
+            "swap": false,
+            "prefetch": false
+        },
+        {
+            "bit": 8,
+            "swap": false,
+            "prefetch": false
+        },
+        {
+            "bit": 4,
+            "swap": false,
+            "prefetch": false
+        },
+        {
+            "bit": 2,
+            "swap": false,
+            "prefetch": false
+        }
+    ]
+}

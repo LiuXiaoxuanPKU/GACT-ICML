@@ -5,7 +5,6 @@
         16,
         32,
         64,
-        96,
         128
     ],
     "train_info": {
@@ -16,24 +15,22 @@
     },
     "actnn": [
         {
-            "bit": -1,
+            "bit": 4,
             "swap": false,
-            "prefetch": false
-        },
-        {
-            "bit": 8,
-            "swap": false,
-            "prefetch": false
+            "prefetch": false,
+            "label": "4 bit org"
         },
         {
             "bit": 4,
-            "swap": false,
-            "prefetch": false
+            "swap": true,
+            "prefetch": false,
+            "label": "4 bit swap"
         },
         {
-            "bit": 2,
-            "swap": false,
-            "prefetch": false
+            "bit": 4,
+            "swap": true,
+            "prefetch": true,
+            "label": "4 bit swap + prefetch"
         }
     ]
 }

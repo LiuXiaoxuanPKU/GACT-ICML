@@ -13,21 +13,44 @@ from actnn import get_memory_usage, compute_tensor_bytes
 import actnn
 import matplotlib.pyplot as plt
 
+MB = 1000000
+
 
 class Result:
     def __init__(self, modelname, bs, actnn_config,
-                 batch_time, data_time,
+                 speed, data_time,
                  peak_mem, total_mem, activation_mem,
                  loss) -> None:
         self.modelname = modelname
         self.batch_size = bs
         self.actnn_config = actnn_config
-        self.batch_time = batch_time
+        self.speed = speed
         self.data_time = data_time
         self.loss = loss
         self.peak_mem = peak_mem
         self.total_mem = total_mem
         self.activation_mem = activation_mem
+
+    @staticmethod
+    def from_json(obj):
+        return Result(obj['model'], obj['batch_size'], obj['actnn_config'],
+                      obj['speed'], obj['data_time'], obj['peak_mem'],
+                      obj['total_mem'], obj['activation_mem'], obj['loss'])
+
+    def dump(self):
+        ret = {
+            "model": self.modelname,
+            "batch_size": self.batch_size,
+            "actnn_config": self.actnn_config,
+            "speed": self.speed,
+            "data_time": self.data_time,
+            "peak_mem": self.peak_mem,
+            "total_mem": self.total_mem,
+            "activation_mem": self.activation_mem,
+            "loss": self.loss,
+        }
+        print(ret)
+        return ret
 
 
 class Runner:
@@ -112,7 +135,7 @@ class Runner:
             data_time.update(time.time() - end)
             if self.get_mem:
                 print("===============After Data Loading=======================")
-                init_mem = get_memory_usage(True)
+                init_mem = get_memory_usage(True)  # model size + data size
                 torch.cuda.reset_peak_memory_stats()
 
             # compute output
@@ -133,10 +156,16 @@ class Runner:
             loss.backward()
             self.optimizer.step()
             del loss
+            del output
 
             if self.get_mem:
                 print("===============After Backward=======================")
-                after_backward = get_memory_usage(True)
+                del images
+                del target
+                after_backward = get_memory_usage(True)  # model size
+                # before backward : model size + data size + activation + loss + output
+                # after backward : model size
+                # init : model size + data size
                 total_mem.update(before_backward + (after_backward - init_mem))
                 peak_mem.update(torch.cuda.max_memory_allocated())
 
@@ -159,48 +188,32 @@ class Runner:
         return Result(self.model_name,
                       self.batch_size,
                       self.actnn_config,
-                      batch_time, data_time,
-                      peak_mem, total_mem, activation_mem,
-                      losses)
+                      self.batch_size / batch_time.get_value(), data_time.get_value(),
+                      peak_mem.get_value() / MB, total_mem.get_value() / MB,
+                      activation_mem.get_value() / MB, losses.get_value())
 
 
 class ResultProcessor:
     @staticmethod
-    def cal_speed(bs, t):
-        return bs/t
-
-    @staticmethod
-    def plot_speed(ax, rs):
-        speeds = []
+    def plot_line(ax, rs, field, color):
+        values = []
         batch_sizes = []
-        label = None
         for r in rs:
+            r = Result.from_json(r)
             batch_sizes.append(r.batch_size)
-            speeds.append(ResultProcessor.cal_speed(r.batch_size,
-                                                    r.batch_time.get_value()))
-            if int(r.actnn_config['bit']) != -1:
-                label = "actnn %d bit" % int(r.actnn_config['bit'])
-            else:
-                label = "org"
-        ax.set_xlabel("Batch Size")
-        ax.set_ylabel("Speed (IPS)")
-        ax.plot(batch_sizes, speeds, label=label, marker='o', markersize=12)
+            values.append(r.__dict__[field])
+        if "mem" in field:
+            ax.set_xlabel("Batch Size")
+            ax.set_ylabel("Memory (MB)")
+        else:
+            ax.set_xlabel("Batch Size")
+            ax.set_ylabel("Speed (IPS)")
 
-    @staticmethod
-    def plot_mem(ax, rs):
-        mems = []
-        batch_sizes = []
-        label = None
-        for r in rs:
-            batch_sizes.append(r.batch_size)
-            mems.append(r.activation_mem.get_value() / 1000000)
-            if int(r.actnn_config['bit']) != -1:
-                label = "actnn %d bit" % int(r.actnn_config['bit'])
-            else:
-                label = "org"
-        ax.set_xlabel("Batch Size")
-        ax.set_ylabel("Memory (MB)")
-        ax.plot(batch_sizes, mems, label=label, marker='o', markersize=12)
+        shapes = {"activation_mem": 'o', "total_mem": "^",
+                  "peak_mem": "*", "speed": "+"}
+        ax.plot(batch_sizes, values,
+                label=r.actnn_config["label"] + " " + field,
+                c=color, marker=shapes[field], markersize=12)
 
 
 class Engine:
@@ -219,6 +232,16 @@ class Engine:
             self.runners.append(cur_runners)
         self.results = []
 
+    def dump(self, out):
+        total_results = []
+        for cur_results in self.results:
+            cur_results_dump = []
+            for r in cur_results:
+                cur_results_dump.append(r.dump())
+            total_results.append(cur_results_dump)
+        json.dump(total_results, open(
+            out, 'w'), indent=4, ensure_ascii=True)
+
     def start(self):
         for cur_runners in self.runners:
             cur_results = []
@@ -226,26 +249,53 @@ class Engine:
                 cur_results.append(runner.run())
             self.results.append(cur_results)
 
-    def plot(self, out):
+    def plot(self, infile, outfile, plot_field):
+        data = json.load(open(infile))
         fig, ax = plt.subplots(1, 1, figsize=(15, 8))
-        for cur_results in self.results:
-            if self.config['type'] == 'speed':
-                ResultProcessor.plot_speed(ax, cur_results)
-            elif self.config['type'] == 'mem':
-                ResultProcessor.plot_mem(ax, cur_results)
-            else:
-                print("[Error] Unsupport experiment type %s" %
-                      self.config['type'])
+        colors = ['r', 'g', 'b', 'purple']
+        for i, cur_results in enumerate(data):
+            color = colors[i]
+            for field in plot_field:
+                ResultProcessor.plot_line(ax, cur_results, field, color)
         plt.legend()
-        fig.savefig(out)
+        fig.savefig(outfile)
         plt.close(fig)
-
-    def print(self):
-        pass
 
 
 if __name__ == "__main__":
-    config = "./configs/resnet.json"
+    # 2 4 8 speed
+    config = "./configs/resnet_speed.json"
     engine = Engine(config)
     engine.start()
-    engine.plot("mem.png")
+    output_data = "./results/resnet_speed"
+    output_graph = "./results/resnet_speed_graph"
+    engine.dump(output_data)
+    engine.plot(output_data, output_graph, ["speed"])
+
+    # 2 4 8 memory
+    config = "./configs/resnet_mem.json"
+    engine = Engine(config)
+    engine.start()
+    output_data = "./results/resnet_mem"
+    output_graph = "./results/resnet_mem_graph"
+    engine.dump(output_data)
+    engine.plot(output_data, output_graph, ["activation_mem"])
+
+    # swap + prefecth speed
+    config = "./configs/resnet_swap_prefetch_speed.json"
+    engine = Engine(config)
+    engine.start()
+    output_data = "./results/resnet_swap_prefetch_speed"
+    output_graph = "./results/resnet_swap_prefetch_speed_graph_detail"
+    engine.dump(output_data)
+    engine.plot(output_data, output_graph, ["speed"])
+
+    # swap +  prefetch memory
+    config = "./configs/resnet_swap_prefetch_mem.json"
+    engine = Engine(config)
+    engine.start()
+    output_data = "./results/resnet_swap_prefetch_mem"
+    output_graph = "./results/resnet_swap_prefetch_mem_graph_detail"
+    engine.dump(output_data)
+    engine.plot(output_data, output_graph, [
+                "activation_mem", "peak_mem", "total_mem"])

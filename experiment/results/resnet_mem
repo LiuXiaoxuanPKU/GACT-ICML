@@ -1,0 +1,266 @@
+[
+    [
+        {
+            "model": "resnet50",
+            "batch_size": 16,
+            "actnn_config": {
+                "bit": -1,
+                "swap": false,
+                "prefetch": false,
+                "label": "original"
+            },
+            "speed": 10.68712037665929,
+            "data_time": 0.5889434814453125,
+            "peak_mem": 1.445288448,
+            "total_mem": 1.693764096,
+            "activation_mem": 1.38086246,
+            "loss": 6.981342792510986
+        },
+        {
+            "model": "resnet50",
+            "batch_size": 32,
+            "actnn_config": {
+                "bit": -1,
+                "swap": false,
+                "prefetch": false,
+                "label": "original"
+            },
+            "speed": 35.34905956793985,
+            "data_time": 0.7362401485443115,
+            "peak_mem": 2.814333952,
+            "total_mem": 3.065298432,
+            "activation_mem": 2.748531708,
+            "loss": 6.925338268280029
+        },
+        {
+            "model": "resnet50",
+            "batch_size": 64,
+            "actnn_config": {
+                "bit": -1,
+                "swap": false,
+                "prefetch": false,
+                "label": "original"
+            },
+            "speed": 46.855020147266615,
+            "data_time": 1.090087652206421,
+            "peak_mem": 5.55078656,
+            "total_mem": 5.797553664,
+            "activation_mem": 5.4796759,
+            "loss": 7.065013885498047
+        },
+        {
+            "model": "resnet50",
+            "batch_size": 128,
+            "actnn_config": {
+                "bit": -1,
+                "swap": false,
+                "prefetch": false,
+                "label": "original"
+            },
+            "speed": 39.263410398807395,
+            "data_time": 2.063967704772949,
+            "peak_mem": 11.050954752,
+            "total_mem": 11.257869824,
+            "activation_mem": 10.94104678,
+            "loss": 7.062779903411865
+        }
+    ],
+    [
+        {
+            "model": "resnet50",
+            "batch_size": 16,
+            "actnn_config": {
+                "bit": 8,
+                "swap": false,
+                "prefetch": false,
+                "label": "8 bit"
+            },
+            "speed": 19.851539563093084,
+            "data_time": 0.4687938690185547,
+            "peak_mem": 0.527023616,
+            "total_mem": 0.696344064,
+            "activation_mem": 0.378467324,
+            "loss": 6.970798015594482
+        },
+        {
+            "model": "resnet50",
+            "batch_size": 32,
+            "actnn_config": {
+                "bit": 8,
+                "swap": false,
+                "prefetch": false,
+                "label": "8 bit"
+            },
+            "speed": 24.8802269844736,
+            "data_time": 0.7590537071228027,
+            "peak_mem": 0.942918144,
+            "total_mem": 1.063788032,
+            "activation_mem": 0.748666364,
+            "loss": 7.217774868011475
+        },
+        {
+            "model": "resnet50",
+            "batch_size": 64,
+            "actnn_config": {
+                "bit": 8,
+                "swap": false,
+                "prefetch": false,
+                "label": "8 bit"
+            },
+            "speed": 28.66743672638047,
+            "data_time": 1.3885624408721924,
+            "peak_mem": 1.78524928,
+            "total_mem": 1.809943552,
+            "activation_mem": 1.490766332,
+            "loss": 6.983170509338379
+        },
+        {
+            "model": "resnet50",
+            "batch_size": 128,
+            "actnn_config": {
+                "bit": 8,
+                "swap": false,
+                "prefetch": false,
+                "label": "8 bit"
+            },
+            "speed": 36.00633756606773,
+            "data_time": 1.9509639739990234,
+            "peak_mem": 3.466864128,
+            "total_mem": 3.295246848,
+            "activation_mem": 2.9795543,
+            "loss": 7.1621198654174805
+        }
+    ],
+    [
+        {
+            "model": "resnet50",
+            "batch_size": 16,
+            "actnn_config": {
+                "bit": 4,
+                "swap": false,
+                "prefetch": false,
+                "label": "4 bit"
+            },
+            "speed": 18.908416740557534,
+            "data_time": 0.5149779319763184,
+            "peak_mem": 0.448382464,
+            "total_mem": 0.521760256,
+            "activation_mem": 0.20803942,
+            "loss": 6.849264144897461
+        },
+        {
+            "model": "resnet50",
+            "batch_size": 32,
+            "actnn_config": {
+                "bit": 4,
+                "swap": false,
+                "prefetch": false,
+                "label": "4 bit"
+            },
+            "speed": 25.397464751953283,
+            "data_time": 0.7830085754394531,
+            "peak_mem": 0.78615552,
+            "total_mem": 0.730507264,
+            "activation_mem": 0.415516668,
+            "loss": 7.021040439605713
+        },
+        {
+            "model": "resnet50",
+            "batch_size": 64,
+            "actnn_config": {
+                "bit": 4,
+                "swap": false,
+                "prefetch": false,
+                "label": "4 bit"
+            },
+            "speed": 35.08286067905906,
+            "data_time": 1.060713529586792,
+            "peak_mem": 1.468439552,
+            "total_mem": 1.136516608,
+            "activation_mem": 0.821607932,
+            "loss": 7.00065279006958
+        },
+        {
+            "model": "resnet50",
+            "batch_size": 128,
+            "actnn_config": {
+                "bit": 4,
+                "swap": false,
+                "prefetch": false,
+                "label": "4 bit"
+            },
+            "speed": 39.58038187074584,
+            "data_time": 1.8280017375946045,
+            "peak_mem": 2.835203072,
+            "total_mem": 1.95620352,
+            "activation_mem": 1.638999036,
+            "loss": 7.048635959625244
+        }
+    ],
+    [
+        {
+            "model": "resnet50",
+            "batch_size": 16,
+            "actnn_config": {
+                "bit": 2,
+                "swap": false,
+                "prefetch": false,
+                "label": "2 bit"
+            },
+            "speed": 19.289194792547825,
+            "data_time": 0.4960486888885498,
+            "peak_mem": 0.406788608,
+            "total_mem": 0.435944448,
+            "activation_mem": 0.12284518,
+            "loss": 6.946839332580566
+        },
+        {
+            "model": "resnet50",
+            "batch_size": 32,
+            "actnn_config": {
+                "bit": 2,
+                "swap": false,
+                "prefetch": false,
+                "label": "2 bit"
+            },
+            "speed": 27.361203146815868,
+            "data_time": 0.6940727233886719,
+            "peak_mem": 0.710035456,
+            "total_mem": 0.559066624,
+            "activation_mem": 0.246822908,
+            "loss": 7.068578243255615
+        },
+        {
+            "model": "resnet50",
+            "batch_size": 64,
+            "actnn_config": {
+                "bit": 2,
+                "swap": false,
+                "prefetch": false,
+                "label": "2 bit"
+            },
+            "speed": 35.80037764142949,
+            "data_time": 1.0057258605957031,
+            "peak_mem": 1.313489408,
+            "total_mem": 0.805160448,
+            "activation_mem": 0.487060988,
+            "loss": 7.186500072479248
+        },
+        {
+            "model": "resnet50",
+            "batch_size": 128,
+            "actnn_config": {
+                "bit": 2,
+                "swap": false,
+                "prefetch": false,
+                "label": "2 bit"
+            },
+            "speed": 39.32577740374716,
+            "data_time": 1.9160053730010986,
+            "peak_mem": 2.517644288,
+            "total_mem": 1.281680384,
+            "activation_mem": 0.967781372,
+            "loss": 7.1082987785339355
+        }
+    ]
+]

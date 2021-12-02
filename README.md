@@ -13,7 +13,8 @@ pip install -v -e .
 ```
 
 ## Usage
-```from actnn.controller import Controller # import actnn controller
+```python
+from actnn.controller import Controller # import actnn controller
 controller = Controller(default_bit=4, swap=False, debug=False, prefetch=False)
 model = .... # define your model here
 controller.filter_tensors(model.named_parameters()) # do not quantize parameters

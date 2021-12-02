@@ -20,16 +20,16 @@ model = .... # define your model here
 controller.filter_tensors(model.named_parameters()) # do not quantize parameters
 
 def pack_hook(tensor): # quantize hook
-    return debug_controller.quantize(tensor)
+    return controller.quantize(tensor)
 
 def unpack_hook(tensor): # dequantize hook
-    return debug_controller.dequantize(tensor)
+    return controller.dequantize(tensor)
 
 with torch.autograd.graph.saved_tensors_hooks(pack_hook, unpack_hook): # install hook
     # training logic
     for epoch in ...
       for iter in ....
-      ......
-      controller.iterate() # update the controller for each iteration
+        ......
+        controller.iterate() # update the controller for each iteration
             
 ```

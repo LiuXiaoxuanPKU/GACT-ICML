@@ -13,7 +13,7 @@ from actnn import get_memory_usage, compute_tensor_bytes
 import actnn
 import matplotlib.pyplot as plt
 
-MB = 1000000
+GB = 1000000000
 
 
 class Result:
@@ -60,7 +60,7 @@ class Runner:
         if self.get_speed:
             self.iter = 20
         if self.get_mem:
-            self.iter = 5
+            self.iter = 0
         print("self batch size", bs)
         self.batch_size = bs
 
@@ -94,7 +94,7 @@ class Runner:
             self.actnn = True
             self.bit = int(actnn_config['bit'])
             self.controller = actnn.controller.Controller(
-                actnn_config['bit'], actnn_config['swap'], actnn_config['prefetch'])
+                actnn_config['bit'], swap=actnn_config['swap'], prefetch=actnn_config['prefetch'])
             self.controller.filter_tensors(self.model.named_parameters())
 
     def get_model(self, model_name):
@@ -127,6 +127,10 @@ class Runner:
         end = time.time()
 
         for i, (images, target) in enumerate(self.train_loader):
+            # if self.get_mem:
+            #     torch.cuda.synchronize()
+            #     torch.cuda.reset_peak_memory_stats()
+
             images = images.cuda()
             target = target.cuda()
 
@@ -134,6 +138,7 @@ class Runner:
             # measure data loading time
             data_time.update(time.time() - end)
             if self.get_mem:
+                torch.cuda.synchronize()
                 print("===============After Data Loading=======================")
                 init_mem = get_memory_usage(True)  # model size + data size
                 torch.cuda.reset_peak_memory_stats()
@@ -143,10 +148,11 @@ class Runner:
             loss = self.criterion(output, target)
 
             # measure accuracy and record loss
-            losses.update(loss.item())
+            losses.update(loss.detach().item())
 
             if self.get_mem:
                 print("===============Before Backward=======================")
+                # torch.cuda.synchronize()
                 before_backward = get_memory_usage(True)
                 activation_mem.update(
                     get_memory_usage() - init_mem - compute_tensor_bytes([loss, output]))
@@ -160,14 +166,19 @@ class Runner:
 
             if self.get_mem:
                 print("===============After Backward=======================")
+                # torch.cuda.synchronize()
                 del images
                 del target
+                # torch.cuda.synchronize()
                 after_backward = get_memory_usage(True)  # model size
-                # before backward : model size + data size + activation + loss + output
-                # after backward : model size
-                # init : model size + data size
+                # init : weight + optimizer state + data size
+                # before backward : weight + optimizer state + data size + activation + loss + output
+                # after backward : init + grad
+                # grad = weight
+                # total - act = weight + optimizer state + data size + loss + output + grad
                 total_mem.update(before_backward + (after_backward - init_mem))
-                peak_mem.update(torch.cuda.max_memory_allocated())
+                peak_mem.update(
+                    torch.cuda.max_memory_allocated() - init_mem)
 
             # measure elapsed time
             batch_time.update(time.time() - end)
@@ -177,6 +188,11 @@ class Runner:
                 self.controller.iterate()
 
             if i == self.iter:
+                if self.actnn:
+                    print(self.controller.default_bit)
+                else:
+                    print("Original")
+
                 break
 
         print(batch_time.summary())
@@ -189,8 +205,8 @@ class Runner:
                       self.batch_size,
                       self.actnn_config,
                       self.batch_size / batch_time.get_value(), data_time.get_value(),
-                      peak_mem.get_value() / MB, total_mem.get_value() / MB,
-                      activation_mem.get_value() / MB, losses.get_value())
+                      peak_mem.get_value() / GB, total_mem.get_value() / GB,
+                      activation_mem.get_value() / GB, losses.get_value())
 
 
 class ResultProcessor:
@@ -209,28 +225,25 @@ class ResultProcessor:
             ax.set_xlabel("Batch Size")
             ax.set_ylabel("Speed (IPS)")
 
+        for i, txt in enumerate(values):
+            ax.annotate("%.2f" %
+                        txt, (batch_sizes[i] + 1, values[i] + 0.1))
+
         shapes = {"activation_mem": 'o', "total_mem": "^",
                   "peak_mem": "*", "speed": "+"}
+
+        if r.actnn_config["label"] == "4 bit swap":
+            markersize = 15
+        else:
+            markersize = 12
         ax.plot(batch_sizes, values,
                 label=r.actnn_config["label"] + " " + field,
-                c=color, marker=shapes[field], markersize=12)
+                c=color, marker=shapes[field], markersize=markersize)
 
 
 class Engine:
     def __init__(self, config_filename) -> None:
         self.config = json.load(open(config_filename,  'r'))
-        self.runners = []
-        for actnn_config in self.config['actnn']:
-            cur_runners = []
-            for bs in self.config['batch_size']:
-                runner = Runner(self.config['type'],
-                                bs,
-                                actnn_config,
-                                self.config['train_info'],
-                                self.config['data_dir'])
-                cur_runners.append(runner)
-            self.runners.append(cur_runners)
-        self.results = []
 
     def dump(self, out):
         total_results = []
@@ -243,11 +256,19 @@ class Engine:
             out, 'w'), indent=4, ensure_ascii=True)
 
     def start(self):
-        for cur_runners in self.runners:
+        results = []
+        self.runners = []
+        for actnn_config in self.config['actnn']:
             cur_results = []
-            for runner in cur_runners:
+            for bs in self.config['batch_size']:
+                runner = Runner(self.config['type'],
+                                bs,
+                                actnn_config,
+                                self.config['train_info'],
+                                self.config['data_dir'])
                 cur_results.append(runner.run())
-            self.results.append(cur_results)
+            results.append(cur_results)
+        self.results = results
 
     def plot(self, infile, outfile, plot_field):
         data = json.load(open(infile))
@@ -263,14 +284,24 @@ class Engine:
 
 
 if __name__ == "__main__":
-    # 2 4 8 speed
-    config = "./configs/resnet_speed.json"
-    engine = Engine(config)
-    engine.start()
-    output_data = "./results/resnet_speed"
-    output_graph = "./results/resnet_speed_graph"
-    engine.dump(output_data)
-    engine.plot(output_data, output_graph, ["speed"])
+    # # small debug test
+    # config = "./configs/resnet_mem_detail.json"
+    # engine = Engine(config)
+    # engine.start()
+    # output_data = "./results/resnet_mem_detail"
+    # output_graph = "./results/resnet_mem_detail_graph"
+    # engine.dump(output_data)
+    # engine.plot(output_data, output_graph, [
+    #             "activation_mem", "peak_mem"])
+
+    # # 2 4 8 speed
+    # config = "./configs/resnet_speed.json"
+    # engine = Engine(config)
+    # engine.start()
+    # output_data = "./results/resnet_speed"
+    # output_graph = "./results/resnet_speed_graph"
+    # engine.dump(output_data)
+    # engine.plot(output_data, output_graph, ["speed"])
 
     # 2 4 8 memory
     config = "./configs/resnet_mem.json"
@@ -279,23 +310,24 @@ if __name__ == "__main__":
     output_data = "./results/resnet_mem"
     output_graph = "./results/resnet_mem_graph"
     engine.dump(output_data)
-    engine.plot(output_data, output_graph, ["activation_mem"])
-
-    # swap + prefecth speed
-    config = "./configs/resnet_swap_prefetch_speed.json"
-    engine = Engine(config)
-    engine.start()
-    output_data = "./results/resnet_swap_prefetch_speed"
-    output_graph = "./results/resnet_swap_prefetch_speed_graph_detail"
-    engine.dump(output_data)
-    engine.plot(output_data, output_graph, ["speed"])
-
-    # swap +  prefetch memory
-    config = "./configs/resnet_swap_prefetch_mem.json"
-    engine = Engine(config)
-    engine.start()
-    output_data = "./results/resnet_swap_prefetch_mem"
-    output_graph = "./results/resnet_swap_prefetch_mem_graph_detail"
-    engine.dump(output_data)
     engine.plot(output_data, output_graph, [
-                "activation_mem", "peak_mem", "total_mem"])
+                "activation_mem", "peak_mem"])
+
+    # # swap + prefecth speed
+    # config = "./configs/resnet_swap_prefetch_speed.json"
+    # engine = Engine(config)
+    # engine.start()
+    # output_data = "./results/resnet_swap_prefetch_speed"
+    # output_graph = "./results/resnet_swap_prefetch_speed_graph_detail"
+    # engine.dump(output_data)
+    # engine.plot(output_data, output_graph, ["speed"])
+
+    # # swap +  prefetch memory
+    # config = "./configs/resnet_swap_prefetch_mem.json"
+    # engine = Engine(config)
+    # engine.start()
+    # output_data = "./results/resnet_swap_prefetch_mem"
+    # output_graph = "./results/resnet_swap_prefetch_mem_graph_detail"
+    # engine.dump(output_data)
+    # engine.plot(output_data, output_graph, [
+    #             "activation_mem", "peak_mem", "total_mem"])

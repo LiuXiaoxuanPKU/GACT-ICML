@@ -1,0 +1,200 @@
+[
+    [
+        {
+            "model": "resnet50",
+            "batch_size": 16,
+            "actnn_config": {
+                "bit": 4,
+                "swap": false,
+                "prefetch": false,
+                "label": "4 bit org"
+            },
+            "speed": 10.29763665928639,
+            "data_time": 0.4760572910308838,
+            "peak_mem": 0.451012608,
+            "total_mem": 0.522417664,
+            "activation_mem": 0.209617916,
+            "loss": 7.121909141540527
+        },
+        {
+            "model": "resnet50",
+            "batch_size": 32,
+            "actnn_config": {
+                "bit": 4,
+                "swap": false,
+                "prefetch": false,
+                "label": "4 bit org"
+            },
+            "speed": 27.277071000235136,
+            "data_time": 0.6814608573913574,
+            "peak_mem": 0.790058496,
+            "total_mem": 0.73286656,
+            "activation_mem": 0.41996646,
+            "loss": 7.030597686767578
+        },
+        {
+            "model": "resnet50",
+            "batch_size": 64,
+            "actnn_config": {
+                "bit": 4,
+                "swap": false,
+                "prefetch": false,
+                "label": "4 bit org"
+            },
+            "speed": 33.26120124978192,
+            "data_time": 1.1202831268310547,
+            "peak_mem": 1.47067904,
+            "total_mem": 1.143243264,
+            "activation_mem": 0.826355708,
+            "loss": 7.273911476135254
+        },
+        {
+            "model": "resnet50",
+            "batch_size": 128,
+            "actnn_config": {
+                "bit": 4,
+                "swap": false,
+                "prefetch": false,
+                "label": "4 bit org"
+            },
+            "speed": 39.3049558481644,
+            "data_time": 1.7487587928771973,
+            "peak_mem": 2.843323392,
+            "total_mem": 1.96178432,
+            "activation_mem": 1.645919228,
+            "loss": 7.101137161254883
+        }
+    ],
+    [
+        {
+            "model": "resnet50",
+            "batch_size": 16,
+            "actnn_config": {
+                "bit": 4,
+                "swap": true,
+                "prefetch": false,
+                "label": "4 bit swap"
+            },
+            "speed": 16.73599106999683,
+            "data_time": 0.47944068908691406,
+            "peak_mem": 0.378331136,
+            "total_mem": 0.350270976,
+            "activation_mem": 0.036582908,
+            "loss": 7.2023820877075195
+        },
+        {
+            "model": "resnet50",
+            "batch_size": 32,
+            "actnn_config": {
+                "bit": 4,
+                "swap": true,
+                "prefetch": false,
+                "label": "4 bit swap"
+            },
+            "speed": 22.085545997934897,
+            "data_time": 0.7387115955352783,
+            "peak_mem": 0.643610624,
+            "total_mem": 0.38817536,
+            "activation_mem": 0.07396454,
+            "loss": 6.987100124359131
+        },
+        {
+            "model": "resnet50",
+            "batch_size": 64,
+            "actnn_config": {
+                "bit": 4,
+                "swap": true,
+                "prefetch": false,
+                "label": "4 bit swap"
+            },
+            "speed": 28.011534135382817,
+            "data_time": 1.0177972316741943,
+            "peak_mem": 1.177599488,
+            "total_mem": 0.457584128,
+            "activation_mem": 0.145604604,
+            "loss": 7.088217258453369
+        },
+        {
+            "model": "resnet50",
+            "batch_size": 128,
+            "actnn_config": {
+                "bit": 4,
+                "swap": true,
+                "prefetch": false,
+                "label": "4 bit swap"
+            },
+            "speed": 30.435890740513766,
+            "data_time": 1.7326340675354004,
+            "peak_mem": 2.254193664,
+            "total_mem": 0.608733184,
+            "activation_mem": 0.292499452,
+            "loss": 7.021766185760498
+        }
+    ],
+    [
+        {
+            "model": "resnet50",
+            "batch_size": 16,
+            "actnn_config": {
+                "bit": 4,
+                "swap": true,
+                "prefetch": true,
+                "label": "4 bit swap + prefetch"
+            },
+            "speed": 19.73487129328968,
+            "data_time": 0.483642578125,
+            "peak_mem": 0.376420352,
+            "total_mem": 0.34725632,
+            "activation_mem": 0.036582908,
+            "loss": 6.9935712814331055
+        },
+        {
+            "model": "resnet50",
+            "batch_size": 32,
+            "actnn_config": {
+                "bit": 4,
+                "swap": true,
+                "prefetch": true,
+                "label": "4 bit swap + prefetch"
+            },
+            "speed": 26.676783689798334,
+            "data_time": 0.6778020858764648,
+            "peak_mem": 0.644790784,
+            "total_mem": 0.38948608,
+            "activation_mem": 0.07396454,
+            "loss": 7.171591758728027
+        },
+        {
+            "model": "resnet50",
+            "batch_size": 64,
+            "actnn_config": {
+                "bit": 4,
+                "swap": true,
+                "prefetch": true,
+                "label": "4 bit swap + prefetch"
+            },
+            "speed": 33.93693090612659,
+            "data_time": 1.0484628677368164,
+            "peak_mem": 1.17773056,
+            "total_mem": 0.457256448,
+            "activation_mem": 0.145604604,
+            "loss": 7.090792655944824
+        },
+        {
+            "model": "resnet50",
+            "batch_size": 128,
+            "actnn_config": {
+                "bit": 4,
+                "swap": true,
+                "prefetch": true,
+                "label": "4 bit swap + prefetch"
+            },
+            "speed": 37.76388757976989,
+            "data_time": 1.889876127243042,
+            "peak_mem": 2.25163776,
+            "total_mem": 0.60319488,
+            "activation_mem": 0.29253222,
+            "loss": 7.136740684509277
+        }
+    ]
+]

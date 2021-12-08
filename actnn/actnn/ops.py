@@ -17,19 +17,17 @@ def no_scheme_quantize_pack(input, q_bit):
     # Compute min, max by groups
     if num_features % config.group_size != 0:
         # Padding
-        new_num_features = (
-            num_features // config.group_size + 1) * config.group_size
+        new_num_features = (num_features // config.group_size + 1) * config.group_size
         delta = new_num_features - num_features
         input_flatten = torch.cat(
             [
                 input_flatten,
-                torch.zeros([N, delta], dtype=input.dtype,
-                            device=input.device),
+                torch.zeros([N, delta], dtype=input.dtype, device=input.device),
             ],
             1,
         )
 
-    input_groups = input_flatten.view(N, -1, config.group_size)
+    input_groups = input_flatten.view(N, -1, config.group_size).contiguous()
 
     pack_func = ext_quantization.minimax_quantize_single_precision
     q_input, q_scale, q_min = pack_func(input_groups, q_bit)
@@ -45,8 +43,7 @@ def dequantize_and_unpack(data, shape, bits, scale, mn, tid=-1):
         num_features = int(np.prod(shape[1:]))
         group_size = config.group_size
         num_features = (
-            num_features + (group_size - num_features %
-                            group_size) % group_size
+            num_features + (group_size - num_features % group_size) % group_size
         )
 
         # Unpack bitstream

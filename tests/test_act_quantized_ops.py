@@ -17,7 +17,6 @@ from actnn.ops import ext_quantization, op_quantize, op_dequantize
 def error_rate(q_input, input):
     print(((q_input - input)**2).sum() / (input**2).sum())
 
-
 def test_quantize_error():
     input_shape = (64, 3, 224, 224)
     input = torch.rand(input_shape).to("cuda")
@@ -26,8 +25,7 @@ def test_quantize_error():
     print("1 bit error rate (value between 0 and 1): ")
     error_rate(op_dequantize(op_quantize(input, 1), input_shape), input)
     print("1 bit error rate (value = 0 or 1): ")
-    error_rate(op_dequantize(op_quantize(
-        ones_input, 1), input_shape), ones_input)
+    error_rate(op_dequantize(op_quantize(ones_input, 1), input_shape), ones_input)
     print("2 bit error rate: ")
     error_rate(op_dequantize(op_quantize(input, 2), input_shape), input)
     print("4 bit error rate: ")
@@ -35,6 +33,30 @@ def test_quantize_error():
     print("8 bit error rate: ")
     error_rate(op_dequantize(op_quantize(input, 8), input_shape), input)
 
+def test_quantize_big_min():
+    input_shape = (65535 * 4, 256)
+    input = torch.rand(input_shape).to("cuda")
+    q_input, q_bit, q_scale, q_min = op_quantize(input, 8)
+    ref_min = torch.min(input, dim=1).values
+    q_min = q_min.reshape(1, -1)
+    ref_min = ref_min.reshape(1, -1)
+    assert(q_min.equal(ref_min))
+
+def test_quantize_big_error():
+    input_shape = (65535 * 10, 512)
+    input = torch.rand(input_shape).to("cuda")
+    ones_input = torch.ones(input_shape).to("cuda")
+    print("==========  Quantization Big Error Rate Test ==========")
+    print("1 bit error rate (value between 0 and 1): ")
+    error_rate(op_dequantize(op_quantize(input, 1), input_shape), input)
+    print("1 bit error rate (value = 0 or 1): ")
+    error_rate(op_dequantize(op_quantize(ones_input, 1), input_shape), ones_input)
+    print("2 bit error rate: ")
+    error_rate(op_dequantize(op_quantize(input, 2), input_shape), input)
+    print("4 bit error rate: ")
+    error_rate(op_dequantize(op_quantize(input, 4), input_shape), input)
+    print("8 bit error rate: ")
+    error_rate(op_dequantize(op_quantize(input, 8), input_shape), input)
 
 def test_relu_correctness():
     print("========== ReLU Correctness Test ==========")
@@ -119,7 +141,9 @@ def test_relu_speed():
 
 
 if __name__ == "__main__":
+    # test_quantize_big_min()
     test_quantize_error()
+    test_quantize_big_error()
     # test_relu_correctness()
     # test_relu_memory()
     # test_relu_speed()

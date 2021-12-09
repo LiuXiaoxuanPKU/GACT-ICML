@@ -11,6 +11,8 @@
 #include <curand_kernel.h>
 #include <cuda_fp16.h>
 
+#define BLOCK_Y_DIM_MAX ((((int64_t)(1)) << 16) - 1)
+
 using torch::IntArrayRef;
 using torch::Tensor;
 using torch::autograd::tensor_list;
@@ -25,25 +27,26 @@ __global__ void fuse_single_precision_kernel (int32_t bits,
                                              scalar_t* __restrict__ scale,
                                              scalar_t* __restrict__ min,
                                              std::pair<uint64_t, uint64_t> seeds,
-                                             int N,
-                                             int num_groups,
-                                             int group_size) {
-  const int no = blockIdx.y;
+                                             int64_t N,
+                                             int64_t num_groups,
+                                             int64_t group_size,
+                                             int64_t block_idx_y_base) {
+  const int64_t no = blockIdx.y + block_idx_y_base;
   const int group_id = blockIdx.x;
   const int d = threadIdx.x;
   const int work_per_thread = 8 / bits;
-  const int64_t global_thread_id = (int64_t)(no * num_groups + group_id) * group_size + d;
+  const int64_t global_thread_id = (no * num_groups + group_id) * group_size + d;
 
   __shared__ scalar_t min_red[8 * 256];
   __shared__ scalar_t max_red[8 * 256];
   __shared__ scalar_t tmp_scale[9];
   
   for (int ni = 0; ni < work_per_thread; ni++) {
-    const int n = no * work_per_thread + ni;
+    const int64_t n = no * work_per_thread + ni;
 
     if (boundary_check && n >= N) { break; }
 
-    const int64_t id = (int64_t)(n * num_groups + group_id) * group_size + d;
+    const int64_t id = (n * num_groups + group_id) * group_size + d;
 
     scalar_t cur_val = data[id];
     int idx = ni * 256 + d;
@@ -67,7 +70,7 @@ __global__ void fuse_single_precision_kernel (int32_t bits,
 
   if (d == 0) {
     for (int ni = 0; ni < work_per_thread; ni++) {
-      const int n = no * work_per_thread + ni;
+      const int64_t n = no * work_per_thread + ni;
       if (boundary_check && n >= N) { break; }
       scalar_t group_min = min_red[ni * 256];
       scalar_t group_max= max_red[ni * 256];
@@ -84,7 +87,7 @@ __global__ void fuse_single_precision_kernel (int32_t bits,
 
   uint8_t local_packed = 0;
   for (int ni = 0; ni < work_per_thread; ni++) {
-    const int n = no * work_per_thread + ni;
+    const int64_t n = no * work_per_thread + ni;
 
     if (boundary_check && n >= N) { break; }
 
@@ -104,10 +107,11 @@ __global__ void fuse_single_precision_half_kernel (int32_t bits,
                                              scalar_t* __restrict__ scale,
                                              scalar_t* __restrict__ min,
                                              std::pair<uint64_t, uint64_t> seeds,
-                                             int N,
-                                             int num_groups,
-                                             int group_size) {
-  const int no = blockIdx.y;
+                                             int64_t N,
+                                             int64_t num_groups,
+                                             int64_t group_size,
+                                             int64_t block_idx_y_base) {
+  const int64_t no = blockIdx.y + block_idx_y_base;
   const int group_id = blockIdx.x;
   const int d = threadIdx.x;
   const int work_per_thread = 8 / bits;
@@ -119,7 +123,7 @@ __global__ void fuse_single_precision_half_kernel (int32_t bits,
   __shared__ half tmp_scale[5];
   
   for (int ni = 0; ni < work_per_thread; ni++) {
-    const int n = no * work_per_thread + ni;
+    const int64_t n = no * work_per_thread + ni;
 
     if (boundary_check && n >= N) { break; }
 
@@ -148,7 +152,7 @@ __global__ void fuse_single_precision_half_kernel (int32_t bits,
 
   if (d == 0) {
     for (int ni = 0; ni < work_per_thread; ni++) {
-      const int n = no * work_per_thread + ni;
+      const int64_t n = no * work_per_thread + ni;
       if (boundary_check && n >= N) { break; }
       half group_min = min_red[ni * 256];
       half group_max= max_red[ni * 256];
@@ -166,7 +170,7 @@ __global__ void fuse_single_precision_half_kernel (int32_t bits,
 
   uint8_t local_packed = 0;
   for (int ni = 0; ni < work_per_thread; ni++) {
-    const int n = no * work_per_thread + ni;
+    const int64_t n = no * work_per_thread + ni;
 
     if (boundary_check && n >= N) { break; }
 
@@ -187,14 +191,14 @@ __global__ void fuse_single_precision_half_kernel (int32_t bits,
 }
 
 tensor_list minimax_quantize_single_precision_cuda(Tensor data, int bits) {
-  int N = data.size(0);
-  int num_groups = data.size(1);
+  int64_t N = data.size(0);
+  int64_t num_groups = data.size(1);
   int group_size = data.size(2);
 
   const int work_per_thread = 8 / bits;
   TORCH_CHECK(8 % bits == 0);
 
-  int N_round = N + (work_per_thread - N % work_per_thread) % work_per_thread;
+  int64_t N_round = N + (work_per_thread - N % work_per_thread) % work_per_thread;
   int64_t total_bits = ((int64_t)bits) * (N_round * num_groups * group_size);
   auto options = torch::TensorOptions().dtype(torch::kInt8).device(data.device());
   Tensor packed = torch::zeros({(total_bits + 8) / 8,}, options);
@@ -214,30 +218,33 @@ tensor_list minimax_quantize_single_precision_cuda(Tensor data, int bits) {
   };
 
   // Pack
-  dim3 block_dim(num_groups, (N + work_per_thread - 1) / work_per_thread, 1);
-  dim3 thread_dim(group_size, 1, 1);
+  int64_t logical_block_y_dim = (N + work_per_thread - 1) / work_per_thread;
+  for (int64_t block_idx_y_base = 0; block_idx_y_base < logical_block_y_dim; block_idx_y_base += BLOCK_Y_DIM_MAX) {
+    dim3 block_dim(num_groups, std::min(logical_block_y_dim - block_idx_y_base, BLOCK_Y_DIM_MAX), 1);
+    dim3 thread_dim(group_size, 1, 1);
 
-  if (N % work_per_thread == 0) {
-  AT_DISPATCH_FLOATING_TYPES_AND_HALF(data.scalar_type(), "minimax_quantize_single_precision", ([&] {
-    fuse_single_precision_kernel<scalar_t, false><<<block_dim, thread_dim>>>(
-      bits,
-      data.data_ptr<scalar_t>(),
-      packed.data_ptr<int8_t>(),
-      scale.data_ptr<scalar_t>(),
-      min.data_ptr<scalar_t>(),
-      rng_engine_inputs,
-      N, num_groups, group_size
-    );
-  }));
-  } else {
+    if (N % work_per_thread == 0) {
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(data.scalar_type(), "minimax_quantize_single_precision", ([&] {
-      fuse_single_precision_kernel<scalar_t, true><<<block_dim, thread_dim>>>(
+      fuse_single_precision_kernel<scalar_t, false><<<block_dim, thread_dim>>>(
         bits,
-        data.data_ptr<scalar_t>(), packed.data_ptr<int8_t>(),
-        scale.data_ptr<scalar_t>(), min.data_ptr<scalar_t>(),
+        data.data_ptr<scalar_t>(),
+        packed.data_ptr<int8_t>(),
+        scale.data_ptr<scalar_t>(),
+        min.data_ptr<scalar_t>(),
         rng_engine_inputs,
-        N, num_groups, group_size);
+        N, num_groups, group_size, block_idx_y_base
+      );
     }));
+    } else {
+      AT_DISPATCH_FLOATING_TYPES_AND_HALF(data.scalar_type(), "minimax_quantize_single_precision", ([&] {
+        fuse_single_precision_kernel<scalar_t, true><<<block_dim, thread_dim>>>(
+          bits,
+          data.data_ptr<scalar_t>(), packed.data_ptr<int8_t>(),
+          scale.data_ptr<scalar_t>(), min.data_ptr<scalar_t>(),
+          rng_engine_inputs,
+          N, num_groups, group_size, block_idx_y_base);
+      }));
+    }
   }
 
   tensor_list ret;
@@ -254,20 +261,21 @@ __global__ void unpack_single_precision_kernel(int32_t bits,
                                                const scalar_t* __restrict__ scale,
                                                const scalar_t* __restrict__ min,
                                                scalar_t* __restrict__ unpacked,
-                                               int N,
-                                               int num_groups,
-                                               int group_size) {
-  const int no = blockIdx.y;
+                                               int64_t N,
+                                               int64_t num_groups,
+                                               int group_size,
+                                               int64_t block_idx_y_base) {
+  const int64_t no = blockIdx.y + block_idx_y_base;
   const int group_id = blockIdx.x;
   const int d = threadIdx.x;
-  const int64_t global_thread_id = (int64_t)(no * num_groups + group_id) * group_size + d;
+  const int64_t global_thread_id = (no * num_groups + group_id) * group_size + d;
 
   int work_per_thread = 8 / bits;
 
   uint8_t local_packed = data[global_thread_id];
   int mask = ((1 << bits) - 1);
   for (int ni = 0; ni < work_per_thread; ni++) {
-    const int n = no * work_per_thread + ni;
+    const int64_t n = no * work_per_thread + ni;
 
     if (boundary_check && n >= N) { break; }
 
@@ -283,8 +291,8 @@ Tensor unpack_single_precision_cuda(Tensor data,
                                     int bits,
                                     Tensor scale,
                                     Tensor min,
-                                    int N,
-                                    int num_groups,
+                                    int64_t N,
+                                    int64_t num_groups,
                                     int group_size) {
   auto options = torch::TensorOptions().dtype(scale.dtype()).device(data.device());
   Tensor unpacked = torch::empty({N, num_groups, group_size}, options);
@@ -292,30 +300,31 @@ Tensor unpack_single_precision_cuda(Tensor data,
   int work_per_thread = 8 / bits;
   TORCH_CHECK(8 % bits == 0);
 
-  // Unpack
-  dim3 block_dim(num_groups, (N + work_per_thread - 1) / work_per_thread, 1);
-  dim3 thread_dim(group_size, 1, 1);
+  int64_t logical_block_y_dim = (N + work_per_thread - 1) / work_per_thread;
+  for (int64_t block_idx_y_base = 0; block_idx_y_base < logical_block_y_dim; block_idx_y_base += BLOCK_Y_DIM_MAX) {
+    dim3 block_dim(num_groups, std::min(logical_block_y_dim - block_idx_y_base, BLOCK_Y_DIM_MAX), 1);
+    dim3 thread_dim(group_size, 1, 1);
 
-  if (N % work_per_thread == 0) {
-    AT_DISPATCH_FLOATING_TYPES_AND_HALF(scale.scalar_type(), "unpack_single_precision", ([&] {
-      unpack_single_precision_kernel<scalar_t, false><<<block_dim, thread_dim>>>(
-        bits,
-        data.data_ptr<int8_t>(),
-        scale.data_ptr<scalar_t>(), min.data_ptr<scalar_t>(),
-        unpacked.data_ptr<scalar_t>(),
-        N, num_groups, group_size);
-    }));
-  } else {
-    AT_DISPATCH_FLOATING_TYPES_AND_HALF(scale.scalar_type(), "unpack_single_precision", ([&] {
-      unpack_single_precision_kernel<scalar_t, true><<<block_dim, thread_dim>>>(
-        bits,
-        data.data_ptr<int8_t>(),
-        scale.data_ptr<scalar_t>(), min.data_ptr<scalar_t>(),
-        unpacked.data_ptr<scalar_t>(),
-        N, num_groups, group_size);
-    }));
+    if (N % work_per_thread == 0) {
+      AT_DISPATCH_FLOATING_TYPES_AND_HALF(scale.scalar_type(), "unpack_single_precision", ([&] {
+        unpack_single_precision_kernel<scalar_t, false><<<block_dim, thread_dim>>>(
+          bits,
+          data.data_ptr<int8_t>(),
+          scale.data_ptr<scalar_t>(), min.data_ptr<scalar_t>(),
+          unpacked.data_ptr<scalar_t>(),
+          N, num_groups, group_size, block_idx_y_base);
+      }));
+    } else {
+      AT_DISPATCH_FLOATING_TYPES_AND_HALF(scale.scalar_type(), "unpack_single_precision", ([&] {
+        unpack_single_precision_kernel<scalar_t, true><<<block_dim, thread_dim>>>(
+          bits,
+          data.data_ptr<int8_t>(),
+          scale.data_ptr<scalar_t>(), min.data_ptr<scalar_t>(),
+          unpacked.data_ptr<scalar_t>(),
+          N, num_groups, group_size, block_idx_y_base);
+      }));
+    }
   }
-
   return unpacked;
 }
 

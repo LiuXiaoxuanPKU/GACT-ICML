@@ -16,7 +16,7 @@ using torch::IntArrayRef;
 // Declarations for functions in ext_quantization_cuda_kernel.cu
 // Pack and unpack
 Tensor unpack_single_precision_cuda(
-    Tensor data, int bits, Tensor scale, Tensor min, int N, int num_groups, int group_size);
+    Tensor data, int bits, Tensor scale, Tensor min, int64_t N, int64_t num_groups, int group_size);
 tensor_list minimax_quantize_single_precision_cuda(Tensor data, int bits);
 
 // ActQuantizedReLU
@@ -29,8 +29,8 @@ Tensor unpack_single_precision(Tensor data,
                                int bits,
                                Tensor scale,
                                Tensor min,
-                               int N,
-                               int num_groups,
+                               int64_t N,
+                               int64_t num_groups,
                                int group_size) {
   CHECK_CUDA_TENSOR_DIM_TYPE(data, 1, torch::kInt8);
   CHECK_CUDA_TENSOR_DIM_FLOAT(scale, 3);

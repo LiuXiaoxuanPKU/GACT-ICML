@@ -54,6 +54,8 @@ class Controller:
                     [input_tensor]
                 )
             return False
+        if input_tensor.numel() < 1024: # tensor size < 4 KB
+            return False
         if ((len(input_tensor.shape) != 2)
             and (len(input_tensor.shape) != 3)
             and (len(input_tensor.shape) != 4)
@@ -92,7 +94,7 @@ class Controller:
 
     def generate_tensor_key(self, t, tid):
         if not t.is_contiguous():
-            return (t.sum().item(), tid)
+            return (tid)
         # sample 20 elements data pointer as the key
         sample_cnt = 10
         step = max(torch.numel(t) // sample_cnt, 1)
@@ -154,7 +156,11 @@ class Controller:
 
         if self.start_bwd and self.verbose:
             store_size = 0
+            total_eles = 0
             for k in self.ptr_qtensor_map:
+                total_eles += self.ptr_qtensor_map[k][0][0].numel() \
+                            + self.ptr_qtensor_map[k][0][2].numel() \
+                            + self.ptr_qtensor_map[k][0][3].numel() 
                 store_size += (
                     compute_tensor_bytes(
                         [
@@ -168,7 +174,7 @@ class Controller:
                 )
             for k in self.layer_key_map:
                 store_size += 4 + 12
-            print("Store size %d MB" % (store_size / 1024 / 1024))
+            print("Store size %d MB, # of elems %d" % (store_size / 1024 / 1024, total_eles))
             print(
                 "Quantize twice size %d" % (self.quantize_twice_size)
             )

@@ -137,7 +137,6 @@ class Controller:
             self.ptr_qtensor_map[key] = [q_inputs, 1, tid]
         else:
             self.quantize_twice_size += 1
-            print("Same tensor", key, input.shape, self.quantize_twice_size)
             # increase the ref count
             self.ptr_qtensor_map[key][1] += 1
         return True, key, input_shape, tid

@@ -96,9 +96,9 @@ class Controller:
         if not t.is_contiguous():
             return (tid)
         # sample 20 elements data pointer as the key
-        sample_cnt = 10
+        sample_cnt = 20
         step = max(torch.numel(t) // sample_cnt, 1)
-        ptrs = []
+        ptrs = [t.data_ptr()]
         for i in range(min(sample_cnt, torch.numel(t))):
             idx = i * step
             ptrs.append(t.view(-1)[idx].item())
@@ -137,6 +137,7 @@ class Controller:
             self.ptr_qtensor_map[key] = [q_inputs, 1, tid]
         else:
             self.quantize_twice_size += 1
+            print("Same tensor", key, input.shape, self.quantize_twice_size)
             # increase the ref count
             self.ptr_qtensor_map[key][1] += 1
         return True, key, input_shape, tid

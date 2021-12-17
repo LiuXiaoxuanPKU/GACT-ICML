@@ -95,10 +95,10 @@ class Controller:
             return False
         if self.verbose:
             self.quantize_size += compute_tensor_bytes([input_tensor])
-        print("Quantize ", input_tensor.shape)
+        # print("Quantize ", input_tensor.shape)
         return True
 
-    def iterate(self, model):
+    def iterate(self):
         del self.ptr_qtensor_map
         del self.layer_key_map
         self.ptr_qtensor_map = {}

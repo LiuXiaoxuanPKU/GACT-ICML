@@ -95,7 +95,7 @@ class Controller:
             return False
         if self.verbose:
             self.quantize_size += compute_tensor_bytes([input_tensor])
-        print("Quantize ", input_tensor.shape)
+        # print("Quantize ", input_tensor.shape)
         return True
 
     def iterate(self, model):
@@ -240,8 +240,8 @@ class Controller:
             print("[Error] Ref count < 0", key, ref_cnt)
             exit(0)
         elif ref_cnt == 0:
-            pass
-            # del self.ptr_qtensor_map[key]
+            # pass
+            del self.ptr_qtensor_map[key]
         else:
             self.ptr_qtensor_map[key] = [q_inputs, ref_cnt, key_tid]
         return ret

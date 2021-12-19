@@ -10,7 +10,7 @@ from torch.autograd.function import Function
 
 from timeit_v2 import py_benchmark
 
-from actnn import get_memory_usage, compute_tensor_bytes
+from actnn.utils import get_memory_usage, compute_tensor_bytes
 from actnn.ops import ext_quantization, op_quantize, op_dequantize
 
 
@@ -34,13 +34,13 @@ def test_quantize_error():
     error_rate(op_dequantize(op_quantize(input, 8), input_shape), input)
 
 def test_quantize_big_min():
-    input_shape = (65535 * 4, 256)
+    input_shape = (65535 * 10, 256)
     input = torch.rand(input_shape).to("cuda")
-    q_input, q_bit, q_scale, q_min = op_quantize(input, 8)
+    q_input, q_bit, q_scale, q_min = op_quantize(input, 4)
     ref_min = torch.min(input, dim=1).values
     q_min = q_min.reshape(1, -1)
     ref_min = ref_min.reshape(1, -1)
-    assert(q_min.equal(ref_min))
+    np.testing.assert_allclose(q_min.cpu(), ref_min.cpu())
 
 def test_quantize_big_error():
     input_shape = (65535 * 10, 512)
@@ -141,7 +141,7 @@ def test_relu_speed():
 
 
 if __name__ == "__main__":
-    # test_quantize_big_min()
+    test_quantize_big_min()
     test_quantize_error()
     test_quantize_big_error()
     # test_relu_correctness()

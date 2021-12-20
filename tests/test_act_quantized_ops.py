@@ -10,7 +10,7 @@ from torch.autograd.function import Function
 
 from timeit_v2 import py_benchmark
 
-from actnn import get_memory_usage, compute_tensor_bytes
+from actnn.utils import get_memory_usage, compute_tensor_bytes
 from actnn.ops import ext_quantization, op_quantize, op_dequantize
 
 
@@ -141,7 +141,7 @@ def test_relu_speed():
 
 
 if __name__ == "__main__":
-    # test_quantize_big_min()
+    test_quantize_big_min()
     test_quantize_error()
     test_quantize_big_error()
     # test_relu_correctness()

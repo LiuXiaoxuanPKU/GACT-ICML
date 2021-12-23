@@ -112,32 +112,37 @@ def self_atten(query_layer, key_layer, value_layer, q_chunk_size, k_chunk_size):
 
         chunk_values = None
         chunk_weights = None
+        global_max = None
         for i in range(num_key_chunk):
             key_chunk = key[:, :, i * key_chunk_size : (i+1) * key_chunk_size, :]
             value_chunk = value[:, :, i * key_chunk_size : (i+1) * key_chunk_size, :]
-            chunk_value, chunk_weight, chunk_max =  checkpoint.checkpoint(
-                    summarize_chunk, query, key_chunk, value_chunk)# TODO
-            print("chunk_value", chunk_value.shape)
-            print("chunk_weight", chunk_weight.shape)
-            print("chunk_max", chunk_max.shape)
-            global_max = torch.max(chunk_max, axis=2, keepdims=True).values
-            max_diffs = torch.exp(chunk_max - global_max) 
+            chunk_value, chunk_weight, chunk_max = summarize_chunk (query, key_chunk, value_chunk)
+            # print("chunk_value", chunk_value.shape)
+            # print("chunk_weight", chunk_weight.shape)
+            # print("chunk_max", chunk_max.shape)
             
-            chunk_value = chunk_value.reshape(-1, k_feature)
-            max_diffs = max_diffs.reshape((-1, 1))
-            chunk_value *= max_diffs
-            chunk_value = chunk_value.reshape(query.shape)
-            max_diffs = max_diffs.reshape(query.shape[0], query.shape[1], query.shape[2])
-            chunk_weight *= max_diffs
-
-            if chunk_values is None:
+            def batch_dot(m1, m2):
+                feature_size = m1.shape[-1]
+                v = m1.reshape(-1, feature_size) * m2.reshape(-1, 1)
+                return v.reshape(m1.shape)
+            
+            if global_max is None:
+                global_max = chunk_max
                 chunk_values = chunk_value
-            else:
-                chunk_values += chunk_value
-            
-            if chunk_weights is None:
                 chunk_weights = chunk_weight
             else:
+                old_max = global_max
+                global_max = torch.maximum(chunk_max, global_max)
+
+                diff1 = torch.exp(chunk_max - global_max)
+                chunk_value = batch_dot(chunk_value, diff1)
+                chunk_weight *= diff1
+
+                diff2 = torch.exp(old_max - global_max)
+                chunk_values = batch_dot(chunk_values, diff2)
+                chunk_weights *= diff2
+
+                chunk_values += chunk_value
                 chunk_weights += chunk_weight
 
         chunk_values = chunk_values.reshape(-1, chunk_values.shape[-1])
@@ -145,19 +150,18 @@ def self_atten(query_layer, key_layer, value_layer, q_chunk_size, k_chunk_size):
         return chunk_values / chunk_weights
 
     num_q_chunk = math.ceil(query_layer.shape[2] / q_chunk_size)
-    res = []
+    res = torch.zeros(query_layer.shape)
     for i in range(num_q_chunk):
         r = _query_chunk_attention(query_layer[:, :, i*q_chunk_size:(i+1)*q_chunk_size, :], 
                     key_layer, value_layer)
-        res.append(r)
-    re = torch.stack(res)
-    return re.reshape(bz, num_heads, seq_len, k_features)
+        res[:,:,i*q_chunk_size:(i+1)*q_chunk_size, :] = r.reshape(batch_size, num_heads, q_chunk_size, q_features)
+    return res
 
 if __name__ == "__main__":
     bz = 8
     num_head = 12
     seq_len = 512
-    q_feature = k_feature = v_feature = 64
+    q_feature = k_feature = v_feature = 128
     q = torch.rand((bz, num_head, seq_len, q_feature)).cuda()
     k = torch.rand((bz, num_head, seq_len, k_feature)).cuda()
     v = torch.rand((bz, num_head, seq_len, v_feature)).cuda()
@@ -170,13 +174,12 @@ if __name__ == "__main__":
         return context_layer
 
     def self_atten_imp(q, k, v):
-        return self_atten(q, k, v, q_chunk_size=64, k_chunk_size=64)
+        return self_atten(q, k, v, q_chunk_size=64, k_chunk_size=128)
     
     ref_result = ref_imp(q, k, v)
     op_result = self_atten_imp(q, k, v)
 
-
-    np.allclose(ref_result.cpu(), op_result.cpu())
+    np.testing.assert_allclose(ref_result.cpu(), op_result.cpu(), rtol=1e-5)
 
     def test_implementation(func):
         bz = 8
@@ -189,8 +192,8 @@ if __name__ == "__main__":
 
         before = torch.cuda.memory_allocated()
 
-        for i in range(10):
-            data = func(q, k, v)
+        # for i in range(5):
+        data = func(q, k, v)
 
         after = torch.cuda.memory_allocated()
 

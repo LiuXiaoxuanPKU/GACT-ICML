@@ -12,7 +12,7 @@ from timeit_v2 import py_benchmark
 
 from actnn.utils import get_memory_usage, compute_tensor_bytes
 from actnn.ops import ext_quantization, op_quantize, op_dequantize
-
+from actnn.ops import self_atten
 
 def error_rate(q_input, input):
     print(((q_input - input)**2).sum() / (input**2).sum())
@@ -139,11 +139,97 @@ def test_relu_speed():
         print("Quantized. forward: %.2f ms\tbackward: %.2f ms\tsum: %.2f ms" %
               (forward_us * 1e3, backward_us * 1e3, (forward_us + backward_us) * 1e3))
 
+def self_atten_ref_imp(q, k, v):
+    k_feature = k.shape[-1]
+    attention_scores = torch.matmul(q, k.transpose(-1, -2))
+    attention_scores = attention_scores / math.sqrt(k_feature)
+    attention_probs = nn.functional.softmax(attention_scores, dim=-1)
+    context_layer = torch.matmul(attention_probs, v)
+    return context_layer
+
+def self_atten_opt_imp(q, k, v):
+    return self_atten(q, k, v, q_chunk_size=64, k_chunk_size=64)
+
+def test_self_atten_correctness():
+    print("========== Self Multihead Attention Correctness Test ==========") 
+    bz = 8
+    num_head = 12
+    seq_len = 512
+    q_feature = k_feature = v_feature = 128
+    q = torch.rand((bz, num_head, seq_len, q_feature)).cuda()
+    k = torch.rand((bz, num_head, seq_len, k_feature)).cuda()
+    v = torch.rand((bz, num_head, seq_len, v_feature)).cuda()
+    
+    ref_result = self_atten_ref_imp(q, k, v)
+    op_result = self_atten_opt_imp(q, k, v)
+
+    np.testing.assert_allclose(ref_result.cpu(), op_result.cpu(), rtol=1e-5)
+
+def test_self_atten_memory():
+    print("========== Self Multihead Attention Memory Test ==========")
+    bz = 8
+    num_head = 12
+    seq_len = 512
+    q_feature = k_feature = v_feature = 64
+    q = torch.rand((bz, num_head, seq_len, q_feature)).cuda().requires_grad_()
+    k = torch.rand((bz, num_head, seq_len, k_feature)).cuda().requires_grad_()
+    v = torch.rand((bz, num_head, seq_len, v_feature)).cuda().requires_grad_()
+
+    def test_implementation(func):
+        before = torch.cuda.memory_allocated()
+
+        # for i in range(5):
+        data = func(q, k, v)
+
+        after = torch.cuda.memory_allocated()
+
+        return after - before
+    
+    usage_ref = test_implementation(self_atten_ref_imp)
+    usage_us = test_implementation(self_atten_opt_imp)
+
+    print("Reference.     Usage: %.2f MB" % (usage_ref / 2 ** 20))
+    print("Optimized. Usage: %.2f MB" % (usage_us / 2 ** 20))
+
+def test_self_atten_speed():
+    print("========== Self Multihead Attention Speed Test ==========")
+    def test_implementation(func):
+        bz = 8
+        num_head = 12
+        seq_len = 512
+        q_feature = k_feature = v_feature = 128
+        q = torch.rand((bz, num_head, seq_len, q_feature)).cuda().requires_grad_()
+        k = torch.rand((bz, num_head, seq_len, k_feature)).cuda().requires_grad_()
+        v = torch.rand((bz, num_head, seq_len, v_feature)).cuda().requires_grad_()
+
+        stmt = "func(q, k, v)"
+        t_forward = py_benchmark(stmt, {**globals(), **locals()},
+                                     setup="torch.cuda.synchronize()", finish="torch.cuda.synchronize()")
+
+        output = func(q, k, v)
+        head = torch.ones_like(output)
+        stmt = "output.backward(head, retain_graph=True)"
+        t_backward = py_benchmark(stmt, {**globals(), **locals()},
+                                      setup="torch.cuda.synchronize()", finish="torch.cuda.synchronize()")
+
+        return t_forward, t_backward
+
+    forward_ref, backward_ref = test_implementation(self_atten_ref_imp)
+    forward_us, backward_us = test_implementation(self_atten_opt_imp)
+
+    print("Ref.     forward: %.2f ms\tbackward: %.2f ms\tsum: %.2f ms" %
+              (forward_ref * 1e3, backward_ref * 1e3, (forward_ref + backward_ref) * 1e3))
+    print("Memory Optimized. forward: %.2f ms\tbackward: %.2f ms\tsum: %.2f ms" %
+              (forward_us * 1e3, backward_us * 1e3, (forward_us + backward_us) * 1e3))
+
 
 if __name__ == "__main__":
-    test_quantize_big_min()
-    test_quantize_error()
-    test_quantize_big_error()
+    # test_quantize_big_min()
+    # test_quantize_error()
+    # test_quantize_big_error()
     # test_relu_correctness()
     # test_relu_memory()
     # test_relu_speed()
+    test_self_atten_correctness()
+    test_self_atten_memory()
+    test_self_atten_speed()

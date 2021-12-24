@@ -87,7 +87,8 @@ def op_dequantize(input, input_shape):
     return input
 
 
-def self_atten(query_layer, key_layer, value_layer, q_chunk_size, k_chunk_size):
+def self_atten(query_layer, key_layer, value_layer, 
+                q_chunk_size, k_chunk_size, use_checkpoint=True):
     batch_size, num_heads, seq_len, q_features = query_layer.shape
     batch_size, num_heads, seq_len, k_features = key_layer.shape
     batch_size, num_heads, seq_len, v_features = value_layer.shape
@@ -100,45 +101,44 @@ def self_atten(query_layer, key_layer, value_layer, q_chunk_size, k_chunk_size):
         query = query / math.sqrt(k_features)
 
         def summarize_chunk(query, key, value):
-            attn_weights = torch.einsum('bhqd,bhkd->bhqk', query, key) 
-            # attn_weights = torch.einsum('qhd,khd->qhk', query, key) 
+            attn_weights = torch.einsum('bhqd,bhkd->bhqk', query, key)
             max_score = torch.max(attn_weights, axis=-1, keepdims=True).values
             max_score = max_score.detach()
             exp_weights = torch.exp(attn_weights - max_score)
             exp_values = torch.einsum('bhvf,bhqv->bhqf', value, exp_weights)
-            # exp_values = torch.einsum('vhf,qhv->qhf', value, exp_weights)
-            return (exp_values, exp_weights.sum(axis=-1),
-                max_score.reshape((query.shape[0], query.shape[1], query.shape[2])))
+            return (exp_values, exp_weights.sum(axis=-1), max_score.squeeze())
 
         chunk_values = None
         chunk_weights = None
         global_max = None
+        def batch_dot(m1, m2):
+            feature_size = m1.shape[-1]
+            v = m1.reshape(-1, feature_size) * m2.reshape(-1, 1)
+            return v.reshape(m1.shape)
+
         for i in range(num_key_chunk):
             key_chunk = key[:, :, i * key_chunk_size : (i+1) * key_chunk_size, :]
             value_chunk = value[:, :, i * key_chunk_size : (i+1) * key_chunk_size, :]
-            chunk_value, chunk_weight, chunk_max = summarize_chunk (query, key_chunk, value_chunk)
-            # print("chunk_value", chunk_value.shape)
-            # print("chunk_weight", chunk_weight.shape)
-            # print("chunk_max", chunk_max.shape)
+            if use_checkpoint:
+                chunk_value, chunk_weight, chunk_max = \
+                    checkpoint.checkpoint(summarize_chunk , query, key_chunk, value_chunk)
+            else: 
+                chunk_value, chunk_weight, chunk_max = summarize_chunk(query, key_chunk, value_chunk)
             
-            def batch_dot(m1, m2):
-                feature_size = m1.shape[-1]
-                v = m1.reshape(-1, feature_size) * m2.reshape(-1, 1)
-                return v.reshape(m1.shape)
-            
+            # with torch.no_grad():
             if global_max is None:
                 global_max = chunk_max
                 chunk_values = chunk_value
                 chunk_weights = chunk_weight
             else:
                 old_max = global_max
-                global_max = torch.maximum(chunk_max, global_max)
+                global_max = torch.maximum(chunk_max, global_max).detach()
 
-                diff1 = torch.exp(chunk_max - global_max)
+                diff1 = torch.exp(chunk_max - global_max).detach()
                 chunk_value = batch_dot(chunk_value, diff1)
                 chunk_weight *= diff1
 
-                diff2 = torch.exp(old_max - global_max)
+                diff2 = torch.exp(old_max - global_max).detach()
                 chunk_values = batch_dot(chunk_values, diff2)
                 chunk_weights *= diff2
 

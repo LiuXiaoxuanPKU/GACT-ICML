@@ -142,54 +142,69 @@ def test_relu_speed():
 def self_atten_ref_imp(q, k, v):
     k_feature = k.shape[-1]
     attention_scores = torch.matmul(q, k.transpose(-1, -2))
+    # save tensor 1: attention score
     attention_scores = attention_scores / math.sqrt(k_feature)
+    # save tensor 2: attention probility
     attention_probs = nn.functional.softmax(attention_scores, dim=-1)
     context_layer = torch.matmul(attention_probs, v)
     return context_layer
 
 def self_atten_opt_imp(q, k, v):
-    return self_atten(q, k, v, q_chunk_size=64, k_chunk_size=64)
+    return self_atten(q, k, v, q_chunk_size=128, k_chunk_size=128)
 
 def test_self_atten_correctness():
-    print("========== Self Multihead Attention Correctness Test ==========") 
-    bz = 8
-    num_head = 12
-    seq_len = 512
-    q_feature = k_feature = v_feature = 128
-    q = torch.rand((bz, num_head, seq_len, q_feature)).cuda()
-    k = torch.rand((bz, num_head, seq_len, k_feature)).cuda()
-    v = torch.rand((bz, num_head, seq_len, v_feature)).cuda()
-    
-    ref_result = self_atten_ref_imp(q, k, v)
-    op_result = self_atten_opt_imp(q, k, v)
+    print("========== Self Multihead Attention Correctness Test ==========")
+    def test_implementation(func):
+        bz = 8
+        num_head = 12
+        seq_len = 512
+        q_feature = k_feature = v_feature = 64
+        torch.manual_seed(0)
+        q = torch.rand((bz, num_head, seq_len, q_feature), dtype=torch.double).cuda().requires_grad_()
+        k = torch.rand((bz, num_head, seq_len, k_feature), dtype=torch.double).cuda().requires_grad_()
+        v = torch.rand((bz, num_head, seq_len, v_feature), dtype=torch.double).cuda().requires_grad_()
+        
+        output = func(q, k, v)
+        head = torch.ones_like(output)
+        output.backward(head, retain_graph=True)
 
-    np.testing.assert_allclose(ref_result.cpu(), op_result.cpu(), rtol=1e-5)
+        return q.grad, k.grad, v.grad, output
+
+    ref_q_grad, ref_k_grad, ref_v_grad, ref_output = test_implementation(self_atten_ref_imp)
+    opt_q_grad, opt_k_grad, opt_v_grad, opt_output = test_implementation(self_atten_opt_imp)
+
+    np.testing.assert_allclose(ref_output.detach().cpu(), opt_output.detach().cpu(), rtol=1e-5)
+    np.testing.assert_allclose(ref_q_grad.cpu(), opt_q_grad.cpu(), rtol=1e-5)
+    np.testing.assert_allclose(ref_k_grad.cpu(), opt_k_grad.cpu(), rtol=1e-5)
+    np.testing.assert_allclose(ref_v_grad.cpu(), opt_v_grad.cpu(), rtol=1e-5)
+
 
 def test_self_atten_memory():
     print("========== Self Multihead Attention Memory Test ==========")
     bz = 8
     num_head = 12
-    seq_len = 512
-    q_feature = k_feature = v_feature = 64
+    seq_len = 2**11
+    q_feature = k_feature = v_feature = 128
     q = torch.rand((bz, num_head, seq_len, q_feature)).cuda().requires_grad_()
     k = torch.rand((bz, num_head, seq_len, k_feature)).cuda().requires_grad_()
     v = torch.rand((bz, num_head, seq_len, v_feature)).cuda().requires_grad_()
 
     def test_implementation(func):
         before = torch.cuda.memory_allocated()
+        torch.cuda.reset_peak_memory_stats()
 
-        # for i in range(5):
         data = func(q, k, v)
 
         after = torch.cuda.memory_allocated()
-
-        return after - before
+        peak_mem = torch.cuda.max_memory_allocated()
+        del data
+        return after - before, peak_mem
     
-    usage_ref = test_implementation(self_atten_ref_imp)
-    usage_us = test_implementation(self_atten_opt_imp)
+    usage_us, peak_mem_op = test_implementation(self_atten_opt_imp)
+    usage_ref, peak_mem_ref = test_implementation(self_atten_ref_imp)
 
-    print("Reference.     Usage: %.2f MB" % (usage_ref / 2 ** 20))
-    print("Optimized. Usage: %.2f MB" % (usage_us / 2 ** 20))
+    print("Reference. Usage: %.2f MB, Peak: %.2f" % (usage_ref / 2 ** 20, peak_mem_ref / 2 ** 20))
+    print("Optimized. Usage: %.2f MB, Peak: %.2f" % (usage_us / 2 ** 20, peak_mem_op / 2 ** 20))
 
 def test_self_atten_speed():
     print("========== Self Multihead Attention Speed Test ==========")

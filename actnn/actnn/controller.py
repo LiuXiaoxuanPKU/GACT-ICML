@@ -1,7 +1,7 @@
 import torch
 from actnn.ops import op_quantize
 from actnn.ops import op_dequantize
-from .utils import compute_tensor_bytes
+from actnn.utils import compute_tensor_bytes
 
 
 class Controller:
@@ -39,32 +39,6 @@ class Controller:
         self.quantize_size = 0
         self.quantize_twice_size = 0
 
-    def init(self, model):
-        def register_module(name, module):
-            children = list(module.children())
-            if len(children) > 0:
-                for name, layer in module.named_children():
-                    register_module(name, layer)
-            else:
-                layer = module
-                layer.__name__ = name
-                # layer.register_forward_hook(
-                #     lambda layer, _, output: print(f"{layer.__name__}: {output.shape}")
-                # )
-                layer.register_forward_hook(self.forward_hook)
-        register_module("root", model)
-
-    def forward_hook(self, model, input, output):
-        if not hasattr(output, "grad_fn"):
-            print("Does not have grad_fn")
-            return
-        atts = [x for  x in dir(output.grad_fn) if 'save' in x ]
-        print(atts)
-        for att in atts:
-            saved_obj = getattr(output.grad_fn, att)
-            if isinstance(saved_obj, torch.Tensor) and self.check_quantize(saved_obj):
-                print(att, saved_obj.shape)
-
     def filter_tensors(self, pairs):
         for k, v in pairs:
             self.unrelated_tensors.add(v.data_ptr())
@@ -95,6 +69,7 @@ class Controller:
             return False
         if self.verbose:
             self.quantize_size += compute_tensor_bytes([input_tensor])
+        
         # print("Quantize ", input_tensor.shape)
         return True
 
@@ -240,7 +215,6 @@ class Controller:
             print("[Error] Ref count < 0", key, ref_cnt)
             exit(0)
         elif ref_cnt == 0:
-            # pass
             del self.ptr_qtensor_map[key]
         else:
             self.ptr_qtensor_map[key] = [q_inputs, ref_cnt, key_tid]

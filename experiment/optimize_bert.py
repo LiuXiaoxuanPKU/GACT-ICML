@@ -8,7 +8,7 @@ from datasets import load_dataset
 from transformers import AutoTokenizer
 from tqdm.auto import tqdm
 
-from actnn import get_memory_usage, compute_tensor_bytes
+from actnn.utils import get_memory_usage, compute_tensor_bytes
 from actnn.controller import Controller
 
 import time
@@ -22,7 +22,7 @@ num_epochs = 1
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
 
-def get_model(model_name, batch_size=8):
+def get_model(model_name, efficient_softmax, batch_size):
     tokenizer = AutoTokenizer.from_pretrained(model_name)
 
     def tokenize_function(examples):
@@ -37,10 +37,10 @@ def get_model(model_name, batch_size=8):
         small_train_dataset, shuffle=True, batch_size=batch_size
     )
     config = AutoConfig.from_pretrained(model_name, num_labels=2)
-    config.num_hidden_layers = 1
+    config.num_hidden_layers = 12
+    config.efficient_softmax = efficient_softmax
 
     model = AutoModelForSequenceClassification.from_config(config)
-
     num_training_steps = num_epochs * len(train_dataloader)
     optimizer = AdamW(model.parameters(), lr=5e-5)
     lr_scheduler = get_scheduler(
@@ -52,15 +52,18 @@ def get_model(model_name, batch_size=8):
     model.to(device)
     return model, train_dataloader, optimizer, lr_scheduler
 
-
-def train(bit, model, train_dataloader, optimizer, lr_scheduler, get_mem=True, get_speed=False):
+def train(bit, swap, model, train_dataloader, optimizer, lr_scheduler, get_mem, get_speed):
+    if get_mem and get_speed:
+        print("[Error] Cannot benchmark memory and speed at the same time")
+        exit(0)
+    
     progress_bar = tqdm(range(num_epochs * len(train_dataloader)))
     if bit == -1:
         actnn = False
     else:
         actnn = True
 
-    controller = Controller(default_bit=bit, swap=False, debug=False, prefetch=False)
+    controller = Controller(default_bit=bit, swap=swap, debug=False, prefetch=False)
     controller.filter_tensors(model.named_parameters())
 
     def pack_hook(tensor):  # quantize hook
@@ -76,7 +79,6 @@ def train(bit, model, train_dataloader, optimizer, lr_scheduler, get_mem=True, g
     ips_list = []
     for _ in range(num_epochs):
         for i, batch in enumerate(train_dataloader):
-            torch.cuda.reset_peak_memory_stats()
             batch = {k: v for k, v in batch.items()}
             batch["labels"] = batch["label"].to(device)
             del batch["label"]
@@ -99,10 +101,6 @@ def train(bit, model, train_dataloader, optimizer, lr_scheduler, get_mem=True, g
             end = time.time()
             if get_mem:
                 print("===============After Data Loading================")
-                print(batch["input_ids"].shape)
-                print(batch["attention_mask"].shape)
-                print(batch["token_type_ids"].shape)
-                print(batch["labels"].shape)
                 data_size = compute_tensor_bytes(
                     [
                         batch["input_ids"],
@@ -114,34 +112,30 @@ def train(bit, model, train_dataloader, optimizer, lr_scheduler, get_mem=True, g
                 print("Data size %f MB" % (data_size / 1024 / 1024))
                 # weight + optimizer state + data size
                 init_mem = get_memory_usage(True)
-            # if get_mem:
-            #     reporter = MemReporter(model)
+            
             outputs = model(**batch)
             loss = outputs.loss
 
             if get_mem:
                 print("===============Before Backward===================")
-                before_backward = get_memory_usage(
-                    True
-                )  # weight + optimizer state + data size + activation + loss + output
+                # weight + optimizer state + data size + activation + loss + output
+                before_backward = get_memory_usage(True)
                 activation = (
                     before_backward
                     - init_mem
                     - compute_tensor_bytes([loss, outputs.logits])
                 )
-                # print(reporter.report())
 
             loss.backward()
             del loss
             del outputs
 
             if actnn:
-                controller.iterate(model)
+                controller.iterate()
 
             if get_mem:
                 print("===============After Backward====================")
                 after_backward = get_memory_usage(True)  # init + grad
-                # print(reporter.report())
                 # init: weight + optimizer state + data size
                 # before backward: weight + optimizer state + data size + activation + loss + output 
                 # after backward: weight + optimizer state + data size + grad
@@ -179,20 +173,27 @@ def train(bit, model, train_dataloader, optimizer, lr_scheduler, get_mem=True, g
 
     return np.median(ips_list)
 
-def get_model_and_train(bit, batch_size = 4, gradient_cpkt=False, get_mem=True, get_speed=False):
+def get_model_and_train(bit, swap, efficient_softmax, 
+                        batch_size, gradient_cpkt, 
+                        get_mem, get_speed):
+    
     model, train_dataloader, optimizer, lr_scheduler = get_model(
-            "bert-base-uncased", batch_size)
+            "bert-base-uncased", efficient_softmax, batch_size)
 
     if gradient_cpkt:
         model.gradient_checkpointing_enable()
     else:
         model.gradient_checkpointing_disable()
-    ips = train(bit, model, train_dataloader, optimizer, lr_scheduler, get_mem=get_mem, get_speed=get_speed)
+
+    ips = train(bit, swap, 
+                model, train_dataloader, optimizer, lr_scheduler,
+                get_mem=get_mem, get_speed=get_speed)
     return ips
 
 def find_max_batch(bit, gradient_cpkt):
     # batch_sizes = [4, 8, 12, 24, 36, 48, 60, 72, 84, 96, 108, 120, 132, 144]
-    batch_sizes = [i * 4 for i in range(1, 30)]
+    # batch_sizes = [i * 4 for i in range(1, 30)]
+    batch_sizes = [4, 8, 12]
     speeds = []
     for bz in batch_sizes:
         try:
@@ -207,18 +208,18 @@ def find_max_batch(bit, gradient_cpkt):
     return batch_sizes, speeds
 
 if __name__ == "__main__":
-    # bit = 4
-    # batch_size = 48
-    # get_model_and_train(bit, batch_size, gradient_cpkt=False)
-
     profile_line = True
     compare_memory = False
     find_batch = False
+
     if profile_line:
         bit = 4
-        batch_size = 4
-        gradient_cpkt = False
-        get_model_and_train(bit, batch_size, gradient_cpkt=gradient_cpkt)
+        swap = False
+        batch_size = 100
+        gradient_cpkt = True
+        efficient_softmax = False
+
+        get_model_and_train(bit, swap, efficient_softmax, batch_size, gradient_cpkt, get_mem=True, get_speed=False)
 
     if compare_memory:
         batch_size = 12
@@ -255,10 +256,10 @@ if __name__ == "__main__":
         print(batch_sizes, speeds)
         speeds_info['actnn'] = (batch_sizes, speeds)
 
-        print("=============Actnn + Checkpoint============")
-        batch_sizes, speeds = find_max_batch(4, True)
-        print(batch_sizes, speeds)
-        speeds_info['actnn_ckpt'] = (batch_sizes, speeds)
+        # print("=============Actnn + Checkpoint============")
+        # batch_sizes, speeds = find_max_batch(4, True)
+        # print(batch_sizes, speeds)
+        # speeds_info['actnn_ckpt'] = (batch_sizes, speeds)
 
-        with open("speed_wo_dropout", 'wb') as f:
-            pickle.dump(speeds_info, f)
+        # with open("speed_wo_dropout", 'wb') as f:
+        #     pickle.dump(speeds_info, f)

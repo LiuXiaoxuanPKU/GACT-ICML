@@ -15,7 +15,7 @@ import torch.utils.checkpoint as checkpoint
 
 def no_scheme_quantize_pack(input, q_bit):
     N = input.shape[0]
-    input_flatten = input.view(N, -1)
+    input_flatten = input.reshape(N, -1)
     num_features = input_flatten.shape[1]
 
     # Compute min, max by groups
@@ -63,15 +63,6 @@ def dequantize_and_unpack(data, shape, bits, scale, mn, tid=-1):
 
 def op_quantize(input, q_bit):
     q_input, q_scale, q_min = no_scheme_quantize_pack(input, q_bit)
-    empty_cache(2)
-    peak_mem = torch.cuda.max_memory_allocated()
-    alloc_mem = torch.cuda.memory_allocated()
-    tensor_size = compute_tensor_bytes(input)
-    del input
-    print("-------Peak", peak_mem / 1024 / 1024)
-    print("Alloc mem ", alloc_mem / 1024 / 1024)
-    print("Input size ",  tensor_size / 1024 / 1024)
-    torch.cuda.reset_peak_memory_stats()
     return [q_input, q_bit, q_scale, q_min]
 
 

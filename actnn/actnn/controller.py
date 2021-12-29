@@ -1,7 +1,6 @@
 import torch
 from actnn.ops import op_quantize
 from actnn.ops import op_dequantize
-from actnn.utils import compute_tensor_bytes
 
 
 class Controller:
@@ -45,35 +44,24 @@ class Controller:
 
     def check_quantize(self, input_tensor):
         if input_tensor.dtype != torch.float32:
-            if self.verbose:
-                self.unquantize_not_float32_size += compute_tensor_bytes([input_tensor])
             return False
         if input_tensor.requires_grad is False:
-            if self.verbose:
-                self.unquantize_not_require_grad_size += compute_tensor_bytes(
-                    [input_tensor]
-                )
             return False
-        if input_tensor.numel() < 1024: # tensor size < 4 KB
-            return False
+        # if input_tensor.numel() < 1024: # tensor size < 4 KB
+        #     return False
         if ((len(input_tensor.shape) != 2)
             and (len(input_tensor.shape) != 3)
             and (len(input_tensor.shape) != 4)
         ):
-            if self.verbose:
-                self.unquantize_shape_size += compute_tensor_bytes([input_tensor])
             return False
         if input_tensor.data_ptr() in self.unrelated_tensors:
-            if self.verbose:
-                self.unquantize_param_size += compute_tensor_bytes([input_tensor])
             return False
-        if self.verbose:
-            self.quantize_size += compute_tensor_bytes([input_tensor])
-        
+        if "SoftmaxBackward" in str(input_tensor.grad_fn):
+            return False
         # print("Quantize ", input_tensor.shape)
         return True
 
-    def iterate(self, model):
+    def iterate(self):
         del self.ptr_qtensor_map
         del self.layer_key_map
         self.ptr_qtensor_map = {}
@@ -156,31 +144,6 @@ class Controller:
         _, key, input_shape, tid = input
         q_inputs, ref_cnt, key_tid = self.ptr_qtensor_map[key]
 
-        if self.start_bwd and self.verbose:
-            store_size = 0
-            total_eles = 0
-            for k in self.ptr_qtensor_map:
-                total_eles += self.ptr_qtensor_map[k][0][0].numel() \
-                            + self.ptr_qtensor_map[k][0][2].numel() \
-                            + self.ptr_qtensor_map[k][0][3].numel() 
-                store_size += (
-                    compute_tensor_bytes(
-                        [
-                            self.ptr_qtensor_map[k][0][0],
-                            self.ptr_qtensor_map[k][0][2],
-                            self.ptr_qtensor_map[k][0][3],
-                        ]
-                    )
-                    + 4
-                    + 12
-                )
-            for k in self.layer_key_map:
-                store_size += 4 + 12
-            print("Store size %d MB, # of elems %d" % (store_size / 1024 / 1024, total_eles))
-            print(
-                "Quantize twice size %d" % (self.quantize_twice_size)
-            )
-            self.start_bwd = False
         if self.start_bwd and self.swap:
             self.compute_stream.wait_stream(self.swap_out_stream)
             self.start_bwd = False

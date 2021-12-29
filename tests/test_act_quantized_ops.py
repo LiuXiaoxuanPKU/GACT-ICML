@@ -238,6 +238,7 @@ def test_self_atten_speed():
               (forward_us * 1e3, backward_us * 1e3, (forward_us + backward_us) * 1e3))
 
 
+
 if __name__ == "__main__":
     # test_quantize_big_min()
     # test_quantize_error()

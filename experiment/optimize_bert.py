@@ -39,6 +39,7 @@ def get_model(model_name, efficient_softmax, batch_size):
     config = AutoConfig.from_pretrained(model_name, num_labels=2)
     config.num_hidden_layers = 12
     config.efficient_softmax = efficient_softmax
+    config.nested_checkpoint = False
 
     model = AutoModelForSequenceClassification.from_config(config)
     num_training_steps = num_epochs * len(train_dataloader)
@@ -67,10 +68,31 @@ def train(bit, swap, model, train_dataloader, optimizer, lr_scheduler, get_mem, 
     controller.filter_tensors(model.named_parameters())
 
     def pack_hook(tensor):  # quantize hook
+        if tensor.requires_grad and tensor.data_ptr() not in controller.unrelated_tensors:
+            torch.cuda.synchronize()
+            cur_mem = torch.cuda.memory_allocated()
+            max_mem = torch.cuda.max_memory_allocated()
+            print("[Pack]", tensor.shape, "mem: ", cur_mem / 1024 / 1024, max_mem / 1024 / 1024, type(tensor.grad_fn))
+            torch.cuda.reset_max_memory_allocated()
+        return tensor
         return controller.quantize(tensor)
 
     def unpack_hook(tensor):  # dequantize hook
-        return controller.dequantize(tensor)
+        if tensor.requires_grad and tensor.data_ptr() not in controller.unrelated_tensors:
+            torch.cuda.synchronize()
+            cur_mem = torch.cuda.memory_allocated()
+            max_mem = torch.cuda.max_memory_allocated()
+            print("[Unpack] mem: ", tensor.shape, cur_mem / 1024 / 1024, max_mem / 1024 / 1024, type(tensor.grad_fn))
+            torch.cuda.reset_max_memory_allocated()
+        return tensor
+        output = controller.dequantize(tensor)
+        if tensor[0]:
+            torch.cuda.synchronize()
+            cur_mem = torch.cuda.memory_allocated()
+            max_mem = torch.cuda.max_memory_allocated()
+            print("[Unpack] mem: ", cur_mem / 1024 / 1024, max_mem / 1024 / 1024, output.shape)
+            torch.cuda.reset_max_memory_allocated()
+        return output
 
     model.train()
     if actnn:
@@ -166,7 +188,7 @@ def train(bit, swap, model, train_dataloader, optimizer, lr_scheduler, get_mem, 
             if get_speed:
                 ips_list.append(batch_size / (time.time() - end))
                 end = time.time()
-                if i == 5:
+                if i == 4:
                     break
     if actnn:
         torch._C._autograd._reset_saved_tensors_default_hooks()
@@ -190,14 +212,15 @@ def get_model_and_train(bit, swap, efficient_softmax,
                 get_mem=get_mem, get_speed=get_speed)
     return ips
 
-def find_max_batch(bit, gradient_cpkt):
+def find_max_batch(bit, swap, efficient_softmax, gradient_cpkt):
     # batch_sizes = [4, 8, 12, 24, 36, 48, 60, 72, 84, 96, 108, 120, 132, 144]
-    # batch_sizes = [i * 4 for i in range(1, 30)]
-    batch_sizes = [4, 8, 12]
+    batch_sizes = [i * 8 for i in range(1, 50)]
     speeds = []
     for bz in batch_sizes:
         try:
-            ips = get_model_and_train(bit, batch_size = bz, gradient_cpkt=gradient_cpkt, get_mem=False, get_speed=True)
+            print("gradient ckpt", gradient_cpkt)
+            ips = get_model_and_train(bit, swap, efficient_softmax,
+                                      bz, gradient_cpkt, get_mem=False, get_speed=True)
             speeds.append(ips)
         except:
             print(traceback.format_exc())
@@ -213,10 +236,10 @@ if __name__ == "__main__":
     find_batch = False
 
     if profile_line:
-        bit = 4
+        bit = -1
         swap = False
-        batch_size = 100
-        gradient_cpkt = True
+        batch_size = 15
+        gradient_cpkt = False
         efficient_softmax = False
 
         get_model_and_train(bit, swap, efficient_softmax, batch_size, gradient_cpkt, get_mem=True, get_speed=False)
@@ -242,24 +265,73 @@ if __name__ == "__main__":
     speeds_info = {}
     if find_batch:
         print("=============Original============")
-        batch_sizes, speeds = find_max_batch(-1, False)
+        bit = -1
+        swap = False
+        efficient_softmax = False
+        gradient_cpkt = False
+        batch_sizes, speeds = find_max_batch(bit, swap, efficient_softmax, gradient_cpkt)
         print(batch_sizes, speeds)
         speeds_info['org'] = (batch_sizes, speeds)
 
         print("=============Checkpoint============")
-        batch_sizes, speeds = find_max_batch(-1, True)
+        bit = -1
+        swap = False
+        efficient_softmax = False
+        gradient_cpkt = True
+        batch_sizes, speeds = find_max_batch(bit, swap, efficient_softmax, gradient_cpkt)
         print(batch_sizes, speeds)
         speeds_info['ckpt'] = (batch_sizes, speeds)
 
+        print("=============Efficient Softmax============")
+        bit = -1
+        swap = False
+        efficient_softmax = True
+        gradient_cpkt = False
+        batch_sizes, speeds = find_max_batch(bit, swap, efficient_softmax, gradient_cpkt)
+        print(batch_sizes, speeds)
+        speeds_info['effi'] = (batch_sizes, speeds)
+
         print("=============Actnn============")
-        batch_sizes, speeds = find_max_batch(4, False)
+        bit = 4
+        swap = False
+        efficient_softmax = False
+        gradient_cpkt = False
+        batch_sizes, speeds = find_max_batch(bit, swap, efficient_softmax, gradient_cpkt)
         print(batch_sizes, speeds)
         speeds_info['actnn'] = (batch_sizes, speeds)
+
+        print("=============Checkpoint + Efficient Softmax============")
+        bit = -1
+        swap = False
+        efficient_softmax = True
+        gradient_cpkt = True
+        batch_sizes, speeds = find_max_batch(bit, swap, efficient_softmax, gradient_cpkt)
+        print(batch_sizes, speeds)
+        speeds_info['ckpt_effi'] = (batch_sizes, speeds)
+
+        print("=============Checkpoint + Efficient Softmax + Actnn============")
+        bit = 4
+        swap = False
+        efficient_softmax = True
+        gradient_cpkt = True
+        batch_sizes, speeds = find_max_batch(bit, swap, efficient_softmax, gradient_cpkt)
+        print(batch_sizes, speeds)
+        speeds_info['ckpt_effi_actnn'] = (batch_sizes, speeds)
+
+        print("=============Checkpoint + Efficient Softmax + Actnn + Swap============")
+        bit = 4
+        swap = True
+        efficient_softmax = True
+        gradient_cpkt = True
+        batch_sizes, speeds = find_max_batch(bit, swap, efficient_softmax, gradient_cpkt)
+        print(batch_sizes, speeds)
+        speeds_info['ckpt_effi_actnn_swap'] = (batch_sizes, speeds)
+
 
         # print("=============Actnn + Checkpoint============")
         # batch_sizes, speeds = find_max_batch(4, True)
         # print(batch_sizes, speeds)
         # speeds_info['actnn_ckpt'] = (batch_sizes, speeds)
 
-        # with open("speed_wo_dropout", 'wb') as f:
+        # with open("speed", 'wb') as f:
         #     pickle.dump(speeds_info, f)

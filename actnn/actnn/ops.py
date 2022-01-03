@@ -9,8 +9,6 @@ from torch.utils.cpp_extension import load
 
 from actnn.conf import config
 import actnn.cpp_extension.quantization as ext_quantization
-from actnn.utils import compute_tensor_bytes, empty_cache
-
 import torch.utils.checkpoint as checkpoint
 
 def no_scheme_quantize_pack(input, q_bit):
@@ -63,7 +61,7 @@ def dequantize_and_unpack(data, shape, bits, scale, mn, tid=-1):
 
 def op_quantize(input, q_bit):
     q_input, q_scale, q_min = no_scheme_quantize_pack(input, q_bit)
-    return [q_input, q_bit, q_scale, q_min]
+    return (q_input, q_bit, q_scale, q_min)
 
 
 def op_dequantize(input, input_shape):
@@ -78,11 +76,13 @@ def op_dequantize(input, input_shape):
     return input
 
 
-def self_atten(query_layer, key_layer, value_layer, 
+def self_atten(dropout_p, query_layer, key_layer, value_layer, 
                 q_chunk_size, k_chunk_size, use_checkpoint=True):
     batch_size, num_heads, seq_len, q_features = query_layer.shape
     batch_size, num_heads, seq_len, k_features = key_layer.shape
     batch_size, num_heads, seq_len, v_features = value_layer.shape
+    q_chunk_size = min(q_chunk_size, seq_len)
+    dropout = nn.Dropout(dropout_p)
 
     def _query_chunk_attention(query, key, value):
         batch_size, num_heads, num_kv, k_features = key.shape
@@ -97,6 +97,7 @@ def self_atten(query_layer, key_layer, value_layer,
             max_score = max_score.detach()
             exp_weights = torch.exp(attn_weights - max_score)
             exp_values = torch.einsum('bhvf,bhqv->bhqf', value, exp_weights)
+            exp_values = dropout(exp_values)
             return (exp_values, exp_weights.sum(axis=-1), max_score.squeeze())
 
         chunk_values = None
@@ -112,7 +113,7 @@ def self_atten(query_layer, key_layer, value_layer,
             value_chunk = value[:, :, i * key_chunk_size : (i+1) * key_chunk_size, :]
             if use_checkpoint:
                 chunk_value, chunk_weight, chunk_max = \
-                    checkpoint.checkpoint(summarize_chunk , query, key_chunk, value_chunk)
+                    torch.utils.checkpoint.checkpoint(summarize_chunk , query, key_chunk, value_chunk)
             else: 
                 chunk_value, chunk_weight, chunk_max = summarize_chunk(query, key_chunk, value_chunk)
             
@@ -141,7 +142,7 @@ def self_atten(query_layer, key_layer, value_layer,
         return chunk_values / chunk_weights
 
     num_q_chunk = math.ceil(query_layer.shape[2] / q_chunk_size)
-    res = torch.zeros(query_layer.shape)
+    res = torch.zeros(query_layer.shape).cuda()
     for i in range(num_q_chunk):
         r = _query_chunk_attention(query_layer[:, :, i*q_chunk_size:(i+1)*q_chunk_size, :], 
                     key_layer, value_layer)

@@ -18,48 +18,48 @@ class Controller:
         self.debug = debug
 
         self.swap = swap
-        self.swap_out_stream = torch.cuda.Stream()
-        self.swap_in_stream = torch.cuda.Stream()
+        if swap:
+            self.swap_out_stream = torch.cuda.Stream()
+            self.swap_in_stream = torch.cuda.Stream()
         self.compute_stream = torch.cuda.current_stream()
         self.ptr_qtensor_map = {}
         self.prefetch = prefetch
-        self.start_prefetch_event = torch.cuda.Event(blocking=True)
-        self.end_prefetch_event = torch.cuda.Event(blocking=True)
+        if prefetch:
+            self.start_prefetch_event = torch.cuda.Event(blocking=True)
+            self.end_prefetch_event = torch.cuda.Event(blocking=True)
         self.layer_key_map = {}
         self.tid = 0
         self.start_bwd = True
 
-        # debug purpose
-        self.verbose = verbose
-        self.unquantize_param_size = 0
-        self.unquantize_not_float32_size = 0
-        self.unquantize_not_require_grad_size = 0
-        self.unquantize_shape_size = 0
-        self.quantize_size = 0
-        self.quantize_twice_size = 0
 
     def filter_tensors(self, pairs):
         for k, v in pairs:
             self.unrelated_tensors.add(v.data_ptr())
 
     def check_quantize(self, input_tensor):
+        if input_tensor.dtype == torch.uint8:
+            if (input_tensor.max() == 1) and (input_tensor.min() == 0):
+                return True, 1
+            return False, -1
         if input_tensor.dtype != torch.float32:
-            return False
+            return False, -1
         if input_tensor.requires_grad is False:
-            return False
-        # if input_tensor.numel() < 1024: # tensor size < 4 KB
-        #     return False
+            return False, -1
         if ((len(input_tensor.shape) != 2)
             and (len(input_tensor.shape) != 3)
             and (len(input_tensor.shape) != 4)
         ):
-            return False
+            return False, -1
         if input_tensor.data_ptr() in self.unrelated_tensors:
-            return False
-        if "SoftmaxBackward" in str(input_tensor.grad_fn):
-            return False
-        # print("Quantize ", input_tensor.shape)
-        return True
+            print("[Not quantize] Model parameter ", input_tensor.shape)
+            return False, -1
+        print("Quantize ", input_tensor.shape)
+        return True, self.default_bit
+
+    def __del__(self):
+        del self.ptr_qtensor_map
+        del self.layer_key_map
+        del self.unrelated_tensors
 
     def iterate(self):
         del self.ptr_qtensor_map
@@ -68,19 +68,6 @@ class Controller:
         self.layer_key_map = {}
         self.tid = 0
         self.start_bwd = True
-
-        if self.verbose:
-            print(
-                "Not quantize dtype %f MB"
-                % (self.unquantize_not_float32_size / 1024 / 1024)
-            )
-            print("Not quantize param %f MB" % (self.unquantize_param_size / 1024 / 1024))
-            print(
-                "Not quantize not require grad %f MB"
-                % (self.unquantize_not_require_grad_size / 1024 / 1024)
-            )
-            print("Not quantize shape %f MB" % (self.unquantize_shape_size / 1024 / 1024))
-            print("Quantize size %f MB" % (self.quantize_size / 1024 / 1024))
 
     def generate_tensor_key(self, t, tid):
         if not t.is_contiguous():
@@ -95,11 +82,12 @@ class Controller:
         return tuple(ptrs)
 
     def quantize(self, input):
-        if not self.check_quantize(input):
+        quantize, bit = self.check_quantize(input)
+        if not quantize:
             return False, input
 
         if self.debug:
-            ret = op_quantize(input, self.default_bit)
+            ret = op_quantize(input, bit)
             return True, ret, input.shape
 
         tid = self.tid
@@ -109,8 +97,12 @@ class Controller:
         self.tid += 1
         skip_quantize = key in self.ptr_qtensor_map
         if not skip_quantize:
+            # Get quantize bit
+            # TODO
             # quantize
-            q_inputs = op_quantize(input, self.default_bit)
+            if bit == 1:
+                input = input.to(torch.float32)
+            q_inputs = op_quantize(input, bit)
             if self.swap:
                 with torch.cuda.stream(self.swap_out_stream):
                     self.swap_out_stream.wait_stream(self.compute_stream)
@@ -126,10 +118,9 @@ class Controller:
                     q_inputs[0] = q_input_cpu
             self.ptr_qtensor_map[key] = [q_inputs, 1, tid]
         else:
-            self.quantize_twice_size += 1
             # increase the ref count
             self.ptr_qtensor_map[key][1] += 1
-        return True, key, input_shape, tid
+        return True, key, input_shape, tid, bit
 
     def dequantize(self, input):
         quantized = input[0]
@@ -141,25 +132,24 @@ class Controller:
             ret = op_dequantize(q_inputs, input_shape)
             return ret
 
-        _, key, input_shape, tid = input
+        _, key, input_shape, tid, bit = input
         q_inputs, ref_cnt, key_tid = self.ptr_qtensor_map[key]
 
         if self.start_bwd and self.swap:
             self.compute_stream.wait_stream(self.swap_out_stream)
             self.start_bwd = False
 
-        # swap waits until prefetch finishes
+        # compute waits until prefetch finishes
         if self.prefetch and self.swap:
             self.end_prefetch_event.wait(self.compute_stream)
 
         if not q_inputs[0].is_cuda:
             q_inputs[0] = q_inputs[0].cuda(non_blocking=False)
 
-        # event: start_prefetch
-        self.start_prefetch_event.record()
-
         # prefetch previous layer
         if self.prefetch and self.swap:
+            # event: start_prefetch
+            self.start_prefetch_event.record()
             with torch.cuda.stream(self.swap_in_stream):
                 if tid > 0:
                     self.start_prefetch_event.wait(self.swap_in_stream)
@@ -172,6 +162,8 @@ class Controller:
                     self.end_prefetch_event.record()
 
         ret = op_dequantize(q_inputs, input_shape)
+        if bit == 1:
+            ret = ret.to(torch.uint8)
 
         ref_cnt -= 1
         if ref_cnt < 0:

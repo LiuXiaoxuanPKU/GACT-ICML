@@ -6,13 +6,41 @@ import actnn
 from transformers import AutoConfig
 from transformers.models.bert.modeling_bert import BertSelfAttention, BertLayer, BertAttention, BertModel
 from timeit_v2 import py_benchmark
+from utils import error_rate
 
-def error_rate(grad_ref, grad_q):
-    return ((grad_q - grad_ref)**2).sum() / ((grad_ref**2).sum() + 1e-10)
+def test_batchnorm_quantize():
+    print("===============Quantize Batchnorm Correctness==================")
+    N, C, H, W = 64, 3, 56, 56
+    np.random.seed(0)
+    data_np = np.random.randn(N, C, H, W).astype("float32")
+
+    def test_implementation(func):
+        data = torch.tensor(data_np).to("cuda").requires_grad_()
+        output = func(data)
+        output.backward(torch.ones_like(output))
+        return  [x.detach().cpu().numpy() for x in [output, data.grad, func.weight.grad, func.bias.grad]]
+
+    batchnorm_org = nn.BatchNorm2d(C).cuda()
+    output_org, grad_org, grad_wei_org, grad_bias_org = test_implementation(batchnorm_org)
+
+    def pack_hook(input):
+        return controller.quantize(input)
+    def unpack_hook(input):
+        return controller.dequantize(input)
+
+    batchnorm_q = nn.BatchNorm2d(C).cuda()
+    controller = actnn.controller.Controller(default_bit=8, swap=False, debug=False, prefetch=False)
+    controller.filter_tensors(batchnorm_q.named_parameters())
+    with torch.autograd.graph.saved_tensors_hooks(pack_hook, unpack_hook):
+        output_q, grad_q, grad_wei_q, grad_bias_q = test_implementation(batchnorm_q)
+
+    np.testing.assert_allclose(grad_org, grad_q, atol=1e-2, rtol=1e-2)
+    # np.testing.assert_allclose(grad_wei_org, grad_wei_q, atol=1e-1, rtol=1e-2)
+    np.testing.assert_allclose(grad_bias_org, grad_bias_q, atol=1e-2, rtol=1e-2)
 
 def test_layernorm_quantize():
     print("===============Quantize Layernorm Correctness==================")
-    bz, seq_len, feature = 8, 512, 768
+    bz, seq_len, feature = 1, 10, 10
     np.random.seed(0)
     data_np = np.random.randn(bz, seq_len, feature).astype("float32")
 
@@ -36,9 +64,20 @@ def test_layernorm_quantize():
     with torch.autograd.graph.saved_tensors_hooks(pack_hook, unpack_hook):
         output_q, grad_q, grad_wei_q, grad_bias_q = test_implementation(layernorm_q)
     
-    np.testing.assert_allclose(grad_org, grad_q, atol=1e-2, rtol=1e-2)
-    # np.testing.assert_allclose(grad_wei_org, grad_wei_q, atol=1e-2, rtol=1e-2)
-    np.testing.assert_allclose(grad_bias_org, grad_bias_q, atol=1e-2, rtol=1e-2)
+    # print("=======")
+    # print(data_np)
+    # print("=======")
+    # print(output_org)
+    # print(output_q)
+    # print("=======")
+    # print(grad_org)
+    # print(grad_q)
+    # print("=======")
+    # print(grad_wei_org)
+    # print(grad_wei_q)
+    np.testing.assert_allclose(grad_org, grad_q, atol=1e-2, rtol=1e-1)
+    np.testing.assert_allclose(grad_wei_org, grad_wei_q, atol=1e-1, rtol=1e-1)
+    np.testing.assert_allclose(grad_bias_org, grad_bias_q, atol=1e-2, rtol=1e-1)
 
 def test_self_atten_correctness():
     print("===============Self Attention Correctness==================")
@@ -254,9 +293,10 @@ def test_bert_layer_speed():
               (forward_us * 1e3, backward_us * 1e3, (forward_us + backward_us) * 1e3))
 
 if __name__ == "__main__":
+    # test_batchnorm_quantize()
     test_layernorm_quantize()
-    test_self_atten_correctness()
-    test_bert_layer_correctness()
-    test_bert_layer_speed()
-    test_atten_quantize_correctness()
-    test_bert_layer_quantize_correctness()
+    # test_self_atten_correctness()
+    # test_bert_layer_correctness()
+    # test_bert_layer_speed()
+    # test_atten_quantize_correctness()
+    # test_bert_layer_quantize_correctness()

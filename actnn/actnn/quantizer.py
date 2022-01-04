@@ -47,7 +47,7 @@ class Quantizer:
     '''
 
     def check_quantize(self, input_tensor):
-        if input_tensor.dtype == torch.uint8:
+        if input_tensor.numel() > 0 and input_tensor.dtype == torch.uint8:
             if (input_tensor.max() == 1) and (input_tensor.min() == 0):
                 return True, True
             return False, False
@@ -77,8 +77,8 @@ class Quantizer:
         self.tid = 0
         self.start_bwd = True
         self.iter += 1
-        print("bits")
-        print(self.bits)
+        # print("bits")
+        # print(self.bits)
 
     def generate_tensor_key(self, t, tid):
         if not t.is_contiguous():
@@ -123,10 +123,9 @@ class Quantizer:
             self.bits.append(int(self.default_bit))
             self.inject_noises.append(False)
 
-        print("Iter %d, tid %d, bits %s" % (self.iter, tid, str(self.bits)))
+        # print("Iter %d, tid %d, bits %s" % (self.iter, tid, str(self.bits)))
         bit = self.bits[tid]
         if not skip_quantize:
-            # Get quantize bit
             # quantize
             q_inputs = op_quantize(input, bit)
             if self.swap:

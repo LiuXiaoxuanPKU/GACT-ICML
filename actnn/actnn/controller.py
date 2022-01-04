@@ -1,22 +1,22 @@
+from actnn.conf import config
 from actnn.quantizer import Quantizer
 from actnn.autoprec import AutoPrecision
 
 
 class Controller:
-    def __init__(self, model,
-                 bit, swap, auto_prec,
-                 prefetch=False, debug=False):
+    def __init__(self, model):
 
         self.model = model
 
         self.quantizer = Quantizer(
-            default_bit=bit, swap=swap, debug=debug, prefetch=prefetch)
+            default_bit=config.bit, swap=config.swap, debug=False, prefetch=config.prefetch)
         self.quantizer.filter_tensors(model.named_parameters())
 
-        self.auto_prec = auto_prec
+        self.auto_prec = config.auto_prec
         if self.auto_prec:
-            self.ap = AutoPrecision(self.model, self.quantizer, bit)
-        self.bit = bit
+            self.ap = AutoPrecision(
+                self.model, self.quantizer, config.bit, config.max_bit)
+        self.bit = config.bit
 
         self.iter = 0
 

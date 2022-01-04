@@ -16,7 +16,7 @@ class AutoPrecision:
         self.total_bits = self.abits * self.dims.sum()
         self.order = torch.randperm(self.L)
 
-    def __init__(self, model, quantizer, bits, max_bits=8, momentum=0.99,
+    def __init__(self, model, quantizer, bits, max_bits, momentum=0.99,
                  adapt_interval=100, warmup_iter=100):
         self.model = model
         self.quantizer = quantizer

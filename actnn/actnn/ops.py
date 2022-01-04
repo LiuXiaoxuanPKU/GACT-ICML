@@ -40,27 +40,24 @@ def no_scheme_quantize_pack(input, q_bit):
 
 
 def dequantize_and_unpack(data, shape, bits, scale, mn, tid=-1):
-    if config.simulate:
-        data = data / scale + mn
-    else:
-        # Pad to group_size
-        N = shape[0]
-        num_features = int(np.prod(shape[1:]))
-        group_size = config.group_size
-        num_features = (
-            num_features + (group_size - num_features %
-                            group_size) % group_size
-        )
+    # Pad to group_size
+    N = shape[0]
+    num_features = int(np.prod(shape[1:]))
+    group_size = config.group_size
+    num_features = (
+        num_features + (group_size - num_features %
+                        group_size) % group_size
+    )
 
-        # Unpack bitstream
-        if isinstance(bits, int):
-            unpack_func = ext_quantization.unpack_single_precision
-        else:
-            print("bits must be intergers, now bits ", bits)
-            assert(False)
-        data = unpack_func(
-            data, bits, scale, mn, N, num_features // group_size, group_size
-        )
+    # Unpack bitstream
+    if isinstance(bits, int):
+        unpack_func = ext_quantization.unpack_single_precision
+    else:
+        print("bits must be intergers, now bits ", bits)
+        assert(False)
+    data = unpack_func(
+        data, bits, scale, mn, N, num_features // group_size, group_size
+    )
     return data
 
 

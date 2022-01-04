@@ -38,7 +38,6 @@ __global__ void fuse_single_precision_kernel (int32_t bits,
   const int64_t global_thread_id = (no * num_groups + group_id) * group_size + d;
 
   __shared__ scalar_t min_red[8 * 256];
-  // __shared__ scalar_t max_red[8 * 256];
   __shared__ scalar_t tmp_scale[9];
   
   for (int ni = 0; ni < work_per_thread; ni++) {

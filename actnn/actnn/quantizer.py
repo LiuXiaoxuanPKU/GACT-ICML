@@ -160,7 +160,7 @@ class Quantizer:
         is_dropout_mask = input[1]
         if is_dropout_mask:
             _, is_dropout_mask, q_inputs, input_shape = input
-            ret = op_dequantize(q_inputs, input_shape, 1)
+            ret = op_dequantize(q_inputs, input_shape, False)
             ret = ret.to(torch.uint8)
             return ret
 

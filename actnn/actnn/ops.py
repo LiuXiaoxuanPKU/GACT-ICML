@@ -75,7 +75,7 @@ def op_dequantize(input, input_shape, inject_noise):
         noise = torch.randn_like(input)
         torch.set_rng_state(rng_state)
         bin_size = q_scale / 4
-        print(bin_size.shape, q_scale.shape, input.shape)
+        # print(bin_size.shape, q_scale.shape, input.shape)
         input = input + noise * bin_size
 
     # Remove padding

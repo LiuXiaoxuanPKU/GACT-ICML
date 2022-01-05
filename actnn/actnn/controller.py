@@ -5,6 +5,8 @@ from actnn.autoprec import AutoPrecision
 
 class Controller:
     def __init__(self, model):
+        if not config.compress_activation:
+            return
 
         self.model = model
 
@@ -21,12 +23,19 @@ class Controller:
         self.iter = 0
 
     def quantize(self, input):
+        if not config.compress_activation:
+            return input
         return self.quantizer.quantize(input)
 
     def dequantize(self, input):
+        if not config.compress_activation:
+            return input
         return self.quantizer.dequantize(input)
 
     def iterate(self, get_grad):
+        if not config.compress_activation:
+            return
+
         self.quantizer.iterate()
         if self.auto_prec:
             self.ap.iterate_wrapper(get_grad)

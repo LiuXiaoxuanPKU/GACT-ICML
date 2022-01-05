@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 import random
+from actnn.utils import compute_tensor_bytes
 import actnn.cpp_extension.calc_precision as ext_calc_precision
 
 # Automatically compute the precision for each tensor
@@ -51,10 +52,31 @@ class AutoPrecision:
             self.quantizer.inject_noises[l] = False
 
     def iterate_wrapper(self, backprop):
+        def sample_grad():
+            grad = []
+            total_size = 0
+            for param in self.model.parameters():
+                if param.grad is not None:
+                    total_size += compute_tensor_bytes(param.grad)
+
+            sample_size = 0
+            for param in self.model.parameters():
+                if param.grad is None:
+                    continue
+                if sample_size < total_size / 10:
+                    grad.append(param.grad.ravel())
+                    sample_size += compute_tensor_bytes(param.grad)
+                else:
+                    break
+            print("Sample grad size %f MB, total grad size %f MB" %
+                  (sample_size / 1024 / 1024, total_size / 1024 / 1024))
+            return torch.cat(grad, 0)
+
         def backprop_iter():
-            ret = backprop()
+            loss, output = backprop()
             self.quantizer.iterate()
-            return ret
+            grad = sample_grad()
+            return loss, output, grad
 
         if self.dims is None:
             self.init_from_dims(self.quantizer.dims)
@@ -76,18 +98,13 @@ class AutoPrecision:
             np.random.seed(self.iter)
             torch.manual_seed(self.iter)
 
-            backprop()
+            loss, output, grad = backprop()
 
             # random.setstate(self.seeds[0])
             # np.random.set_state(self.seeds[1])
             # torch.set_rng_state(self.seeds[2])
 
-            grad = []
-            for param in self.model.parameters():
-                if param.grad is not None:
-                    grad.append(param.grad.ravel())
-
-            return torch.cat(grad, 0)
+            return grad
 
         if self.iter == 0:
             # Do full adaptation
@@ -99,8 +116,6 @@ class AutoPrecision:
                 self.C[l] = ((det_grad - grad) ** 2).sum() * 4
                 self.quantizer.inject_noises[l] = False
 
-                # sum_c = sum_c + self.C[l]
-            # print('C sum ', sum_c)
         elif self.iter % self.adapt_interval == 0:
             if len(self.perm) == 0:
                 self.perm = torch.randperm(self.L)

@@ -10,8 +10,15 @@ class Controller:
 
         self.model = model
 
+        if config.bit == 3:
+            default_bit = 4
+        elif config.bit > 4:
+            default_bit = 8
+        else:
+            default_bit = config.bit
+        assert(8 % default_bit == 0)
         self.quantizer = Quantizer(
-            default_bit=config.bit, swap=config.swap, debug=False, prefetch=config.prefetch)
+            default_bit=default_bit, swap=config.swap, debug=False, prefetch=config.prefetch)
         self.quantizer.filter_tensors(model.named_parameters())
 
         self.auto_prec = config.auto_prec

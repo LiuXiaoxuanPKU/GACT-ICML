@@ -68,8 +68,8 @@ class AutoPrecision:
                     sample_size += compute_tensor_bytes(param.grad)
                 else:
                     break
-            print("Sample grad size %f MB, total grad size %f MB" %
-                  (sample_size / 1024 / 1024, total_size / 1024 / 1024))
+            # print("Sample grad size %f MB, total grad size %f MB" %
+            #       (sample_size / 1024 / 1024, total_size / 1024 / 1024))
             return torch.cat(grad, 0)
 
         def backprop_iter():
@@ -108,7 +108,7 @@ class AutoPrecision:
 
         if self.iter == 0:
             # Do full adaptation
-            print('ActNN: Initializing AutoPrec...')
+            # print('ActNN: Initializing AutoPrec...')
             # sum_c = 0
             for l in range(self.L):
                 self.quantizer.inject_noises[l] = True
@@ -151,7 +151,7 @@ class AutoPrecision:
                                                       total_bits)
 
         self.quantizer.bits = [bit.item() for bit in self.bits]
-        print("Auto precision bits", self.bits)
+        # print("Auto precision bits", self.bits)
         # Warning if the quantization variance is too large
         if self.iter > self.warmpup_iter:
             overall_var = self.grad_var / self.beta1

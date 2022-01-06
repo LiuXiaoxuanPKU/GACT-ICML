@@ -40,6 +40,7 @@ class AutoPrecision:
         self.adapt_interval = adapt_interval
 
         self.iter = 0
+        self.log_iter = 50
 
         # self.refresh_bits()
 
@@ -73,15 +74,15 @@ class AutoPrecision:
             return torch.cat(grad, 0)
 
         def backprop_iter():
-            loss, output = backprop()
+            backprop()
             self.quantizer.iterate()
             grad = sample_grad()
-            return loss, output, grad
+            return grad
 
         if self.dims is None:
             self.init_from_dims(self.quantizer.dims)
         self.before_iter()
-        loss, output, grad = backprop_iter()
+        grad = backprop_iter()
         self.iterate(grad, backprop_iter)
 
     def iterate(self, det_grad, backprop):
@@ -98,7 +99,7 @@ class AutoPrecision:
             np.random.seed(self.iter)
             torch.manual_seed(self.iter)
 
-            loss, output, grad = backprop()
+            grad = backprop()
 
             # random.setstate(self.seeds[0])
             # np.random.set_state(self.seeds[1])
@@ -108,13 +109,14 @@ class AutoPrecision:
 
         if self.iter == 0:
             # Do full adaptation
-            # print('ActNN: Initializing AutoPrec...')
+            print('ActNN: Initializing AutoPrec...')
             # sum_c = 0
             for l in range(self.L):
                 self.quantizer.inject_noises[l] = True
                 grad = get_grad()
                 self.C[l] = ((det_grad - grad) ** 2).sum() * 4
                 self.quantizer.inject_noises[l] = False
+            self.refresh_bits()
 
         elif self.iter % self.adapt_interval == 0:
             if len(self.perm) == 0:
@@ -127,8 +129,7 @@ class AutoPrecision:
             self.C[l] = ((det_grad - grad) ** 2).sum() * \
                 4  # Hack: always use 2bit
             self.quantizer.inject_noises[l] = False
-
-        self.iter += 1
+            self.refresh_bits()
 
         # Maintain batch grad
         momentum = self.momentum
@@ -139,7 +140,13 @@ class AutoPrecision:
         gvar = ((bgrad - det_grad)**2).sum()
         self.grad_var = self.grad_var * momentum + (1 - momentum) * gvar
 
-        self.refresh_bits()
+        if self.iter % self.log_iter == 0:
+            print("Iter: ", self.iter)
+            print("[Layer Sensitivity]", self.C)
+            print("[Bits]", self.bits)
+            print("[Dims]", self.dims)
+
+        self.iter += 1
 
     def refresh_bits(self):
         total_bits = self.total_bits
@@ -158,5 +165,11 @@ class AutoPrecision:
             quantization_var = (
                 self.C * 2 ** (-2 * self.bits.float())).sum().cuda()
             if quantization_var > overall_var * 0.1:
+                print("========================================")
                 print('ActNN Warning: Quantization variance is too large. Consider increasing number of bits.',
                       quantization_var, overall_var)
+                print("Iter: ", self.iter)
+                print("[Layer Sensitivity]", self.C)
+                print("[Bits]", self.bits)
+                print("[Dims]", self.dims)
+                print("========================================")

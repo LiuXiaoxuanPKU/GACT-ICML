@@ -43,7 +43,7 @@ def set_optimization_level(level):
 class QuantizationConfig:
     def __init__(self):
         self.compress_activation = True
-        self.max_bit = 8
+        self.max_bit = 32
         self.bit = 4
         self.group_size = 256
         self.auto_prec = True

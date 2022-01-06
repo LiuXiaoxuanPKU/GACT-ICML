@@ -111,20 +111,23 @@ class Quantizer:
             q_inputs = op_quantize(input, 1)
             return True, is_dropout_mask, q_inputs, input.shape
 
-        tid = self.tid
-        input_shape = input.shape
-        key = self.generate_tensor_key(input, tid)
-        self.layer_key_map[tid] = key
-        self.tid += 1
-        skip_quantize = key in self.ptr_qtensor_map
-
         if self.iter == 0:
             self.dims.append(input.numel() // input.shape[0])
             self.bits.append(int(self.default_bit))
             self.inject_noises.append(False)
 
-        # print("Iter %d, tid %d, bits %s" % (self.iter, tid, str(self.bits)))
+        tid = self.tid
+        self.tid += 1
+        input_shape = input.shape
+
         bit = self.bits[tid]
+        if bit == 32:
+            return False, input
+
+        key = self.generate_tensor_key(input, tid)
+        self.layer_key_map[tid] = key
+        skip_quantize = key in self.ptr_qtensor_map
+
         if not skip_quantize:
             # quantize
             q_inputs = op_quantize(input, bit)

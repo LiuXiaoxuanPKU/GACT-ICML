@@ -121,9 +121,6 @@ class Quantizer:
         input_shape = input.shape
 
         bit = self.bits[tid]
-        if bit == 32:
-            return False, input
-
         key = self.generate_tensor_key(input, tid)
         self.layer_key_map[tid] = key
         skip_quantize = key in self.ptr_qtensor_map
@@ -146,6 +143,7 @@ class Quantizer:
                     q_inputs[0] = q_input_cpu
             self.ptr_qtensor_map[key] = [q_inputs, 1, tid]
         else:
+            # print("Skip Quantize", tid)
             # increase the ref count
             self.ptr_qtensor_map[key][1] += 1
         return True, is_dropout_mask, key, input_shape, tid

@@ -35,11 +35,16 @@ def no_scheme_quantize_pack(input, q_bit):
     input_groups = input_flatten.view(N, -1, config.group_size).contiguous()
 
     pack_func = ext_quantization.minimax_quantize_single_precision
-    q_input, q_scale, q_min = pack_func(input_groups, q_bit)
+    if q_bit == 32:  # TODO, use kernel to optimize this
+        q_min = input_groups.min(dim=-1).values
+        q_scale = input_groups.max(dim=-1).values - q_min
+        q_input = input_groups
+    else:
+        q_input, q_scale, q_min = pack_func(input_groups, q_bit)
     return q_input, q_scale, q_min
 
 
-def dequantize_and_unpack(data, shape, bits, scale, mn, tid=-1):
+def dequantize_and_unpack(data, shape, q_bit, scale, mn):
     # Pad to group_size
     N = shape[0]
     num_features = int(np.prod(shape[1:]))
@@ -49,15 +54,17 @@ def dequantize_and_unpack(data, shape, bits, scale, mn, tid=-1):
                         group_size) % group_size
     )
 
-    # Unpack bitstream
-    if isinstance(bits, int):
-        unpack_func = ext_quantization.unpack_single_precision
-    else:
-        print("bits must be intergers, now bits ", bits)
+    if not isinstance(q_bit, int):
+        print("bits must be intergers, now bits ", q_bit)
         assert(False)
-    data = unpack_func(
-        data, bits, scale, mn, N, num_features // group_size, group_size
-    )
+
+    if q_bit == 32:
+        pass
+    else:
+        unpack_func = ext_quantization.unpack_single_precision
+        data = unpack_func(
+            data, q_bit, scale, mn, N, num_features // group_size, group_size
+        )
     return data
 
 
@@ -68,7 +75,8 @@ def op_quantize(input, q_bit):
 
 def op_dequantize(input, input_shape, inject_noise):
     q_input, q_bit, q_scale, q_min = input
-    input = dequantize_and_unpack(q_input, input_shape, q_bit, q_scale, q_min)
+    input = dequantize_and_unpack(
+        q_input, input_shape, q_bit, q_scale, q_min)
 
     if inject_noise:    # Save and load rng state
         rng_state = torch.get_rng_state()

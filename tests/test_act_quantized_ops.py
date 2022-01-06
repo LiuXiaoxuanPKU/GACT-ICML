@@ -63,6 +63,26 @@ def test_quantize_big_min():
     np.testing.assert_allclose(q_min.cpu(), ref_min.cpu())
 
 
+def test_quantize_32bit():
+    input_shape = (2, 256)
+    input = torch.rand(input_shape).to("cuda")
+    q_output = op_quantize(input, 32)
+    q_input, q_bit, q_scale, q_min = q_output
+
+    ref_min = torch.min(input, dim=1).values
+    q_min = q_min.reshape(1, -1)
+    ref_min = ref_min.reshape(1, -1)
+    np.testing.assert_allclose(q_min.cpu(), ref_min.cpu())
+
+    ref_max = torch.max(input, dim=1).values
+    q_scale = q_scale.reshape(1, -1)
+    ref_scale = ref_max.reshape(1, -1) - ref_min
+    np.testing.assert_allclose(q_scale.cpu(), ref_scale.cpu())
+
+    d_input = op_dequantize(q_output, input_shape, False)
+    np.testing.assert_allclose(d_input.cpu(), input.cpu())
+
+
 def test_quantize_big_error():
     input_shape = (65535 * 10, 512)
     input = torch.rand(input_shape).to("cuda")
@@ -254,12 +274,13 @@ def test_self_atten_saved_tensors():
 
 
 if __name__ == "__main__":
-    test_quantize_1bit()
-    test_quantize_mask()
-    test_quantize_big_min()
-    test_quantize_error()
-    test_quantize_big_error()
-    test_self_atten_correctness()
-    test_self_atten_memory()
-    test_self_atten_speed()
+    test_quantize_32bit()
+    # test_quantize_1bit()
+    # test_quantize_mask()
+    # test_quantize_big_min()
+    # test_quantize_error()
+    # test_quantize_big_error()
+    # test_self_atten_correctness()
+    # test_self_atten_memory()
+    # test_self_atten_speed()
     # test_self_atten_saved_tensors()

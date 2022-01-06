@@ -44,15 +44,12 @@ class AutoPrecision:
 
         # self.refresh_bits()
 
-    def before_iter(self):
-        # self.seeds = [random.getstate(), np.random.get_state(), torch.get_rng_state()]
-        random.seed(self.iter)
-        np.random.seed(self.iter)
-        torch.manual_seed(self.iter)
-        for l in range(self.L):
-            self.quantizer.inject_noises[l] = False
-
     def iterate_wrapper(self, backprop):
+        if self.dims is None:
+            self.init_from_dims(self.quantizer.dims)
+        self.iterate(backprop)
+
+    def iterate(self, backprop):
         def sample_grad():
             grad = []
             total_size = 0
@@ -73,19 +70,14 @@ class AutoPrecision:
             #       (sample_size / 1024 / 1024, total_size / 1024 / 1024))
             return torch.cat(grad, 0)
 
-        def backprop_iter():
-            backprop()
-            self.quantizer.iterate()
-            grad = sample_grad()
-            return grad
-
-        if self.dims is None:
-            self.init_from_dims(self.quantizer.dims)
-        self.before_iter()
-        grad = backprop_iter()
-        self.iterate(grad, backprop_iter)
-
-    def iterate(self, det_grad, backprop):
+        def setup_seed(seed):
+            random.seed(seed)                          
+            np.random.seed(seed)                       
+            torch.manual_seed(seed)                    
+            torch.cuda.manual_seed(seed)               
+            torch.cuda.manual_seed_all(seed)           
+            torch.backends.cudnn.deterministic = True 
+            
         # TODO det_grad is actually not necessary
         def get_grad():
             # TODO this is somewhat tricky...
@@ -95,11 +87,10 @@ class AutoPrecision:
             # np.random.set_state(self.seeds[1])
             # torch.set_rng_state(self.seeds[2])
             # torch.use_deterministic_algorithms(True)
-            random.seed(self.iter)
-            np.random.seed(self.iter)
-            torch.manual_seed(self.iter)
-
-            grad = backprop()
+            setup_seed(self.iter)
+            backprop()
+            grad = sample_grad()
+            self.quantizer.iterate()
 
             # random.setstate(self.seeds[0])
             # np.random.set_state(self.seeds[1])
@@ -107,6 +98,7 @@ class AutoPrecision:
 
             return grad
 
+        det_grad = get_grad()
         if self.iter == 0:
             # Do full adaptation
             print('ActNN: Initializing AutoPrec...')

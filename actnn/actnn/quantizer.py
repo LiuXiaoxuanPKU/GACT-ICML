@@ -83,8 +83,8 @@ class Quantizer:
     def generate_tensor_key(self, t, tid):
         if not t.is_contiguous():
             return (tid)
-        # sample 20 elements data pointer as the key
-        sample_cnt = 20
+        # sample 30 elements data pointer as the key
+        sample_cnt = 30
         step = max(torch.numel(t) // sample_cnt, 1)
         ptrs = [t.data_ptr()]
         for i in range(min(sample_cnt, torch.numel(t))):

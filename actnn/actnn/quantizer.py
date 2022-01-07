@@ -1,6 +1,6 @@
 import torch
-from actnn.ops import op_quantize
-from actnn.ops import op_dequantize
+from actnn.ops import op_quantize, op_dequantize
+from actnn.utils import random_sample_perm
 
 
 class Quantizer:
@@ -58,7 +58,7 @@ class Quantizer:
         if ((len(input_tensor.shape) != 2)
                 and (len(input_tensor.shape) != 3)
                 and (len(input_tensor.shape) != 4)
-                ):
+            ):
             return False, False
         if input_tensor.data_ptr() in self.unrelated_tensors:
             return False, False
@@ -84,13 +84,9 @@ class Quantizer:
         if not t.is_contiguous():
             return (tid)
         # sample 30 elements data pointer as the key
-        sample_cnt = 30
-        step = max(torch.numel(t) // sample_cnt, 1)
-        ptrs = [t.data_ptr()]
-        for i in range(min(sample_cnt, torch.numel(t))):
-            idx = i * step
-            ptrs.append(t.view(-1)[idx].item())
-        return tuple(ptrs)
+        sample_cnt = min(30, t.numel())
+        key = random_sample_perm(t, sample_cnt, add_dataptr=True)
+        return tuple(key)
 
     def quantize(self, input):
         quantize, is_dropout_mask = self.check_quantize(input)

@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 import random
-from actnn.utils import uniform_sample, exp_recorder
+from actnn.utils import uniform_sample, random_sample_perm, exp_recorder
 import actnn.cpp_extension.calc_precision as ext_calc_precision
 
 # Automatically compute the precision for each tensor
@@ -56,9 +56,15 @@ class AutoPrecision:
                 if param.grad is not None:
                     sample_cnt = max(min(10, param.grad.numel()),
                                      int(param.grad.numel() * 0.1))
-                    grad.append(torch.tensor(uniform_sample(param.grad,
-                                                            sample_cnt,
-                                                            add_dataptr=False)))
+                    sample_grad = torch.tensor(random_sample_perm(param.grad,
+                                                                  sample_cnt,
+                                                                  add_dataptr=False))
+                    # sample_grad2 = torch.tensor(random_sample_perm(param.grad,
+                    #                                                sample_cnt,
+                    #                                                add_dataptr=False))
+                    # print("sample cnt", sample_cnt)
+                    # assert(sample_grad.equal(sample_grad2))
+                    grad.append(sample_grad)
             return torch.cat(grad, 0)
 
         def setup_seed(seed):

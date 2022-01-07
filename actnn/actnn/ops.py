@@ -36,8 +36,8 @@ def no_scheme_quantize_pack(input, q_bit):
 
     pack_func = ext_quantization.minimax_quantize_single_precision
     if q_bit == 32:  # TODO, use kernel to optimize this
-        q_min = input_groups.min(dim=-1).values
-        q_scale = input_groups.max(dim=-1).values - q_min
+        q_min = input_groups.min(dim=-1, keepdim=True).values
+        q_scale = input_groups.max(dim=-1, keepdim=True).values - q_min
         q_input = input_groups
     else:
         q_input, q_scale, q_min = pack_func(input_groups, q_bit)
@@ -83,8 +83,7 @@ def op_dequantize(input, input_shape, inject_noise):
         noise = torch.randn_like(input)
         torch.set_rng_state(rng_state)
         bin_size = q_scale / 4
-        # print(bin_size.shape, q_scale.shape, input.shape)
-        input = input + noise * bin_size
+        input += noise * bin_size
 
     # Remove padding
     N = input_shape[0]

@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 import random
-from actnn.utils import compute_tensor_bytes
+from actnn.utils import compute_tensor_bytes, exp_recorder
 import actnn.cpp_extension.calc_precision as ext_calc_precision
 
 # Automatically compute the precision for each tensor
@@ -58,10 +58,11 @@ class AutoPrecision:
                     total_size += compute_tensor_bytes(param.grad)
 
             sample_size = 0
+
             for param in self.model.parameters():
                 if param.grad is None:
                     continue
-                if sample_size < total_size / 10:
+                if sample_size < total_size:
                     grad.append(param.grad.ravel())
                     sample_size += compute_tensor_bytes(param.grad)
                 else:
@@ -71,13 +72,13 @@ class AutoPrecision:
             return torch.cat(grad, 0)
 
         def setup_seed(seed):
-            random.seed(seed)                          
-            np.random.seed(seed)                       
-            torch.manual_seed(seed)                    
-            torch.cuda.manual_seed(seed)               
-            torch.cuda.manual_seed_all(seed)           
-            torch.backends.cudnn.deterministic = True 
-            
+            random.seed(seed)
+            np.random.seed(seed)
+            torch.manual_seed(seed)
+            torch.cuda.manual_seed(seed)
+            torch.cuda.manual_seed_all(seed)
+            torch.backends.cudnn.deterministic = True
+
         # TODO det_grad is actually not necessary
         def get_grad():
             # TODO this is somewhat tricky...
@@ -99,6 +100,17 @@ class AutoPrecision:
             return grad
 
         det_grad = get_grad()
+        # if self.iter == 0:
+        #     org_bits = self.quantizer.bits
+        #     self.quantizer.bits = [32 for _ in self.bits]
+        #     det_grad = get_grad()
+        #     for l in range(self.L):
+        #         self.quantizer.bits[l] = 2
+        #         grad = get_grad()
+        #         print(l, ((det_grad - grad)**2).sum() * 4)
+        #         del grad
+        #         self.quantizer.bits[l] = 32
+
         if self.iter == 0:
             # Do full adaptation
             print('ActNN: Initializing AutoPrec...')
@@ -137,6 +149,11 @@ class AutoPrecision:
             print("[Layer Sensitivity]", self.C)
             print("[Bits]", self.bits)
             print("[Dims]", self.dims)
+            exp_recorder.record("iter", self.iter)
+            exp_recorder.record("layer sensitivity", self.C.tolist())
+            exp_recorder.record("bits", self.bits.tolist())
+            exp_recorder.record("dims", self.dims.tolist())
+            exp_recorder.dump("autoprec.log")
 
         self.iter += 1
 
@@ -164,4 +181,13 @@ class AutoPrecision:
                 print("[Layer Sensitivity]", self.C)
                 print("[Bits]", self.bits)
                 print("[Dims]", self.dims)
+                exp_recorder.record("iter", self.iter)
+                exp_recorder.record("layer sensitivity", self.C.tolist())
+                exp_recorder.record("bits", self.bits.tolist())
+                exp_recorder.record("dims", self.dims.tolist())
+                exp_recorder.record("warning", True)
+                exp_recorder.record("quantization var",
+                                    quantization_var.tolist())
+                exp_recorder.record("overall var", overall_var.tolist())
+                exp_recorder.dump("autoprec.log")
                 print("========================================")

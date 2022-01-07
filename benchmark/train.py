@@ -27,7 +27,7 @@ import numpy as np
 # from scaled_resnet import scaled_resnet, scaled_wide_resnet
 import actnn
 from actnn import config
-from actnn.utils import get_memory_usage, compute_tensor_bytes, exp_recorder
+from actnn.utils import get_memory_usage, compute_tensor_bytes, exp_recorder, empty_cache
 MB = 1024**2
 GB = 1024**3
 
@@ -132,6 +132,7 @@ def main():
 
 
 def main_worker(gpu, ngpus_per_node, args):
+    torch.cuda.empty_cache()
     global best_acc1
     args.gpu = gpu
 
@@ -446,8 +447,8 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         def backprop():
             output = model(images)
             loss = criterion(output, target)
+            optimizer.zero_grad()
             loss.backward()
-            return loss, output
 
         controller.iterate(backprop)
 

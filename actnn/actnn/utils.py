@@ -23,7 +23,7 @@ def uniform_sample(input, sample_cnt, add_dataptr=True):
     key = []
     if add_dataptr:
         key.append(input.data_ptr())
-    key += input.view(-1)[torch.range(0, sample_cnt - 1) *
+    key += input.view(-1)[torch.arange(0, sample_cnt).to(torch.long) *
                           (num_elem // sample_cnt)].tolist()
     return key
 

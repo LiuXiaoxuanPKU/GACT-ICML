@@ -57,8 +57,8 @@ class AutoPrecision:
                     sample_cnt = max(min(10, param.grad.numel()),
                                      int(param.grad.numel() * 0.1))
                     sample_grad = torch.tensor(random_sample(param.grad,
-                                                                  sample_cnt,
-                                                                  add_dataptr=False))
+                                                             sample_cnt,
+                                                             add_dataptr=False))
                     # sample_grad2 = torch.tensor(random_sample(param.grad,
                     #                                                sample_cnt,
                     #                                                add_dataptr=False))
@@ -95,7 +95,6 @@ class AutoPrecision:
 
             return grad
 
-        det_grad = get_grad()
         # if self.iter == 0:
         #     org_bits = self.quantizer.bits
         #     self.quantizer.bits = [32 for _ in self.bits]
@@ -107,10 +106,11 @@ class AutoPrecision:
         #         del grad
         #         self.quantizer.bits[l] = 32
 
+        det_grad = None
         if self.iter == 0:
             # Do full adaptation
             print('ActNN: Initializing AutoPrec...')
-            # sum_c = 0
+            det_grad = get_grad()
             for l in range(self.L):
                 self.quantizer.inject_noises[l] = True
                 grad = get_grad()
@@ -119,6 +119,7 @@ class AutoPrecision:
             self.refresh_bits()
 
         elif self.iter % self.adapt_interval == 0:
+            det_grad = get_grad()
             if len(self.perm) == 0:
                 self.perm = torch.randperm(self.L)
             l = self.perm[-1]
@@ -131,16 +132,20 @@ class AutoPrecision:
             self.quantizer.inject_noises[l] = False
             self.refresh_bits()
 
-        # Maintain batch grad
-        momentum = self.momentum
-        self.beta1 = self.beta1 * momentum + 1 - momentum
-        self.batch_grad = self.batch_grad * \
-            momentum + (1 - momentum) * det_grad
-        bgrad = self.batch_grad / self.beta1
-        gvar = ((bgrad - det_grad)**2).sum()
-        self.grad_var = self.grad_var * momentum + (1 - momentum) * gvar
-
         if self.iter % self.log_iter == 0:
+            if det_grad is None:
+                det_grad = get_grad()
+
+            # Maintain batch grad
+            momentum = self.momentum
+            self.beta1 = self.beta1 * momentum + 1 - momentum
+            self.batch_grad = self.batch_grad * \
+                momentum + (1 - momentum) * det_grad
+            bgrad = self.batch_grad / self.beta1
+            gvar = ((bgrad - det_grad)**2).sum()
+            self.grad_var = self.grad_var * momentum + (1 - momentum) * gvar
+
+            # log sensitivity information
             print("Iter: ", self.iter)
             print("[Layer Sensitivity]", self.C)
             print("[Bits]", self.bits)

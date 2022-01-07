@@ -11,7 +11,6 @@ from torch.autograd.function import Function
 
 from timeit_v2 import py_benchmark
 
-from actnn.utils import get_memory_usage, compute_tensor_bytes
 from actnn.ops import ext_quantization, op_quantize, op_dequantize
 from actnn.ops import self_atten
 from utils import setup_seed, error_rate

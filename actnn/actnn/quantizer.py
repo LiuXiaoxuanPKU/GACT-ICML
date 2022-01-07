@@ -1,6 +1,6 @@
 import torch
 from actnn.ops import op_quantize, op_dequantize
-from actnn.utils import random_sample_perm
+from actnn.utils import random_sample
 
 
 class Quantizer:
@@ -56,8 +56,8 @@ class Quantizer:
         if input_tensor.requires_grad is False:
             return False, False
         if ((len(input_tensor.shape) != 2)
-                and (len(input_tensor.shape) != 3)
-                and (len(input_tensor.shape) != 4)
+            and (len(input_tensor.shape) != 3)
+            and (len(input_tensor.shape) != 4)
             ):
             return False, False
         if input_tensor.data_ptr() in self.unrelated_tensors:
@@ -81,11 +81,12 @@ class Quantizer:
         # print(self.bits)
 
     def generate_tensor_key(self, t, tid):
+        return tid  # disable duplicate check
         if not t.is_contiguous():
             return (tid)
         # sample 30 elements data pointer as the key
         sample_cnt = min(30, t.numel())
-        key = random_sample_perm(t, sample_cnt, add_dataptr=True)
+        key = random_sample(t, sample_cnt, add_dataptr=True)
         return tuple(key)
 
     def quantize(self, input):
@@ -139,7 +140,7 @@ class Quantizer:
                     q_inputs[0] = q_input_cpu
             self.ptr_qtensor_map[key] = [q_inputs, 1, tid]
         else:
-            # print("Skip Quantize", tid)
+            # print("===============Skip Quantize", tid)
             # increase the ref count
             self.ptr_qtensor_map[key][1] += 1
         return True, is_dropout_mask, key, input_shape, tid

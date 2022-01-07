@@ -7,7 +7,7 @@ import numpy as np
 import json
 
 
-def uniform_sample(input, sample_cnt, add_dataptr=True):
+def uniform_sample_ref(input, sample_cnt, add_dataptr=True):
     step = max(torch.numel(input) // sample_cnt, 1)
     key = []
     if add_dataptr:
@@ -18,7 +18,17 @@ def uniform_sample(input, sample_cnt, add_dataptr=True):
     return key
 
 
-def random_sample_perm(input, sample_cnt, add_dataptr=True):
+def uniform_sample(input, sample_cnt, add_dataptr=True):
+    num_elem = input.numel()
+    key = []
+    if add_dataptr:
+        key.append(input.data_ptr())
+    key += input.view(-1)[torch.range(0, sample_cnt - 1) *
+                          (num_elem // sample_cnt)].tolist()
+    return key
+
+
+def random_sample(input, sample_cnt, add_dataptr=True):
     num_elem = input.numel()
     rng_state = torch.get_rng_state()
     seed = input.dim()
@@ -26,8 +36,9 @@ def random_sample_perm(input, sample_cnt, add_dataptr=True):
     key = []
     if add_dataptr:
         key.append(input.data_ptr())
-    key += input.view(-1)[(torch.randperm(sample_cnt) *
-                           (num_elem // sample_cnt))].tolist()
+
+    key += input.view(-1)[torch.randint(0, num_elem, (sample_cnt,))].tolist()
+
     torch.set_rng_state(rng_state)
     return key
 

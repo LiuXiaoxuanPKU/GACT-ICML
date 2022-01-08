@@ -59,11 +59,6 @@ class AutoPrecision:
                     sample_grad = torch.tensor(random_sample(param.grad,
                                                              sample_cnt,
                                                              add_dataptr=False))
-                    # sample_grad2 = torch.tensor(random_sample(param.grad,
-                    #                                                sample_cnt,
-                    #                                                add_dataptr=False))
-                    # print("sample cnt", sample_cnt)
-                    # assert(sample_grad.equal(sample_grad2))
                     grad.append(sample_grad)
             return torch.cat(grad, 0)
 
@@ -95,17 +90,6 @@ class AutoPrecision:
 
             return grad
 
-        # if self.iter == 0:
-        #     org_bits = self.quantizer.bits
-        #     self.quantizer.bits = [32 for _ in self.bits]
-        #     det_grad = get_grad()
-        #     for l in range(self.L):
-        #         self.quantizer.bits[l] = 2
-        #         grad = get_grad()
-        #         print(l, ((det_grad - grad)**2).sum() * 4)
-        #         del grad
-        #         self.quantizer.bits[l] = 32
-
         det_grad = None
         if self.iter == 0:
             # Do full adaptation
@@ -114,7 +98,10 @@ class AutoPrecision:
             for l in range(self.L):
                 self.quantizer.inject_noises[l] = True
                 grad = get_grad()
-                self.C[l] = ((det_grad - grad) ** 2).sum() * 4
+                sens = ((det_grad - grad) ** 2).sum() * 4
+                if torch.isnan(sens) or torch.isinf(sens):
+                    sens = 1e10
+                self.C[l] = sens
                 self.quantizer.inject_noises[l] = False
             self.refresh_bits()
 
@@ -127,8 +114,10 @@ class AutoPrecision:
 
             self.quantizer.inject_noises[l] = True
             grad = get_grad()
-            self.C[l] = ((det_grad - grad) ** 2).sum() * \
-                4  # Hack: always use 2bit
+            sens = ((det_grad - grad) ** 2).sum() * 4  # Hack: always use 2bit
+            if torch.isnan(sens) or torch.isinf(sens):
+                sens = 1e10
+            self.C[l] = sens
             self.quantizer.inject_noises[l] = False
             self.refresh_bits()
 

@@ -83,11 +83,9 @@ class Quantizer:
     def generate_tensor_key(self, t, tid):
         if not t.is_contiguous():
             return (tid)
-        # sample 30 elements data pointer as the key
+        # sample 100 elements data pointer as the key
         sample_cnt = min(100, t.numel())
         key = random_sample(t, sample_cnt, add_dataptr=True)
-        # count non zeros
-        # key.append(t.count_nonzero())
         return tuple(key)
 
     def quantize(self, input):

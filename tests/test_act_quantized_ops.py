@@ -63,7 +63,7 @@ def test_quantize_big_min():
 
 
 def test_quantize_32bit():
-    input_shape = (2, 256)
+    input_shape = (2048, 256)
     input = torch.rand(input_shape).to("cuda")
     q_output = op_quantize(input, 32)
     q_input, q_bit, q_scale, q_min = q_output

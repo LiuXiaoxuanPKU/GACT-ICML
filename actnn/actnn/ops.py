@@ -82,12 +82,13 @@ def op_dequantize(input, input_shape, inject_noise):
         if q_bit == 32:
             scale = q_scale
         else:
-            scale = 1.0 / q_scale * (1 << q_bit)
+            scale = 1.0 / q_scale * ((1 << q_bit) - 1)
         rng_state = torch.get_rng_state()
         noise = torch.randn_like(input)
         torch.set_rng_state(rng_state)
+        q_max = q_min + scale
         bin_size = scale / 4
-        input += noise * bin_size
+        input = torch.clamp(input + noise * bin_size, q_min, q_max)
 
     # Remove padding
     N = input_shape[0]

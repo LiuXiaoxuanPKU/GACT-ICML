@@ -1,6 +1,6 @@
 import torch
 from actnn.ops import op_quantize, op_dequantize
-from actnn.utils import random_sample
+from actnn.utils import random_sample, uniform_sample
 
 
 class Quantizer:
@@ -85,7 +85,8 @@ class Quantizer:
             return (tid)
         # sample 100 elements data pointer as the key
         sample_cnt = min(100, t.numel())
-        key = random_sample(t, sample_cnt, add_dataptr=True)
+        key = uniform_sample(t, sample_cnt, add_dataptr=True)
+        key.append(t.sum())
         return tuple(key)
 
     def quantize(self, input):

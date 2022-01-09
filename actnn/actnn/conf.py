@@ -44,9 +44,13 @@ class QuantizationConfig:
     def __init__(self):
         self.compress_activation = True
         self.max_bit = 32
-        self.bit = 4
+        self.bit = 5
         self.group_size = 256
         self.auto_prec = True
+        self.work_dir = "./log/" 
+        self.adapt_interval = 5
+        self.sample_grad_ratio = 1.0
+        self.sample_method = 'uniform'
 
         # Memory management flag
         self.empty_cache_threshold = None
@@ -59,10 +63,6 @@ class QuantizationConfig:
             os.environ.get('DEBUG_MEM', "False"))
         self.debug_speed = ast.literal_eval(
             os.environ.get('DEBUG_SPEED', "False"))
-        self.debug_memory_op_forward = False
-        self.debug_memory_op_backward = False
-        self.debug_remove_bn = False
-        self.debug_remove_relu = False
 
 
 config = QuantizationConfig()

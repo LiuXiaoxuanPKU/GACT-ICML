@@ -20,6 +20,7 @@ def uniform_sample_ref(input, sample_cnt, add_dataptr=True):
 
 def uniform_sample(input, sample_cnt, add_dataptr=True):
     num_elem = input.numel()
+    sample_cnt = min(num_elem, sample_cnt)
     key = []
     if add_dataptr:
         key.append(input.data_ptr())

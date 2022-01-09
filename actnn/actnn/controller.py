@@ -12,7 +12,7 @@ class Controller:
 
         if config.bit == 3:
             default_bit = 4
-        elif config.bit > 4:
+        elif config.bit > 4 and config.bit < 8:
             default_bit = 8
         else:
             default_bit = config.bit
@@ -24,7 +24,8 @@ class Controller:
         self.auto_prec = config.auto_prec
         if self.auto_prec:
             self.ap = AutoPrecision(
-                self.model, self.quantizer, config.bit, config.max_bit)
+                self.model, self.quantizer, config.bit, config.max_bit, 
+                config.work_dir, config.adapt_interval, config.sample_grad_ratio, config.sample_method)
         self.bit = config.bit
 
         self.iter = 0

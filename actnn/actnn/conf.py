@@ -44,11 +44,11 @@ class QuantizationConfig:
     def __init__(self):
         self.compress_activation = True
         self.max_bit = 32
-        self.bit = 5
+        self.bit = 4
         self.group_size = 256
         self.auto_prec = True
         self.work_dir = "./log/" 
-        self.adapt_interval = 5
+        self.adapt_interval = 20
         self.sample_grad_ratio = 1.0
         self.sample_method = 'uniform'
 

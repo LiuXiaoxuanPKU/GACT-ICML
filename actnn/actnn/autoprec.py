@@ -43,7 +43,7 @@ class AutoPrecision:
         self.sample_grad_ratio = sample_grad_ratio
 
         self.iter = 0
-        self.log_iter = 500
+        self.log_iter = 50
         self.work_dir = work_dir
 
         # self.refresh_bits()
@@ -139,22 +139,6 @@ class AutoPrecision:
             self.refresh_bits()
 
         elif self.iter % self.adapt_interval == 0:
-            org_bits = self.quantizer.bits
-            self.quantizer.bits = [32 for bit in self.bits]
-            det_grad = get_grad()
-            # print(det_grad)
-            for ibits in [1, 2, 4, 8]:
-                sensivity = []
-                for l in range(self.L):
-                # for l in [1]:
-                    self.quantizer.bits[l] = ibits
-                    grad = get_grad()
-                    # print('Grad ', grad)
-                    self.quantizer.bits[l] = 32
-                    sensivity.append(((grad - det_grad)**2).sum().item())
-                print("[Actual]", ibits, sensivity)
-            self.quantizer.bits = org_bits
-                
             det_grad = get_grad()
             if len(self.perm) == 0:
                 self.perm = torch.randperm(self.L)
@@ -169,29 +153,29 @@ class AutoPrecision:
             self.C[l] = sens
             self.quantizer.inject_noises[l] = False
             self.refresh_bits()
-            print(self.C)
-            print(self.bits)
-            print("\n")
+            # print(self.C)
+            # print(self.bits)
+            # print("\n")
 
-        # if self.iter % self.log_iter == 0:
-        #     if det_grad is None:
-        #         det_grad = get_grad()
+        if self.iter % self.log_iter == 0:
+            if det_grad is None:
+                det_grad = get_grad()
 
-        #     # Maintain batch grad
-        #     momentum = self.momentum
-        #     self.beta1 = self.beta1 * momentum + 1 - momentum
-        #     self.batch_grad = self.batch_grad * \
-        #         momentum + (1 - momentum) * det_grad
-        #     bgrad = self.batch_grad / self.beta1
-        #     gvar = ((bgrad - det_grad)**2).sum()
-        #     self.grad_var = self.grad_var * momentum + (1 - momentum) * gvar
+            # Maintain batch grad
+            momentum = self.momentum
+            self.beta1 = self.beta1 * momentum + 1 - momentum
+            self.batch_grad = self.batch_grad * \
+                momentum + (1 - momentum) * det_grad
+            bgrad = self.batch_grad / self.beta1
+            gvar = ((bgrad - det_grad)**2).sum()
+            self.grad_var = self.grad_var * momentum + (1 - momentum) * gvar
 
-        #     # log sensitivity information
-        #     exp_recorder.record("iter", self.iter)
-        #     exp_recorder.record("layer sensitivity", self.C.tolist())
-        #     exp_recorder.record("bits", self.bits.tolist())
-        #     exp_recorder.record("dims", self.dims.tolist())
-        #     exp_recorder.dump(self.work_dir + "autoprec.log")
+            # log sensitivity information
+            exp_recorder.record("iter", self.iter)
+            exp_recorder.record("layer sensitivity", self.C.tolist())
+            exp_recorder.record("bits", self.bits.tolist())
+            exp_recorder.record("dims", self.dims.tolist())
+            exp_recorder.dump(self.work_dir + "autoprec.log")
 
         self.iter += 1
 
@@ -205,24 +189,22 @@ class AutoPrecision:
                                                       total_bits)
 
         self.quantizer.bits = [bit.item() for bit in self.bits]
-        # print("Auto precision bits", self.bits)
         # Warning if the quantization variance is too large
         if self.iter > self.warmpup_iter:
-            pass
-            # overall_var = self.grad_var / self.beta1
-            # quantization_var = (
-            #     self.C * 2 ** (-2 * self.bits.float())).sum().cuda()
-            # if quantization_var > overall_var * 0.1:
-            #     print("========================================")
-            #     print('ActNN Warning: Quantization variance is too large. Consider increasing number of bits.',
-            #           quantization_var, overall_var)
-            #     exp_recorder.record("iter", self.iter)
-            #     exp_recorder.record("layer sensitivity", self.C.tolist())
-            #     exp_recorder.record("bits", self.bits.tolist())
-            #     exp_recorder.record("dims", self.dims.tolist())
-            #     exp_recorder.record("warning", True)
-            #     exp_recorder.record("quantization var",
-            #                         quantization_var.tolist())
-            #     exp_recorder.record("overall var", overall_var.tolist())
-            #     exp_recorder.dump("autoprec.log")
-                # print("========================================")
+            overall_var = self.grad_var / self.beta1
+            quantization_var = (
+                self.C * 2 ** (-2 * self.bits.float())).sum().cuda()
+            if quantization_var > overall_var * 0.1:
+                print("========================================")
+                print('ActNN Warning: Quantization variance is too large. Consider increasing number of bits.',
+                      quantization_var, overall_var)
+                exp_recorder.record("iter", self.iter)
+                exp_recorder.record("layer sensitivity", self.C.tolist())
+                exp_recorder.record("bits", self.bits.tolist())
+                exp_recorder.record("dims", self.dims.tolist())
+                exp_recorder.record("warning", True)
+                exp_recorder.record("quantization var",
+                                    quantization_var.tolist())
+                exp_recorder.record("overall var", overall_var.tolist())
+                exp_recorder.dump("autoprec.log")
+                print("========================================")

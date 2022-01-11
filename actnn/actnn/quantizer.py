@@ -86,7 +86,7 @@ class Quantizer:
         # sample 100 elements data pointer as the key
         sample_cnt = min(100, t.numel())
         key = uniform_sample(t, sample_cnt, add_dataptr=True)
-        # key.append(t.sum())
+        key.append(t.sum())
         return tuple(key)
 
     def quantize(self, input):

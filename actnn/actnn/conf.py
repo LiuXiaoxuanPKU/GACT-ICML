@@ -11,9 +11,6 @@ def set_optimization_level(level):
     elif level == 'L1.1':    # fixed 8-bit
         config.auto_prec = False
         config.bit = 8
-    elif level == 'L1.2':    # fixed 2-bit
-        config.auto_prec = False
-        config.bit = 8
     elif level == 'L2':    # auto precision 4-bit
         config.auto_prec = True
         config.bit = 4
@@ -51,8 +48,8 @@ class QuantizationConfig:
         self.group_size = 256
         self.auto_prec = True
         self.work_dir = "./log/" 
-        self.adapt_interval = 50
-        self.sample_grad_ratio = 0.1
+        self.adapt_interval = 20
+        self.sample_grad_ratio = 1.0
         self.sample_method = 'uniform'
 
         # Memory management flag

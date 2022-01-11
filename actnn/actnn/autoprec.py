@@ -81,7 +81,6 @@ class AutoPrecision:
             torch.manual_seed(seed)
             torch.cuda.manual_seed(seed)
             torch.cuda.manual_seed_all(seed)
-            torch.backends.cudnn.deterministic = True
 
         # TODO det_grad is actually not necessary
         def get_grad():
@@ -129,9 +128,11 @@ class AutoPrecision:
             print('ActNN: Initializing AutoPrec...')
             det_grad = get_grad()
             for l in range(self.L):
+                print("%d/%d" % (l, self.L))
                 self.quantizer.inject_noises[l] = True
                 grad = get_grad()
                 sens = ((det_grad - grad) ** 2).sum() * 4
+                del grad
                 if torch.isnan(sens) or torch.isinf(sens):
                     sens = 1e10
                 self.C[l] = sens
@@ -148,6 +149,7 @@ class AutoPrecision:
             self.quantizer.inject_noises[l] = True
             grad = get_grad()
             sens = ((det_grad - grad) ** 2).sum() * 4  # Hack: always use 2bit
+            del grad
             if torch.isnan(sens) or torch.isinf(sens):
                 sens = 1e10
             self.C[l] = sens

@@ -58,21 +58,20 @@ class AutoPrecision:
             grad = []
             for param in self.model.parameters():
                 if param.grad is not None:
-                    grad.append(param.grad.ravel())
-                    # sample_cnt = max(min(10, param.grad.numel()),
-                    #                  int(param.grad.numel() * self.sample_grad_ratio))
+                    sample_cnt = max(min(10, param.grad.numel()),
+                                     int(param.grad.numel() * self.sample_grad_ratio))
                     
-                    # if self.sample_method == "random":
-                    #     sample_grad = torch.tensor(random_sample(param.grad,
-                    #                                             sample_cnt,
-                    #                                             add_dataptr=False))
-                    # elif self.sample_method == "uniform":
-                    #     sample_grad = torch.tensor(uniform_sample(param.grad,
-                    #                                             sample_cnt,
-                    #                                             add_dataptr=False))
-                    # else:
-                    #     print("[Error] Unsupport sample method %s" % self.sample_method)
-                    # grad.append(sample_grad)
+                    if self.sample_method == "random":
+                        sample_grad = torch.tensor(random_sample(param.grad,
+                                                                sample_cnt,
+                                                                add_dataptr=False))
+                    elif self.sample_method == "uniform":
+                        sample_grad = torch.tensor(uniform_sample(param.grad,
+                                                                sample_cnt,
+                                                                add_dataptr=False))
+                    else:
+                        print("[Error] Unsupport sample method %s" % self.sample_method)
+                    grad.append(sample_grad)
             return torch.cat(grad, 0)
 
         def setup_seed(seed):
@@ -129,6 +128,7 @@ class AutoPrecision:
             print('ActNN: Initializing AutoPrec...')
             det_grad = get_grad()
             for l in range(self.L):
+                print('Initialize %d/%d' %(l + 1, self.L))
                 self.quantizer.inject_noises[l] = True
                 grad = get_grad()
                 sens = ((det_grad - grad) ** 2).sum() * 4
@@ -206,5 +206,5 @@ class AutoPrecision:
                 exp_recorder.record("quantization var",
                                     quantization_var.tolist())
                 exp_recorder.record("overall var", overall_var.tolist())
-                exp_recorder.dump("autoprec.log")
+                exp_recorder.dump(self.work_dir + "autoprec.log")
                 print("========================================")

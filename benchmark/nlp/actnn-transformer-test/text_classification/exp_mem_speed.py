@@ -19,7 +19,7 @@ def network_to_command(network):
     cmd = cmd.replace("ARCH", network)
     return cmd
 
-def run_benchmark(network, alg, batch_size, debug_mem=False, debug_speed=False, input_size=None):
+def run_benchmark(network, alg, batch_size, debug_mem=False, debug_speed=False, input_size=None, layer_num=None):
     os.environ['DEBUG_MEM'] = str(debug_mem)
     os.environ['DEBUG_SPEED'] = str(debug_speed)
     cmd = network_to_command(network)
@@ -29,7 +29,10 @@ def run_benchmark(network, alg, batch_size, debug_mem=False, debug_speed=False, 
         cmd += " --output_dir log/sst2/LEVEL/ --actnn --opt_level LEVEL ".replace("LEVEL", alg)
         
     if debug_speed:
-        cmd += "--get_speed"
+        cmd += " --get_speed "
+    
+    if layer_num is not None:
+        cmd += f" --layer_num {layer_num}"
 
     ret_code = run_cmd(cmd)
 
@@ -100,7 +103,7 @@ def binary_search_max_layer(alg, low, high, batch_size):
         mid = round_down(low + (high - low) // 2)
         network = "scaled_resnet_%d" % mid
         success = (run_benchmark(
-            network, alg, batch_size=batch_size, debug_speed=True) == 0)
+            network, alg, batch_size=batch_size, debug_speed=True, layer_num=mid) == 0)
         if success:
             ret = mid
             low = round_up(mid + 1)
@@ -151,10 +154,9 @@ if __name__ == "__main__":
     if args.mode == 'linear_scan':
         networks = ['bert-large-cased']
         # batch_sizes = list(range(4, 20, 4)) + list(range(20, 240, 8))
-        batch_sizes = list(range(108, 240, 8))
+        batch_sizes = list(range(236, 300, 16))
 
-        algs = ['LH.1', 'LH.2', 'LH.3', 'LH.4', 
-                'LT.1', 'LT.2', 'LT.3', 'LT.4']
+        algs = ['L1.2']
     else:
         networks = ['bert-large-cased']
         algs = ['L1', 'L1.2']
@@ -215,12 +217,12 @@ if __name__ == "__main__":
             print(f"save results to {out_file}")
     elif args.mode == 'binary_search_max_layer':
         for alg in algs:
-            low, high = 152, 1024
+            low, high = 24, 256
             batch_size = 64
             max_layer = binary_search_max_layer(alg, low, high, batch_size)
             network = 'scaled_bert_%d' % max_layer
             ips = get_ips(network, alg, batch_size)
-            # macs, params = get_macs(network, alg, batch_size)
+            macs, params = get_macs(network, alg, batch_size)
 
             out_file = "max_layer_results.json"
             with open(out_file, "a") as fout:
@@ -229,9 +231,9 @@ if __name__ == "__main__":
                     "algorithm": alg,
                     "max_layer": max_layer,
                     "ips": ips,
-                    # "macs": macs,
-                    # "params": params,
-                    # "TFLOPS": round(macs * ips / 1e12, 2),
+                    "macs": macs,
+                    "params": params,
+                    "TFLOPS": round(macs * ips / 1e12, 2),
                     "tstamp": time.time()
                 }
                 fout.write(json.dumps(val_dict) + "\n")
@@ -244,7 +246,7 @@ if __name__ == "__main__":
                 alg, low, high, batch_size=batch_size)
             network = 'scaled_wide_resnet_%d' % max_width
             ips = get_ips(network, alg, batch_size)
-            # macs, params = get_macs(network, alg, batch_size)
+            macs, params = get_macs(network, alg, batch_size)
 
             out_file = "max_width_results.json"
             with open(out_file, "a") as fout:
@@ -253,9 +255,9 @@ if __name__ == "__main__":
                     "algorithm": alg,
                     "max_width": max_width,
                     "ips": ips,
-                    # "macs": macs,
-                    # "params": params,
-                    # "TFLOPS": round(macs * ips / 1e12, 2),
+                    "macs": macs,
+                    "params": params,
+                    "TFLOPS": round(macs * ips / 1e12, 2),
                     "tstamp": time.time()
                 }
                 fout.write(json.dumps(val_dict) + "\n")

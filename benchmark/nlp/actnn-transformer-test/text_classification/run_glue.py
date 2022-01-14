@@ -174,6 +174,8 @@ def parse_args():
     parser.add_argument("--get_speed", action="store_true", help="Whether or not to get ips")
     parser.add_argument("--actnn", action="store_true", help="Whether or not to use actnn")
     parser.add_argument("--opt_level", type=str, help="Optimization level of actnn")
+    parser.add_argument("--get_macs", type=str, help="Get Number of Macs")
+    parser.add_argument("--layer_num", type=int, default=24, help="Number of Bert layers")
     args = parser.parse_args()
 
     # Sanity checks
@@ -287,6 +289,8 @@ def main():
     # In distributed training, the .from_pretrained methods guarantee that only one local process can concurrently
     # download model & vocab.
     config = AutoConfig.from_pretrained(args.model_name_or_path, num_labels=num_labels, finetuning_task=args.task_name)
+    config.num_hidden_layers = args.layer_num
+    
     tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, use_fast=not args.use_slow_tokenizer)
     model = AutoModelForSequenceClassification.from_pretrained(
         args.model_name_or_path,
@@ -298,7 +302,6 @@ def main():
     if args.actnn:
         actnn.set_optimization_level(args.opt_level)
         controller = Controller(model)
-        # controller.filter_tensors(model.named_parameters())
 
     # Preprocessing the datasets
     if args.task_name is not None:
@@ -484,6 +487,17 @@ def main():
             model.train()
             for step, batch in enumerate(train_dataloader):
                 iter += 1
+                
+                if args.get_macs:
+                    from thop import profile
+                    macs, params = profile(model, inputs=(batch, ), custom_ops={})
+                    print(f"Macs: {macs}\t Params: {params}")
+                    out_file = "get_macs.json"
+                    with open(out_file, 'w') as fout:
+                        fout.write(json.dumps([macs, params]))
+                    print(f"save results to {out_file}")
+                    exit()
+        
                 if args.get_mem and iter > 1:
                     torch.cuda.synchronize()
                     # accelerator.print("===============After Data Loading=======================")

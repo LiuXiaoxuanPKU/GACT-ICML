@@ -54,25 +54,27 @@ class AutoPrecision:
         self.iterate(backprop)
 
     def iterate(self, backprop):
-        def sample_grad():
+        def sample_grad(sample):
             grad = []
             for param in self.model.parameters():
                 if param.grad is not None:
-                    grad.append(param.grad.ravel())
-                    # sample_cnt = max(min(10, param.grad.numel()),
-                    #                  int(param.grad.numel() * self.sample_grad_ratio))
-                    
-                    # if self.sample_method == "random":
-                    #     sample_grad = torch.tensor(random_sample(param.grad,
-                    #                                             sample_cnt,
-                    #                                             add_dataptr=False))
-                    # elif self.sample_method == "uniform":
-                    #     sample_grad = torch.tensor(uniform_sample(param.grad,
-                    #                                             sample_cnt,
-                    #                                             add_dataptr=False))
-                    # else:
-                    #     print("[Error] Unsupport sample method %s" % self.sample_method)
-                    # grad.append(sample_grad)
+                    if not sample:
+                        grad.append(param.grad.ravel())
+                    else:
+                        sample_cnt = max(min(10, param.grad.numel()),
+                                        int(param.grad.numel() * self.sample_grad_ratio))
+                        
+                        if self.sample_method == "random":
+                            sampled_grad = torch.tensor(random_sample(param.grad,
+                                                                    sample_cnt,
+                                                                    add_dataptr=False))
+                        elif self.sample_method == "uniform":
+                            sampled_grad = torch.tensor(uniform_sample(param.grad,
+                                                                    sample_cnt,
+                                                                    add_dataptr=False))
+                        else:
+                            print("[Error] Unsupport sample method %s" % self.sample_method)
+                        grad.append(sampled_grad)
             return torch.cat(grad, 0)
 
         def setup_seed(seed):
@@ -83,7 +85,7 @@ class AutoPrecision:
             torch.cuda.manual_seed_all(seed)
 
         # TODO det_grad is actually not necessary
-        def get_grad():
+        def get_grad(sample):
             # TODO this is somewhat tricky...
             # The noise should be injected with other random seeds
             # TODO setstate & getstate won't work, why?
@@ -113,7 +115,7 @@ class AutoPrecision:
             backprop()
             for bn in bn_layers:
                 bn.track_running_stats = True
-            grad = sample_grad()
+            grad = sample_grad(sample)
             self.quantizer.iterate()
 
             # random.setstate(self.seeds[0])
@@ -126,11 +128,11 @@ class AutoPrecision:
         if self.iter == 0:
             # Do full adaptation
             print('ActNN: Initializing AutoPrec...')
-            det_grad = get_grad()
+            det_grad = get_grad(sample=False)
             for l in range(self.L):
                 print("%d/%d" % (l, self.L))
                 self.quantizer.inject_noises[l] = True
-                grad = get_grad()
+                grad = get_grad(sample=False)
                 sens = ((det_grad - grad) ** 2).sum() * 4
                 del grad
                 if torch.isnan(sens) or torch.isinf(sens):
@@ -140,14 +142,14 @@ class AutoPrecision:
             self.refresh_bits()
 
         elif self.iter % self.adapt_interval == 0:
-            det_grad = get_grad()
+            det_grad = get_grad(sample=True)
             if len(self.perm) == 0:
                 self.perm = torch.randperm(self.L)
             l = self.perm[-1]
             self.perm = self.perm[:-1]
 
             self.quantizer.inject_noises[l] = True
-            grad = get_grad()
+            grad = get_grad(sample=True)
             sens = ((det_grad - grad) ** 2).sum() * 4  # Hack: always use 2bit
             del grad
             if torch.isnan(sens) or torch.isinf(sens):
@@ -161,7 +163,7 @@ class AutoPrecision:
 
         if self.iter % self.log_iter == 0:
             if det_grad is None:
-                det_grad = get_grad()
+                det_grad = get_grad(sample=True)
 
             # Maintain batch grad
             momentum = self.momentum

@@ -14,27 +14,18 @@ import torch.utils.checkpoint as checkpoint
 
 
 def no_scheme_quantize_pack(input, q_bit):
-    N = input.shape[0]
-    input_flatten = input.reshape(N, -1)
-    num_features = input_flatten.shape[1]
+    if input.numel() % config.group_size == 0:
+        num_group = input.numel() // config.group_size
+    else:
+        num_group = input.numel() // config.group_size + 1
+    num_ele = num_group * config.group_size
+    pad_num = num_ele - input.numel() 
+    if pad_num > 0:
+        input = torch.cat([input.reshape(1, -1), torch.zeros([1, pad_num], 
+                                            dtype=input.dtype, device=input.device)], dim=1)
 
-    # Compute min, max by groups
-    if num_features % config.group_size != 0:
-        # Padding
-        new_num_features = (
-            num_features // config.group_size + 1) * config.group_size
-        delta = new_num_features - num_features
-        input_flatten = torch.cat(
-            [
-                input_flatten,
-                torch.zeros([N, delta], dtype=input.dtype,
-                            device=input.device),
-            ],
-            1,
-        )
-
-    input_groups = input_flatten.view(N, -1, config.group_size).contiguous()
-
+    input_groups = input.view(num_group, 1, config.group_size)
+    
     pack_func = ext_quantization.minimax_quantize_single_precision
     if q_bit == 32:  # TODO, use kernel to optimize this
         q_min = input_groups.min(dim=-1, keepdim=True).values
@@ -46,14 +37,11 @@ def no_scheme_quantize_pack(input, q_bit):
 
 
 def dequantize_and_unpack(data, shape, q_bit, scale, mn):
-    # Pad to group_size
-    N = shape[0]
-    num_features = int(np.prod(shape[1:]))
     group_size = config.group_size
-    num_features = (
-        num_features + (group_size - num_features %
-                        group_size) % group_size
-    )
+    if np.prod(shape) %  group_size == 0:
+        num_groups = int(np.prod(shape)) // group_size
+    else:
+        num_groups = int(np.prod(shape)) // group_size + 1
 
     if not isinstance(q_bit, int):
         print("bits must be intergers, now bits ", q_bit)
@@ -64,7 +52,7 @@ def dequantize_and_unpack(data, shape, q_bit, scale, mn):
     else:
         unpack_func = ext_quantization.unpack_single_precision
         data = unpack_func(
-            data, q_bit, scale, mn, N, num_features // group_size, group_size
+            data, q_bit, scale, mn, num_groups, 1, group_size
         )
     return data
 
@@ -102,10 +90,8 @@ def op_dequantize(input, input_shape, inject_noise):
         input = torch.clamp(input + noise * bin_size, q_min, q_max)
         # print("[Diff]", (org_input - input).norm() / input.norm())
 
-    # Remove padding
-    N = input_shape[0]
-    num_features = np.prod(input_shape[1:])
-    input = input.view(N, -1)[:, :num_features]
+    num_features = np.prod(input_shape)
+    input = input.ravel()[:num_features]
     input = input.reshape(*input_shape).contiguous()
     # empty_cache(config.empty_cache_threshold)
     return input

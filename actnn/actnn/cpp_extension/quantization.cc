@@ -23,6 +23,17 @@ tensor_list minimax_quantize_single_precision_cuda(Tensor data, int bits);
 std::pair<Tensor, Tensor> act_quantized_relu_forward_cuda(Tensor data);
 Tensor act_quantized_relu_backward_cuda(Tensor grad_output, Tensor mask);
 
+Tensor act_quantize_dropout_mask_cuda(Tensor data);
+Tensor act_dequantize_dropout_mask_cuda(Tensor mask, int N);
+
+Tensor quantize_dropout_mask(Tensor data) {
+  CHECK_CUDA_TENSOR_TYPE(data, torch::kUInt8);
+  return act_quantize_dropout_mask_cuda(data);
+}
+
+Tensor dequantize_dropout_mask(Tensor mask, int N) {
+  return act_dequantize_dropout_mask_cuda(mask, N);
+}
 
 // Pack/Unpack single precision
 Tensor unpack_single_precision(Tensor data,
@@ -72,4 +83,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("unpack_single_precision", &unpack_single_precision);
   m.def("minimax_quantize_single_precision", &minimax_quantize_single_precision);
   m.def("act_quantized_relu", &act_quantized_relu);
+  m.def("act_quantize_dropout_mask", &quantize_dropout_mask);
+  m.def("act_dequantize_dropout_mask", &dequantize_dropout_mask);
 }

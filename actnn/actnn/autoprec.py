@@ -173,11 +173,11 @@ class AutoPrecision:
             self.grad_var = self.grad_var * momentum + (1 - momentum) * gvar
 
             # log sensitivity information
-            exp_recorder.record("iter", self.iter)
-            exp_recorder.record("layer sensitivity", self.C.tolist())
-            exp_recorder.record("bits", self.bits.tolist())
-            exp_recorder.record("dims", self.dims.tolist())
-            exp_recorder.dump(self.work_dir + "autoprec.log")
+            # exp_recorder.record("iter", self.iter)
+            # exp_recorder.record("layer sensitivity", self.C.tolist())
+            # exp_recorder.record("bits", self.bits.tolist())
+            # exp_recorder.record("dims", self.dims.tolist())
+            # exp_recorder.dump(self.work_dir + "autoprec.log")
 
         self.iter += 1
 
@@ -200,13 +200,13 @@ class AutoPrecision:
                 print("========================================")
                 print('ActNN Warning: Quantization variance is too large. Consider increasing number of bits.',
                       quantization_var, overall_var)
-                exp_recorder.record("iter", self.iter)
-                exp_recorder.record("layer sensitivity", self.C.tolist())
-                exp_recorder.record("bits", self.bits.tolist())
-                exp_recorder.record("dims", self.dims.tolist())
-                exp_recorder.record("warning", True)
-                exp_recorder.record("quantization var",
-                                    quantization_var.tolist())
-                exp_recorder.record("overall var", overall_var.tolist())
-                exp_recorder.dump("autoprec.log")
+                # exp_recorder.record("iter", self.iter)
+                # exp_recorder.record("layer sensitivity", self.C.tolist())
+                # exp_recorder.record("bits", self.bits.tolist())
+                # exp_recorder.record("dims", self.dims.tolist())
+                # exp_recorder.record("warning", True)
+                # exp_recorder.record("quantization var",
+                #                     quantization_var.tolist())
+                # exp_recorder.record("overall var", overall_var.tolist())
+                # exp_recorder.dump("autoprec.log")
                 print("========================================")

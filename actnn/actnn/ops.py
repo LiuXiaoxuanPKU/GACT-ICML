@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from torch.utils.cpp_extension import load
 
 from actnn.conf import config
+from actnn.utils import empty_cache
 import actnn.cpp_extension.quantization as ext_quantization
 import torch.utils.checkpoint as checkpoint
 
@@ -67,13 +68,22 @@ def dequantize_and_unpack(data, shape, q_bit, scale, mn):
         )
     return data
 
+def op_quantize_mask(input):
+    return [ext_quantization.act_quantize_dropout_mask(input), input.shape]
+
+def op_dequantize_mask(input):
+    q_mask, input_shape = input
+    output = ext_quantization.act_dequantize_dropout_mask(q_mask, np.prod(input_shape)).reshape(input_shape)
+    return output
 
 def op_quantize(input, q_bit):
+    empty_cache(config.empty_cache_threshold)
     q_input, q_scale, q_min = no_scheme_quantize_pack(input, q_bit)
     return [q_input, q_bit, q_scale, q_min]
 
 
 def op_dequantize(input, input_shape, inject_noise):
+    empty_cache(config.empty_cache_threshold)
     q_input, q_bit, q_scale, q_min = input
     input = dequantize_and_unpack(
         q_input, input_shape, q_bit, q_scale, q_min)
@@ -97,7 +107,7 @@ def op_dequantize(input, input_shape, inject_noise):
     num_features = np.prod(input_shape[1:])
     input = input.view(N, -1)[:, :num_features]
     input = input.reshape(*input_shape).contiguous()
-
+    # empty_cache(config.empty_cache_threshold)
     return input
 
 

@@ -59,8 +59,7 @@ def test_sample_speed():
         print(ret.ravel()[0])
         return end - start
 
-    def test_implementation(sample_method):
-        sample_cnt = 100
+    def test_implementation(sample_method, sample_cnt=100):
         torch.cuda.synchronize()
         start = time.time()
         ret = sample_method(data, sample_cnt)
@@ -73,11 +72,13 @@ def test_sample_speed():
     t_count_zero = test_ref_nonzero_speed()
     t_relu = test_ref_relu_speed()
     t_uniform_sample = test_implementation(uniform_sample)
-    t_random_sample_perm = test_implementation(random_sample)
+    t_random_sample_perm_100 = test_implementation(random_sample, 100)
+    t_random_sample_perm_30 = test_implementation(random_sample, 1000)
     print("Nonzero speed %.10f ms, mem %.10f MB" % (t_count_zero, mem_count_zero))
     print("ReLU speed %.10f ms" % t_relu)
     print("Uniform sample speed %.10f ms" % t_uniform_sample)
-    print("Random sample speed %.10f ms" % t_random_sample_perm)
+    print("Random sample speed 1 %.10f ms" % t_random_sample_perm_100)
+    print("Random sample speed 2 %.10f ms" % t_random_sample_perm_30)
 
 
 if __name__ == "__main__":

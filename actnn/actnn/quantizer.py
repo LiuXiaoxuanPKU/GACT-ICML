@@ -1,5 +1,6 @@
 import torch
-from actnn.ops import op_quantize, op_dequantize
+from actnn.conf import config
+from actnn.ops import op_quantize, op_dequantize, op_quantize_mask, op_dequantize_mask
 from actnn.utils import random_sample, uniform_sample
 
 
@@ -81,13 +82,16 @@ class Quantizer:
         # print(self.bits)
 
     def generate_tensor_key(self, t, tid):
-        if not t.is_contiguous():
+        if config.check_dup:
+            if not t.is_contiguous():
+                return (tid)
+            # sample 100 elements data pointer as the key
+            sample_cnt = min(100, t.numel())
+            key = uniform_sample(t, sample_cnt, add_dataptr=True)
+            key.append(t.sum())
+            return tuple(key)
+        else:
             return (tid)
-        # sample 100 elements data pointer as the key
-        sample_cnt = min(100, t.numel())
-        key = uniform_sample(t, sample_cnt, add_dataptr=True)
-        key.append(t.sum())
-        return tuple(key)
 
     def quantize(self, input):
         quantize, is_dropout_mask = self.check_quantize(input)
@@ -104,9 +108,8 @@ class Quantizer:
 
         # special case: use 1 bit to quantize dropout mask
         if is_dropout_mask:
-            input = input.to(torch.float32)
-            q_inputs = op_quantize(input, 1)
-            return True, is_dropout_mask, q_inputs, input.shape
+            q_inputs = op_quantize_mask(input)
+            return True, is_dropout_mask, q_inputs
 
         if self.iter == 0:
             self.dims.append(input.numel() // input.shape[0])
@@ -157,9 +160,8 @@ class Quantizer:
 
         is_dropout_mask = input[1]
         if is_dropout_mask:
-            _, is_dropout_mask, q_inputs, input_shape = input
-            ret = op_dequantize(q_inputs, input_shape, False)
-            ret = ret.to(torch.uint8)
+            _, is_dropout_mask, q_inputs = input
+            ret = op_dequantize_mask(q_inputs)
             return ret
 
         _, _, key, input_shape, tid = input
@@ -184,11 +186,12 @@ class Quantizer:
                 if tid > 0:
                     self.start_prefetch_event.wait(self.swap_in_stream)
                     previous_key = self.layer_key_map[tid - 1]
-                    q_previous_inputs, _, _ = self.ptr_qtensor_map[previous_key]
-                    if not q_previous_inputs[0].is_cuda:
-                        q_previous_inputs[0] = q_previous_inputs[0].cuda(
-                            non_blocking=True
-                        )
+                    if previous_key in self.ptr_qtensor_map:
+                        q_previous_inputs, _, _ = self.ptr_qtensor_map[previous_key]
+                        if not q_previous_inputs[0].is_cuda:
+                            q_previous_inputs[0] = q_previous_inputs[0].cuda(
+                                non_blocking=True
+                            )
                     self.end_prefetch_event.record()
 
         ret = op_dequantize(q_inputs, input_shape, self.inject_noises[tid])

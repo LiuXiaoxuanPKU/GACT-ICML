@@ -374,6 +374,88 @@ Tensor unpack_single_precision_cuda(Tensor data,
   return unpacked;
 }
 
+/****************************************/
+/******** Act Quantized Dropout Mask ****/
+/****************************************/
+#define ACT_QUANTIZED_DROPOUT_MASK_THREADS 512
+// Unpack int32 bit stream to float16/32 data
+template <typename scalar_t>
+__global__ void act_quantize_dropout_mask_kernel(const scalar_t* __restrict__ data,
+                                                  int32_t* __restrict__ mask,
+                                                  int N,
+                                                  int mask_len) {
+  const int id = blockIdx.x * blockDim.x + threadIdx.x;
+  const int global_offset = blockIdx.x * blockDim.x / (sizeof(int32_t) * 8);
+  const int shared_len = ACT_QUANTIZED_DROPOUT_MASK_THREADS / (sizeof(int32_t) * 8);
+  __shared__ int mask_shared[ACT_QUANTIZED_DROPOUT_MASK_THREADS / (sizeof(int32_t) * 8)];
+
+  if (threadIdx.x * 2 < shared_len) {
+    reinterpret_cast<int2*>(mask_shared)[threadIdx.x] = make_int2(0, 0);
+  }
+
+  if (id < N) {
+    bool bit = data[id];
+    __syncthreads();
+    atomicOr(mask_shared + threadIdx.x % shared_len, bit << (threadIdx.x / shared_len));
+    __syncthreads();
+  }
+
+  if (threadIdx.x * 2 < shared_len) {
+    reinterpret_cast<int2*>(mask)[global_offset / 2 + threadIdx.x] = reinterpret_cast<int2*>(mask_shared)[threadIdx.x];
+  }
+}
+
+Tensor act_quantize_dropout_mask_cuda(Tensor data) {
+  int n_elements = 1;
+  for (size_t i = 0; i < data.dim(); ++i) {
+    n_elements *= data.size(i);
+  }
+
+  auto options = torch::TensorOptions().dtype(torch::kInt32).device(data.device());
+  int mask_len = (n_elements + sizeof(int32_t) * 8 - 1) / (sizeof(int32_t) * 8);
+  Tensor mask = torch::empty({mask_len}, options);
+
+  int threads = ACT_QUANTIZED_DROPOUT_MASK_THREADS;
+  int blocks = (n_elements + threads - 1) / threads;
+
+  AT_DISPATCH_INTEGRAL_TYPES(data.scalar_type(), "act_quantize_dropout_mask", ([&] {
+    act_quantize_dropout_mask_kernel<scalar_t><<<blocks, threads>>>(
+      data.data_ptr<scalar_t>(), mask.data_ptr<int32_t>(),
+      n_elements, mask_len);
+  }));
+
+  return mask;
+}
+
+template <typename scalar_t>
+__global__ void act_dequantize_dropout_mask_kernel(int32_t* __restrict__ mask,
+                                                   scalar_t* __restrict__ output,
+                                                   int N) {
+  int id = blockIdx.x * blockDim.x + threadIdx.x;
+  const int global_offset = blockIdx.x * blockDim.x / (sizeof(int32_t) * 8);
+  const int shared_len = ACT_QUANTIZED_DROPOUT_MASK_THREADS / (sizeof(int32_t) * 8);
+
+  if (id < N) {
+    scalar_t bit =  (mask[global_offset + threadIdx.x % shared_len] >> (threadIdx.x / shared_len)) & 1;
+    output[id] = bit;
+  }
+}
+
+
+Tensor act_dequantize_dropout_mask_cuda(Tensor mask, int N) {
+  int threads = ACT_QUANTIZED_DROPOUT_MASK_THREADS;
+  int blocks = (N + threads - 1) / threads;
+  auto options = torch::TensorOptions().dtype(torch::kUInt8).device(mask.device());
+  Tensor output = torch::zeros({N,}, options);
+
+  AT_DISPATCH_INTEGRAL_TYPES(torch::kUInt8, "act_dequantize_dropout_mask", ([&] {
+      act_dequantize_dropout_mask_kernel<scalar_t><<<blocks, threads>>>(
+        mask.data_ptr<int32_t>(), output.data_ptr<scalar_t>(), N);
+  }));
+
+  return output;
+}
+
 
 /****************************************/
 /********** Act Quantized ReLU **********/

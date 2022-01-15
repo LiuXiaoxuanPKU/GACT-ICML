@@ -1,0 +1,61 @@
+{"network": "gcn", "algorithm": "L1", "hidden_size": 7040, "batch_time": -1}
+{"network": "gcn", "algorithm": "L1", "hidden_size": 4156, "batch_time": -1}
+{"network": "gcn", "algorithm": "L1", "num_nodes": 169343, "num_layers": 3, "hidden_size": 2716, "batch_time": 0.0, "ips": 41279.98, "tstamp": 1642198862.07}
+{"network": "gcn", "algorithm": "L1", "num_nodes": 169343, "num_layers": 3, "hidden_size": 3436, "batch_time": 0.0, "ips": 29082.33, "tstamp": 1642198946.87}
+{"network": "gcn", "algorithm": "L1", "num_nodes": 169343, "num_layers": 3, "hidden_size": 3796, "batch_time": 0.0, "ips": 25222.43, "tstamp": 1642199043.53}
+{"network": "gcn", "algorithm": "L1", "hidden_size": 3976, "batch_time": -1}
+{"network": "gcn", "algorithm": "L1", "num_nodes": 169343, "num_layers": 3, "hidden_size": 3884, "batch_time": 6.851768, "ips": 24715.23, "tstamp": 1642199164.5}
+{"network": "gcn", "algorithm": "L1", "num_nodes": 169343, "num_layers": 3, "hidden_size": 3928, "batch_time": 6.749392, "ips": 25090.11, "tstamp": 1642199261.84}
+{"network": "gcn", "algorithm": "L1", "hidden_size": 3952, "batch_time": -1}
+{"network": "gcn", "algorithm": "L1", "num_nodes": 169343, "num_layers": 3, "hidden_size": 3940, "batch_time": 6.920204, "ips": 24470.81, "tstamp": 1642199382.26}
+{"network": "gcn", "algorithm": "L1", "num_nodes": 169343, "num_layers": 3, "hidden_size": 3944, "batch_time": 6.91572, "ips": 24486.68, "tstamp": 1642199481.4}
+{"network": "gcn", "algorithm": "L1", "num_nodes": 169343, "num_layers": 3, "hidden_size": 3948, "batch_time": 7.490549, "ips": 22607.56, "tstamp": 1642199588.03}
+{"network": "gcn", "algorithm": "L1", "num_nodes": 169343, "num_layers": 3, "hidden_size": 3948, "batch_time": 7.285857, "ips": 23242.7, "tstamp": 1642200080.67}
+{"network": "gcn", "algorithm": "L1", "num_nodes": 169343, "num_layers": 3, "hidden_size": 3948, "batch_time": 7.209334, "ips": 23489.41, "tstamp": 1642200268.87}{"network": "gcn", "algorithm": "L1.2", "hidden_size": 7040, "batch_time": -1}
+{"network": "gcn", "algorithm": "L1.2", "num_nodes": 169343, "num_layers": 3, "hidden_size": 4156, "batch_time": 7.514118, "ips": 22536.64, "tstamp": 1642200500.08}
+{"network": "gcn", "algorithm": "L1.2", "hidden_size": 5596, "batch_time": -1}
+{"network": "gcn", "algorithm": "L1.2", "hidden_size": 4876, "batch_time": -1}
+{"network": "gcn", "algorithm": "L1.2", "hidden_size": 4516, "batch_time": -1}
+{"network": "gcn", "algorithm": "L1.2", "hidden_size": 4336, "batch_time": -1}
+{"network": "gcn", "algorithm": "L1.2", "num_nodes": 169343, "num_layers": 3, "hidden_size": 4244, "batch_time": 7.79889, "ips": 21713.73, "tstamp": 1642200679.52}
+{"network": "gcn", "algorithm": "L1.2", "hidden_size": 4288, "batch_time": -1}
+{"network": "gcn", "algorithm": "L1.2", "hidden_size": 4264, "batch_time": -1}
+{"network": "gcn", "algorithm": "L1.2", "hidden_size": 4252, "batch_time": -1}
+{"network": "gcn", "algorithm": "L1.2", "hidden_size": 4248, "batch_time": -1}
+{"network": "gcn", "algorithm": "L1.2", "num_nodes": 169343, "num_layers": 3, "hidden_size": 4244, "batch_time": 8.016794, "ips": 21123.53, "tstamp": 1642200886.04}
+{"network": "gcn", "algorithm": null, "hidden_size": 7040, "batch_time": -1}
+{"network": "gcn", "algorithm": null, "hidden_size": 4156, "batch_time": -1}
+{"network": "gcn", "algorithm": null, "hidden_size": 2716, "batch_time": -1}
+{"network": "gcn", "algorithm": null, "num_nodes": 169343, "num_layers": 3, "hidden_size": 1996, "batch_time": 2.230327, "ips": 75927.42, "tstamp": 1642201052.11}
+{"network": "gcn", "algorithm": null, "num_nodes": 169343, "num_layers": 3, "hidden_size": 2356, "batch_time": 3.049814, "ips": 55525.69, "tstamp": 1642201102.29}
+{"network": "gcn", "algorithm": null, "hidden_size": 2536, "batch_time": -1}
+{"network": "gcn", "algorithm": null, "num_nodes": 169343, "num_layers": 3, "hidden_size": 2444, "batch_time": 3.35013, "ips": 50548.18, "tstamp": 1642201168.82}
+{"network": "gcn", "algorithm": null, "hidden_size": 2488, "batch_time": -1}
+{"network": "gcn", "algorithm": null, "num_nodes": 169343, "num_layers": 3, "hidden_size": 2464, "batch_time": 3.090612, "ips": 54792.71, "tstamp": 1642201232.19}
+{"network": "gcn", "algorithm": null, "hidden_size": 2476, "batch_time": -1}
+{"network": "gcn", "algorithm": null, "hidden_size": 2468, "batch_time": -1}
+{"network": "gcn", "algorithm": null, "num_nodes": 169343, "num_layers": 3, "hidden_size": 2464, "batch_time": 3.058476, "ips": 55368.43, "tstamp": 1642201307.63}
+{"network": "gcn", "algorithm": null, "hidden_size": null, "batch_time": -1}
+{"network": "gcn", "algorithm": null, "hidden_size": null, "batch_time": -1}
+{"network": "gcn", "algorithm": null, "hidden_size": null, "batch_time": -1}
+{"network": "gcn", "algorithm": null, "hidden_size": null, "batch_time": -1}
+{"network": "gcn", "algorithm": null, "hidden_size": null, "batch_time": -1}
+{"network": "gcn", "algorithm": null, "num_nodes": 169343, "num_layers": 20, "hidden_size": 256, "batch_time": 1.132871, "ips": 149481.24, "tstamp": 1642201636.63}
+{"network": "gcn", "algorithm": null, "num_nodes": 169343, "num_layers": 24, "hidden_size": 256, "batch_time": 1.351333, "ips": 125315.5, "tstamp": 1642201664.99}
+{"network": "gcn", "algorithm": null, "num_nodes": 169343, "num_layers": 24, "hidden_size": 256, "batch_time": 1.346334, "ips": 125780.86, "tstamp": 1642201801.17}
+{"network": "gcn", "algorithm": "L1", "hidden_size": null, "batch_time": -1}
+{"network": "gcn", "algorithm": "L1", "num_nodes": 169343, "num_layers": 112, "hidden_size": 256, "batch_time": 8.739581, "ips": 19376.56, "tstamp": 1642202028.26}
+{"network": "gcn", "algorithm": "L1", "hidden_size": null, "batch_time": -1}
+{"network": "gcn", "algorithm": "L1", "num_nodes": 169343, "num_layers": 136, "hidden_size": 256, "batch_time": 10.682146, "ips": 15852.9, "tstamp": 1642202189.27}
+{"network": "gcn", "algorithm": "L1", "num_nodes": 169343, "num_layers": 148, "hidden_size": 256, "batch_time": 11.567249, "ips": 14639.87, "tstamp": 1642202429.06}
+{"network": "gcn", "algorithm": "L1", "num_nodes": 169343, "num_layers": 152, "hidden_size": 256, "batch_time": 12.283952, "ips": 13785.71, "tstamp": 1642202592.1}
+{"network": "gcn", "algorithm": "L1", "hidden_size": null, "batch_time": -1}
+{"network": "gcn", "algorithm": "L1", "num_nodes": 169343, "num_layers": 152, "hidden_size": 256, "batch_time": 12.384626, "ips": 13673.65, "tstamp": 1642202774.34}
+{"network": "gcn", "algorithm": "L1.2", "num_nodes": 169343, "num_layers": 208, "hidden_size": 256, "batch_time": 15.716163, "ips": 10775.09, "tstamp": 1642202994.37}
+{"network": "gcn", "algorithm": "L1.2", "hidden_size": null, "batch_time": -1}
+{"network": "gcn", "algorithm": "L1.2", "hidden_size": null, "batch_time": -1}
+{"network": "gcn", "algorithm": "L1.2", "num_nodes": 169343, "num_layers": 232, "hidden_size": 256, "batch_time": 17.5515, "ips": 9648.35, "tstamp": 1642203266.64}
+{"network": "gcn", "algorithm": "L1.2", "hidden_size": null, "batch_time": -1}
+{"network": "gcn", "algorithm": "L1.2", "num_nodes": 169343, "num_layers": 236, "hidden_size": 256, "batch_time": 17.841048, "ips": 9491.76, "tstamp": 1642203522.36}
+{"network": "gcn", "algorithm": "L1.2", "num_nodes": 169343, "num_layers": 240, "hidden_size": 256, "batch_time": 18.197791, "ips": 9305.69, "tstamp": 1642203762.32}
+{"network": "gcn", "algorithm": "L1.2", "num_nodes": 169343, "num_layers": 240, "hidden_size": 256, "batch_time": 18.87943, "ips": 8969.71, "tstamp": 1642204009.16}

@@ -156,9 +156,9 @@ def get_ips(network, alg, batch_size, hidden_size=None, layer_num=None, intermed
     return json.loads(line)['ips']
 
 
-def get_macs(network, alg, batch_size, hidden_size=None, layer_num=None):
+def get_macs(network, alg, batch_size, hidden_size=None, layer_num=None, intermediate_size=None):
     run_benchmark(network, alg, batch_size, layer_num=layer_num,
-                  hidden_size=hidden_size, get_macs=True)
+                  hidden_size=hidden_size, get_macs=True, intermediate_size=intermediate_size)
     line = list(open("get_macs.json").readlines())[-1]
     return json.loads(line)
 

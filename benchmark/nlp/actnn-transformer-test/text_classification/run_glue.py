@@ -48,7 +48,8 @@ from transformers import (
 from transformers.file_utils import get_full_repo_name
 from transformers.utils.versions import require_version
 from actnn.controller import Controller
-
+import json
+from transformers.models.bert.modeling_bert import BertForSequenceClassification
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +74,6 @@ metric_key = {
     'qnli': 'accuracy',
     'qqp': 'f1'
 }
-
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Finetune a transformers model on a text classification task")
@@ -175,7 +175,10 @@ def parse_args():
     parser.add_argument("--actnn", action="store_true", help="Whether or not to use actnn")
     parser.add_argument("--opt_level", type=str, help="Optimization level of actnn")
     parser.add_argument("--get_macs", action="store_true", help="Get Number of Macs")
+    parser.add_argument('--customize', action='store_true')
     parser.add_argument("--layer_num", type=int, default=24, help="Number of Bert layers")
+    parser.add_argument("--hidden_size", type=int, default=1024, help="hidden size")
+    parser.add_argument("--intermediate_size", type=int, default=4096, help='customize intermediate size')
     args = parser.parse_args()
 
     # Sanity checks
@@ -284,19 +287,24 @@ def main():
             label_list.sort()  # Let's sort it for determinism
             num_labels = len(label_list)
 
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, use_fast=not args.use_slow_tokenizer)
     # Load pretrained model and tokenizer
     #
     # In distributed training, the .from_pretrained methods guarantee that only one local process can concurrently
     # download model & vocab.
-    config = AutoConfig.from_pretrained(args.model_name_or_path, num_labels=num_labels, finetuning_task=args.task_name)
-    config.num_hidden_layers = args.layer_num
-    
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, use_fast=not args.use_slow_tokenizer)
-    model = AutoModelForSequenceClassification.from_pretrained(
-        args.model_name_or_path,
-        from_tf=bool(".ckpt" in args.model_name_or_path),
-        config=config,
-    )
+    if args.customize:
+        config = AutoConfig.from_pretrained(args.model_name_or_path, num_labels=num_labels, finetuning_task=args.task_name)
+        config.num_hidden_layers = args.layer_num
+        config.hidden_size = args.hidden_size
+        # import pdb; pdb.set_trace()
+        model = BertForSequenceClassification(config)        # I assume that we only use BERT.
+    else:
+        config = AutoConfig.from_pretrained(args.model_name_or_path, num_labels=num_labels, finetuning_task=args.task_name)
+        model = AutoModelForSequenceClassification.from_pretrained(
+            args.model_name_or_path,
+            from_tf=bool(".ckpt" in args.model_name_or_path),
+            config=config,
+        )
     # model.gradient_checkpointing_enable()
     model.to(args.device)
     if args.actnn:
@@ -487,16 +495,6 @@ def main():
             model.train()
             for step, batch in enumerate(train_dataloader):
                 iter += 1
-                
-                if args.get_macs:
-                    from thop import profile
-                    macs, params = profile(model, inputs=(batch, ), custom_ops={})
-                    print(f"Macs: {macs}\t Params: {params}")
-                    out_file = "get_macs.json"
-                    with open(out_file, 'w') as fout:
-                        fout.write(json.dumps([macs, params]))
-                    print(f"save results to {out_file}")
-                    exit()
         
                 if args.get_mem and iter > 1:
                     torch.cuda.synchronize()
@@ -513,6 +511,26 @@ def main():
                 
                 for k, v in batch.items():
                     batch[k] = v.to(args.device)
+                
+                if args.get_macs:
+                    from thop import profile
+                    inputs_for_flops = (
+                        batch.get("input_ids", None),
+                        batch.get("attention_mask", None),
+                        batch.get("token_type_ids", None),
+                        batch.get("position_ids", None),
+                        batch.get("head_mask", None),
+                        batch.get("input_embeds", None),
+                        batch.get("labels", None),
+                    )
+                    macs, params = profile(model, inputs=inputs_for_flops,)
+
+                    print(f"Macs: {macs}\t Params: {params}")
+                    out_file = "get_macs.json"
+                    with open(out_file, 'w') as fout:
+                        fout.write(json.dumps([macs, params]))
+                    print(f"save results to {out_file}")
+                    exit()
                     
                 outputs = model(**batch)
                 loss = outputs.loss
@@ -561,6 +579,8 @@ def main():
                         exp_recorder.record("ips", train_ips, 2)
                         exp_recorder.record("bacth_time", cur_batch_time)
                         exp_recorder.record("layer_num", args.layer_num)
+                        exp_recorder.record("hidden_size", args.hidden_size)
+                        exp_recorder.record("intermediate_size", args.intermediate_size)
                         exp_recorder.record("tstamp", time.time(), 2)
                         exp_recorder.dump('speed_results.json')
                         exit(0)

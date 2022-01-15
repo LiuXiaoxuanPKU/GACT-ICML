@@ -19,7 +19,8 @@ def network_to_command(network):
     cmd = cmd.replace("ARCH", network)
     return cmd
 
-def run_benchmark(network, alg, batch_size, debug_mem=False, debug_speed=False, input_size=None, layer_num=None, get_macs=False):
+def run_benchmark(network, alg, batch_size, debug_mem=False, debug_speed=False,
+                hidden_size=None, layer_num=None, intermediate_size=None, get_macs=False):
     os.environ['DEBUG_MEM'] = str(debug_mem)
     os.environ['DEBUG_SPEED'] = str(debug_speed)
     cmd = network_to_command(network)
@@ -31,8 +32,17 @@ def run_benchmark(network, alg, batch_size, debug_mem=False, debug_speed=False, 
     if debug_speed:
         cmd += " --get_speed "
     
+    if intermediate_size is not None:
+        cmd += f" --customize "
+        cmd += f" --intermediate_size {intermediate_size}"
+
     if layer_num is not None:
+        cmd += f" --customize "
         cmd += f" --layer_num {layer_num}"
+    
+    if hidden_size is not None:
+        cmd += f" --customize "
+        cmd += f" --hidden_size {hidden_size}"
 
     if get_macs:
         cmd += " --get_macs "
@@ -61,10 +71,14 @@ def run_benchmark(network, alg, batch_size, debug_mem=False, debug_speed=False, 
 def round_up(x):
     return int((x + 3) // 4 * 4)
 
+def round_up_16(x):
+    return int((x + 15) // 16 * 16)
 
 def round_down(x):
     return int(x // 4 * 4)
 
+def round_down_16(x):
+    return int(x // 16 * 16)
 
 def binary_search_max_batch(network, alg, low, high):
     ret = 0
@@ -82,19 +96,19 @@ def binary_search_max_batch(network, alg, low, high):
     return ret
 
 
-def binary_search_max_input_size(alg, low, high, network, batch_size):
+def binary_search_max_hidden_size(alg, low, high, network, batch_size):
     ret = 0
-    low, high = round_up(low), round_down(high)
+    low, high = round_up_16(low), round_down_16(high)
 
     while low <= high:
-        mid = round_down(low + (high - low) // 2)
-        success = (run_benchmark(network, alg, input_size=mid, batch_size=batch_size,
+        mid = round_down_16(low + (high - low) // 2)
+        success = (run_benchmark(network, alg, hidden_size=mid, batch_size=batch_size,
                                  debug_speed=True) == 0)
         if success:
             ret = mid
-            low = round_up(mid + 1)
+            low = round_up_16(mid + 1)
         else:
-            high = round_down(mid - 1)
+            high = round_down_16(mid - 1)
 
     return ret
 
@@ -117,15 +131,15 @@ def binary_search_max_layer(alg, low, high, batch_size):
     return ret
 
 
-def binary_search_max_width(alg, low, high, batch_size):
+def binary_search_max_intermediate_size(alg, low, high, batch_size):
     ret = 0
     low, high = round_up(low), round_down(high)
 
     while low <= high:
         mid = round_down(low + (high - low) // 2)
-        network = "scaled_wide_resnet_%d" % mid
+        network = "bert-large-cased"
         success = (run_benchmark(
-            network, alg, batch_size=batch_size, debug_speed=True) == 0)
+            network, alg, batch_size=batch_size, debug_speed=True, intermediate_size=mid) == 0)
         if success:
             ret = mid
             low = round_up(mid + 1)
@@ -135,16 +149,16 @@ def binary_search_max_width(alg, low, high, batch_size):
     return ret
 
 
-def get_ips(network, alg, batch_size, input_size=None, layer_num=None):
+def get_ips(network, alg, batch_size, hidden_size=None, layer_num=None, intermediate_size=None):
     run_benchmark(network, alg, batch_size, layer_num=layer_num,
-                  input_size=input_size, debug_speed=True)
+                  hidden_size=hidden_size, debug_speed=True, intermediate_size=intermediate_size)
     line = list(open("speed_results.json").readlines())[-1]
     return json.loads(line)['ips']
 
 
-def get_macs(network, alg, batch_size, input_size=None, layer_num=None):
+def get_macs(network, alg, batch_size, hidden_size=None, layer_num=None):
     run_benchmark(network, alg, batch_size, layer_num=layer_num,
-                  input_size=input_size, get_macs=True)
+                  hidden_size=hidden_size, get_macs=True)
     line = list(open("get_macs.json").readlines())[-1]
     return json.loads(line)
 
@@ -194,27 +208,28 @@ if __name__ == "__main__":
                     }
                     fout.write(json.dumps(val_dict) + "\n")
                 print(f"save results to {out_file}")
-    elif args.mode == 'binary_search_max_input_size':
+    elif args.mode == 'binary_search_max_hidden_size':
         for alg in algs:
-            low, high = 224, 768
-            batch_size = 64
-            network = 'resnet152'
-            max_input_size = binary_search_max_input_size(
+            low, high = 1280, 5120
+            batch_size = 16
+            network = 'bert-large-cased'
+            max_hidden_size = binary_search_max_hidden_size(
                 alg, low, high, network, batch_size)
-            ips = get_ips(network, alg, batch_size, input_size=max_input_size)
-            # macs, params = get_macs(
-            #     network, alg, batch_size, input_size=max_input_size)
+            ips = get_ips(network, alg, batch_size, hidden_size=max_hidden_size)
+            macs, params = get_macs(
+                network, alg, batch_size, hidden_size=max_hidden_size)
 
-            out_file = "max_input_size_results.json"
+            out_file = "max_hidden_size_results.json"
             with open(out_file, "a") as fout:
                 val_dict = {
                     "network": network,
                     "algorithm": alg,
-                    "max_input_size": max_input_size,
+                    "max_hidden_size": max_hidden_size,
                     "ips": ips,
-                    # "macs": macs,
-                    # "params": params,
-                    # "TFLOPS": round(macs * ips / 1e12, 2),
+                    "macs": macs,
+                    "params": params,
+                    "batch_size": batch_size,
+                    "TFLOPS": round(macs * ips / batch_size / 1e12, 2),
                     "tstamp": time.time()
                 }
                 fout.write(json.dumps(val_dict) + "\n")
@@ -227,7 +242,6 @@ if __name__ == "__main__":
             network = 'bert-large-cased'
             ips = get_ips(network, alg, batch_size, layer_num=max_layer)
             macs, params = get_macs(network, alg, batch_size, layer_num=max_layer)
-
             out_file = "max_layer_results.json"
             with open(out_file, "a") as fout:
                 val_dict = {
@@ -236,32 +250,34 @@ if __name__ == "__main__":
                     "max_layer": max_layer,
                     "ips": ips,
                     "macs": macs,
+                    "batch_size": batch_size,
                     "params": params,
                     "TFLOPS": round(macs * ips / batch_size / 1e12, 2),
                     "tstamp": time.time()
                 }
                 fout.write(json.dumps(val_dict) + "\n")
             print(f"save results to {out_file}")
-    elif args.mode == 'binary_search_max_width':
+    elif args.mode == 'binary_search_max_intermediate_size':
         for alg in algs:
-            low, high = 64, 512
-            batch_size = 64
-            max_width = binary_search_max_width(
+            low, high = 30720, 307200
+            batch_size = 16
+            max_intermediate_size = binary_search_max_intermediate_size(
                 alg, low, high, batch_size=batch_size)
-            network = 'scaled_wide_resnet_%d' % max_width
-            ips = get_ips(network, alg, batch_size)
-            macs, params = get_macs(network, alg, batch_size)
+            network = 'bert-large-cased'
+            ips = get_ips(network, alg, batch_size, intermediate_size=max_intermediate_size)
+            macs, params = get_macs(network, alg, batch_size, intermediate_size=max_intermediate_size)
 
-            out_file = "max_width_results.json"
+            out_file = "max_intermediate_results.json"
             with open(out_file, "a") as fout:
                 val_dict = {
                     "network": network,
                     "algorithm": alg,
-                    "max_width": max_width,
+                    "max_intermediate_size": max_intermediate_size,
                     "ips": ips,
                     "macs": macs,
+                    "batch_size": batch_size,
                     "params": params,
-                    "TFLOPS": round(macs * ips / 1e12, 2),
+                    "TFLOPS": round(macs * ips / batch_size / 1e12, 2),
                     "tstamp": time.time()
                 }
                 fout.write(json.dumps(val_dict) + "\n")

@@ -24,7 +24,7 @@ def no_scheme_quantize_pack(input, q_bit):
         input = torch.cat([input.reshape(1, -1), torch.zeros([1, pad_num], 
                                             dtype=input.dtype, device=input.device)], dim=1)
 
-    input_groups = input.view(num_group, 1, config.group_size)
+    input_groups = input.reshape(num_group, 1, config.group_size)
     
     pack_func = ext_quantization.minimax_quantize_single_precision
     if q_bit == 32:  # TODO, use kernel to optimize this

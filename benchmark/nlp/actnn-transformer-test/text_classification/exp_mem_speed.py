@@ -19,7 +19,7 @@ def network_to_command(network):
     cmd = cmd.replace("ARCH", network)
     return cmd
 
-def run_benchmark(network, alg, batch_size, debug_mem=False, debug_speed=False, input_size=None, layer_num=None):
+def run_benchmark(network, alg, batch_size, debug_mem=False, debug_speed=False, input_size=None, layer_num=None, get_macs=False):
     os.environ['DEBUG_MEM'] = str(debug_mem)
     os.environ['DEBUG_SPEED'] = str(debug_speed)
     cmd = network_to_command(network)
@@ -34,6 +34,9 @@ def run_benchmark(network, alg, batch_size, debug_mem=False, debug_speed=False, 
     if layer_num is not None:
         cmd += f" --layer_num {layer_num}"
 
+    if get_macs:
+        cmd += " --get_macs "
+
     ret_code = run_cmd(cmd)
 
     if ret_code != 0:
@@ -43,6 +46,7 @@ def run_benchmark(network, alg, batch_size, debug_mem=False, debug_speed=False, 
                 "network": network,
                 "algorithm": alg,
                 "batch_size": batch_size,
+                "layer_num": layer_num,
                 "ips": -1,
             }
             fout.write(json.dumps(val_dict) + "\n")
@@ -101,7 +105,7 @@ def binary_search_max_layer(alg, low, high, batch_size):
 
     while low <= high:
         mid = round_down(low + (high - low) // 2)
-        network = "scaled_resnet_%d" % mid
+        network = "bert-large-cased"
         success = (run_benchmark(
             network, alg, batch_size=batch_size, debug_speed=True, layer_num=mid) == 0)
         if success:
@@ -131,15 +135,15 @@ def binary_search_max_width(alg, low, high, batch_size):
     return ret
 
 
-def get_ips(network, alg, batch_size, input_size=None):
-    run_benchmark(network, alg, batch_size,
+def get_ips(network, alg, batch_size, input_size=None, layer_num=None):
+    run_benchmark(network, alg, batch_size, layer_num=layer_num,
                   input_size=input_size, debug_speed=True)
     line = list(open("speed_results.json").readlines())[-1]
     return json.loads(line)['ips']
 
 
-def get_macs(network, alg, batch_size, input_size=None):
-    run_benchmark(network, alg, batch_size,
+def get_macs(network, alg, batch_size, input_size=None, layer_num=None):
+    run_benchmark(network, alg, batch_size, layer_num=layer_num,
                   input_size=input_size, get_macs=True)
     line = list(open("get_macs.json").readlines())[-1]
     return json.loads(line)
@@ -159,7 +163,7 @@ if __name__ == "__main__":
         algs = ['L1.2']
     else:
         networks = ['bert-large-cased']
-        algs = ['L1', 'L1.2']
+        algs = [None, 'L1', 'L1.2']
 
     if args.mode == 'linear_scan':
         for network in networks:
@@ -218,11 +222,11 @@ if __name__ == "__main__":
     elif args.mode == 'binary_search_max_layer':
         for alg in algs:
             low, high = 24, 256
-            batch_size = 64
+            batch_size = 16
             max_layer = binary_search_max_layer(alg, low, high, batch_size)
-            network = 'scaled_bert_%d' % max_layer
-            ips = get_ips(network, alg, batch_size)
-            macs, params = get_macs(network, alg, batch_size)
+            network = 'bert-large-cased'
+            ips = get_ips(network, alg, batch_size, layer_num=max_layer)
+            macs, params = get_macs(network, alg, batch_size, layer_num=max_layer)
 
             out_file = "max_layer_results.json"
             with open(out_file, "a") as fout:
@@ -233,7 +237,7 @@ if __name__ == "__main__":
                     "ips": ips,
                     "macs": macs,
                     "params": params,
-                    "TFLOPS": round(macs * ips / 1e12, 2),
+                    "TFLOPS": round(macs * ips / batch_size / 1e12, 2),
                     "tstamp": time.time()
                 }
                 fout.write(json.dumps(val_dict) + "\n")

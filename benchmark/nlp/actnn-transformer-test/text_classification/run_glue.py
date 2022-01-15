@@ -174,7 +174,7 @@ def parse_args():
     parser.add_argument("--get_speed", action="store_true", help="Whether or not to get ips")
     parser.add_argument("--actnn", action="store_true", help="Whether or not to use actnn")
     parser.add_argument("--opt_level", type=str, help="Optimization level of actnn")
-    parser.add_argument("--get_macs", type=str, help="Get Number of Macs")
+    parser.add_argument("--get_macs", action="store_true", help="Get Number of Macs")
     parser.add_argument("--layer_num", type=int, default=24, help="Number of Bert layers")
     args = parser.parse_args()
 
@@ -551,7 +551,7 @@ def main():
                     
                     if iter == 10:
                         bs = args.per_device_train_batch_size
-                        train_ips = 9 * bs / cur_batch_time
+                        train_ips = 9 * bs / batch_total_time
                         res = "BatchSize: %d\tIPS: %.2f\t,Cost: %.2f ms" % (
                             bs, train_ips, 1000.0 / train_ips)
                         print(res, flush=True)
@@ -559,6 +559,8 @@ def main():
                         exp_recorder.record("algorithm", args.opt_level)
                         exp_recorder.record("batch_size", bs)
                         exp_recorder.record("ips", train_ips, 2)
+                        exp_recorder.record("bacth_time", cur_batch_time)
+                        exp_recorder.record("layer_num", args.layer_num)
                         exp_recorder.record("tstamp", time.time(), 2)
                         exp_recorder.dump('speed_results.json')
                         exit(0)

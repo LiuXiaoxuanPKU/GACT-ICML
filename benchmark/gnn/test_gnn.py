@@ -20,6 +20,8 @@ from utils import AverageMeter
 
 from cogdl.datasets.ogb import OGBArxivDataset
 from models import GCN, SAGE, GAT
+from thop import profile
+import json
 
 # wandb.init(project="ActNN-Graph")
 parser = argparse.ArgumentParser(description="GNN (ActNN)")
@@ -37,6 +39,7 @@ parser.add_argument("--activation", type=str, default="relu")
 parser.add_argument("--actnn", action="store_true")
 parser.add_argument("--get-mem", action="store_true")
 parser.add_argument("--get-speed", action="store_true")
+parser.add_argument("--get-macs", action="store_true")
 args = parser.parse_args()
 
 # wandb.config.update(args)
@@ -97,6 +100,16 @@ else:
     raise NotImplementedError
 print(model)
 model.to(device)
+
+if args.get_macs:
+    macs, params = profile(model, inputs=(graph, ))
+    macs += graph.edge_index[1].shape[0] * (args.hidden_size * (args.num_layers - 1) + 40)
+    print(f"Macs: {macs}\t Params: {params}")
+    out_file = "get_macs.json"
+    with open(out_file, 'w') as fout:
+        fout.write(json.dumps([macs, params]))
+    print(f"save results to {out_file}")
+    exit()
 
 actnn.set_optimization_level(args.level)
 controller = Controller(model)
@@ -179,6 +192,7 @@ with torch.autograd.graph.saved_tensors_hooks(pack_hook, unpack_hook):
                 else:
                     cnt = 10
                 avg_ips = cnt * 169343 / batch_total_time
+                avg_batch_time = batch_total_time / 9.0
                 batch_total_time = 0
                 ips.update(avg_ips)
                 train_ips_list.append(avg_ips)
@@ -195,6 +209,7 @@ with torch.autograd.graph.saved_tensors_hooks(pack_hook, unpack_hook):
                 exp_recorder.record("num_nodes", num_nodes)
                 exp_recorder.record("num_layers", args.num_layers)
                 exp_recorder.record("hidden_size", args.hidden_size)
+                exp_recorder.record("batch_time", avg_batch_time)
                 exp_recorder.record("ips", train_ips, 2)
                 exp_recorder.record("tstamp", time.time(), 2)
                 exp_recorder.dump('speed_results.json')

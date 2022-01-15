@@ -24,11 +24,11 @@ import torchvision.datasets as datasets
 import torchvision.models as models
 import numpy as np
 
-# from scaled_resnet import scaled_resnet, scaled_wide_resnet
+from scaled_resnet import scaled_resnet, scaled_wide_resnet
 import actnn
 from actnn import config
 from actnn.utils import get_memory_usage, compute_tensor_bytes, exp_recorder, empty_cache
-import rotor
+# import rotor
 
 MB = 1024**2
 GB = 1024**3
@@ -135,16 +135,15 @@ def main_worker(gpu, ngpus_per_node, args):
     else:
         print("=> creating model '{}'".format(args.arch))
         if args.benchmark == "rotor":
-            print("===> Create rotor model")
-            model = rotor.models.__dict__[args.arch]()
+            pass
+            print("[Error] rotor not implement")
+            exit(0)
+            # print("===> Create rotor model")
+            # model = rotor.models.__dict__[args.arch]()
         elif args.arch.startswith('scaled_wide_resnet'):
-            print("[Error] scale resnet is not implemented")
-            assert(False)
-            # model = scaled_wide_resnet(args.arch)
+            model = scaled_wide_resnet(args.arch)
         elif args.arch.startswith('scaled_resnet'):
-            # model = scaled_resnet(args.arch)
-            print("Sacle net not implemented")
-            assert(False)
+            model = scaled_resnet(args.arch)
         else:
             if args.arch in ['inception_v3']:
                 kwargs = {"aux_logits": False}
@@ -285,11 +284,11 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
 
         torch._C._autograd._register_saved_tensors_default_hooks(
             pack_hook, unpack_hook)
-    elif args.benchmark == "rotor":
-        model = rotor.Checkpointable(model)
-        measure_sample = True
-        rotor_mem_limit = MEM_LIMIT * args.limit
-        rotor_mem_limit = 4 * GB
+    # elif args.benchmark == "rotor":
+    #     model = rotor.Checkpointable(model)
+    #     measure_sample = True
+    #     rotor_mem_limit = MEM_LIMIT * args.limit
+    #     rotor_mem_limit = 4 * GB
         
     # switch to train mode
     model.train()
@@ -303,11 +302,11 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         images = images.cuda(args.gpu, non_blocking=True)
         target = target.cuda(args.gpu, non_blocking=True)
         
-        if measure_sample:
-            print("Rotor measure sample", images.shape, rotor_mem_limit)
-            model.measure(images)
-            model.compute_sequence(mem_limit=rotor_mem_limit)
-            measure_sample = False
+        # if measure_sample:
+        #     print("Rotor measure sample", images.shape, rotor_mem_limit)
+        #     model.measure(images)
+        #     model.compute_sequence(mem_limit=rotor_mem_limit)
+        #     measure_sample = False
                   
         # measure data loading time
         data_time.update(-1)

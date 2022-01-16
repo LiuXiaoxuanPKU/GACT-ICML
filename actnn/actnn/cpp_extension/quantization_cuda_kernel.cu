@@ -38,6 +38,7 @@ __global__ void fuse_single_precision_kernel (int32_t bits,
   const int64_t global_thread_id = (no * num_groups + group_id) * group_size + d;
 
   __shared__ scalar_t min_red[8 * 256];
+  __shared__ scalar_t max_red[8 * 256];
   __shared__ scalar_t tmp_scale[9];
   
   for (int ni = 0; ni < work_per_thread; ni++) {
@@ -50,84 +51,36 @@ __global__ void fuse_single_precision_kernel (int32_t bits,
     scalar_t cur_val = data[id];
     int idx = ni * 256 + d;
     min_red[idx] = cur_val;
+    max_red[idx] = cur_val;
   }
 
   __syncthreads();
 
-  // for (int s = group_size / 2; s >= 32; s>>=1) {
-  //   if (d < s) {
-  //     for (int ni = 0; ni < work_per_thread; ni++) {
-  //       int idx = ni * 256 + d;
-  //       min_red[idx] = std::min(min_red[idx], min_red[idx + s]);
-  //       max_red[idx] = std::max(max_red[idx], max_red[idx + s]);
-  //     }
-  //   }
-  //   __syncthreads();
-  // }
-
-
-  for (int ni = 0; ni < work_per_thread; ni++) {
-    scalar_t max_val = -1e30;
-    scalar_t min_val = 1e30;
-
-    for (int64_t k1_outer = 0; k1_outer < group_size / 32; ++k1_outer) {
-      if (d + k1_outer * 32 < 256) {
-        max_val = std::max(max_val, min_red[ni * 256 + d + k1_outer * 32]);
-        min_val = std::min(min_val, min_red[ni * 256 + d + k1_outer * 32]);
+  for (int s = group_size / 2; s>0; s>>=1) {
+    if (d < s) {
+      for (int ni = 0; ni < work_per_thread; ni++) {
+        int idx = ni * 256 + d;
+        int ids = idx + s;
+        min_red[idx] = (min_red[idx] < min_red[ids]) ? min_red[idx] : min_red[ids];
+        max_red[idx] = (max_red[idx] > max_red[ids]) ? max_red[idx] : max_red[ids];
       }
     }
+    __syncthreads();
+  }
 
-    scalar_t max_val_t, min_val_t;
-    unsigned int mask = __activemask();
-
-    max_val_t = __shfl_down_sync(mask, (float)max_val, 16, 32);
-    max_val = std::max(max_val, max_val_t);
-    max_val_t = __shfl_down_sync(mask, (float)max_val, 8, 32);
-    max_val = std::max(max_val, max_val_t);
-    max_val_t = __shfl_down_sync(mask, (float)max_val, 4, 32);
-    max_val = std::max(max_val, max_val_t);
-    max_val_t = __shfl_down_sync(mask, (float)max_val, 2, 32);
-    max_val = std::max(max_val, max_val_t);
-    max_val_t = __shfl_down_sync(mask, (float)max_val, 1, 32);
-    max_val = std::max(max_val, max_val_t);
-    max_val = __shfl_sync(mask, (float)max_val, 0, 32);
-
-    min_val_t = __shfl_down_sync(mask, (float)min_val, 16, 32);
-    min_val = std::min(min_val, min_val_t);
-    min_val_t = __shfl_down_sync(mask, (float)min_val, 8, 32);
-    min_val = std::min(min_val, min_val_t);
-    min_val_t = __shfl_down_sync(mask, (float)min_val, 4, 32);
-    min_val = std::min(min_val, min_val_t);
-    min_val_t = __shfl_down_sync(mask, (float)min_val, 2, 32);
-    min_val = std::min(min_val, min_val_t);
-    min_val_t = __shfl_down_sync(mask, (float)min_val, 1, 32);
-    min_val = std::min(min_val, min_val_t);
-    min_val = __shfl_sync(mask, (float)min_val, 0, 32);
-
-    if (d == 0) {
-      tmp_scale[ni] = scalar_t((1 << bits) - 1) / (max_val -  min_val + 2e-6);
-      min_red[ni * 256] = min_val;
+  if (d == 0) {
+    for (int ni = 0; ni < work_per_thread; ni++) {
       const int64_t n = no * work_per_thread + ni;
       if (boundary_check && n >= N) { break; }
-      min[n * num_groups + group_id] = min_val;
+      scalar_t group_min = min_red[ni * 256];
+      scalar_t group_max= max_red[ni * 256];
+      tmp_scale[ni] = scalar_t((1 << bits) - 1) /
+                        (group_max -  group_min + 2e-6);
+      min[n * num_groups + group_id] = group_min;
       scale[n * num_groups + group_id] = tmp_scale[ni];
     }
   }
   __syncthreads();
-  
-  // if (d == 0) {
-  //   for (int ni = 0; ni < work_per_thread; ni++) {
-  //     const int64_t n = no * work_per_thread + ni;
-  //     if (boundary_check && n >= N) { break; }
-  //     scalar_t group_min = min_red[ni * 256];
-  //     scalar_t group_max= max_red[ni * 256];
-  //     tmp_scale[ni] = scalar_t((1 << bits) - 1) /
-  //                       (group_max -  group_min + 2e-6);
-  //     min[n * num_groups + group_id] = group_min;
-  //     scale[n * num_groups + group_id] = tmp_scale[ni];
-  //   }
-  // }
-  // __syncthreads();
 
   curandStatePhilox4_32_10_t state;
   curand_init(seeds.first, global_thread_id, seeds.second, &state);
@@ -137,6 +90,7 @@ __global__ void fuse_single_precision_kernel (int32_t bits,
     const int64_t n = no * work_per_thread + ni;
 
     if (boundary_check && n >= N) { break; }
+
     const float noise = curand_uniform(&state);
     const int64_t id = (int64_t)(n * num_groups + group_id) * group_size + d;
     scalar_t quantized = fmax((data[id] - min_red[ni * 256]) * tmp_scale[ni] + noise - 0.5, 0.0f);
@@ -145,6 +99,131 @@ __global__ void fuse_single_precision_kernel (int32_t bits,
   }
   packed[global_thread_id] = local_packed;
 }
+
+// __global__ void fuse_single_precision_kernel (int32_t bits,
+//                                              const scalar_t* __restrict__ data,
+//                                              int8_t* __restrict__ packed,
+//                                              scalar_t* __restrict__ scale,
+//                                              scalar_t* __restrict__ min,
+//                                              std::pair<uint64_t, uint64_t> seeds,
+//                                              int64_t N,
+//                                              int64_t num_groups,
+//                                              int64_t group_size,
+//                                              int64_t block_idx_y_base) {
+//   const int64_t no = blockIdx.y + block_idx_y_base;
+//   const int group_id = blockIdx.x;
+//   const int d = threadIdx.x;
+//   const int work_per_thread = 8 / bits;
+//   const int64_t global_thread_id = (no * num_groups + group_id) * group_size + d;
+
+//   __shared__ scalar_t min_red[8 * 256];
+//   __shared__ scalar_t tmp_scale[9];
+  
+//   for (int ni = 0; ni < work_per_thread; ni++) {
+//     const int64_t n = no * work_per_thread + ni;
+
+//     if (boundary_check && n >= N) { break; }
+
+//     const int64_t id = (n * num_groups + group_id) * group_size + d;
+
+//     scalar_t cur_val = data[id];
+//     int idx = ni * 256 + d;
+//     min_red[idx] = cur_val;
+//   }
+
+//   __syncthreads();
+
+//   // for (int s = group_size / 2; s >= 32; s>>=1) {
+//   //   if (d < s) {
+//   //     for (int ni = 0; ni < work_per_thread; ni++) {
+//   //       int idx = ni * 256 + d;
+//   //       min_red[idx] = std::min(min_red[idx], min_red[idx + s]);
+//   //       max_red[idx] = std::max(max_red[idx], max_red[idx + s]);
+//   //     }
+//   //   }
+//   //   __syncthreads();
+//   // }
+
+
+//   for (int ni = 0; ni < work_per_thread; ni++) {
+//     scalar_t max_val = -1e30;
+//     scalar_t min_val = 1e30;
+
+//     for (int64_t k1_outer = 0; k1_outer < group_size / 32; ++k1_outer) {
+//       if (d + k1_outer * 32 < 256) {
+//         max_val = std::max(max_val, min_red[ni * 256 + d + k1_outer * 32]);
+//         min_val = std::min(min_val, min_red[ni * 256 + d + k1_outer * 32]);
+//       }
+//     }
+
+//     scalar_t max_val_t, min_val_t;
+//     unsigned int mask = __activemask();
+
+//     max_val_t = __shfl_down_sync(mask, (float)max_val, 16, 32);
+//     max_val = std::max(max_val, max_val_t);
+//     max_val_t = __shfl_down_sync(mask, (float)max_val, 8, 32);
+//     max_val = std::max(max_val, max_val_t);
+//     max_val_t = __shfl_down_sync(mask, (float)max_val, 4, 32);
+//     max_val = std::max(max_val, max_val_t);
+//     max_val_t = __shfl_down_sync(mask, (float)max_val, 2, 32);
+//     max_val = std::max(max_val, max_val_t);
+//     max_val_t = __shfl_down_sync(mask, (float)max_val, 1, 32);
+//     max_val = std::max(max_val, max_val_t);
+//     max_val = __shfl_sync(mask, (float)max_val, 0, 32);
+
+//     min_val_t = __shfl_down_sync(mask, (float)min_val, 16, 32);
+//     min_val = std::min(min_val, min_val_t);
+//     min_val_t = __shfl_down_sync(mask, (float)min_val, 8, 32);
+//     min_val = std::min(min_val, min_val_t);
+//     min_val_t = __shfl_down_sync(mask, (float)min_val, 4, 32);
+//     min_val = std::min(min_val, min_val_t);
+//     min_val_t = __shfl_down_sync(mask, (float)min_val, 2, 32);
+//     min_val = std::min(min_val, min_val_t);
+//     min_val_t = __shfl_down_sync(mask, (float)min_val, 1, 32);
+//     min_val = std::min(min_val, min_val_t);
+//     min_val = __shfl_sync(mask, (float)min_val, 0, 32);
+
+//     if (d == 0) {
+//       tmp_scale[ni] = scalar_t((1 << bits) - 1) / (max_val -  min_val + 2e-6);
+//       min_red[ni * 256] = min_val;
+//       const int64_t n = no * work_per_thread + ni;
+//       if (boundary_check && n >= N) { break; }
+//       min[n * num_groups + group_id] = min_val;
+//       scale[n * num_groups + group_id] = tmp_scale[ni];
+//     }
+//   }
+//   __syncthreads();
+  
+//   // if (d == 0) {
+//   //   for (int ni = 0; ni < work_per_thread; ni++) {
+//   //     const int64_t n = no * work_per_thread + ni;
+//   //     if (boundary_check && n >= N) { break; }
+//   //     scalar_t group_min = min_red[ni * 256];
+//   //     scalar_t group_max= max_red[ni * 256];
+//   //     tmp_scale[ni] = scalar_t((1 << bits) - 1) /
+//   //                       (group_max -  group_min + 2e-6);
+//   //     min[n * num_groups + group_id] = group_min;
+//   //     scale[n * num_groups + group_id] = tmp_scale[ni];
+//   //   }
+//   // }
+//   // __syncthreads();
+
+//   curandStatePhilox4_32_10_t state;
+//   curand_init(seeds.first, global_thread_id, seeds.second, &state);
+
+//   uint8_t local_packed = 0;
+//   for (int ni = 0; ni < work_per_thread; ni++) {
+//     const int64_t n = no * work_per_thread + ni;
+
+//     if (boundary_check && n >= N) { break; }
+//     const float noise = curand_uniform(&state);
+//     const int64_t id = (int64_t)(n * num_groups + group_id) * group_size + d;
+//     scalar_t quantized = fmax((data[id] - min_red[ni * 256]) * tmp_scale[ni] + noise - 0.5, 0.0f);
+//     const int32_t val = __float2int_rn(quantized);
+//     local_packed |= (val << (ni * bits));
+//   }
+//   packed[global_thread_id] = local_packed;
+// }
 
 template<typename scalar_t, bool boundary_check>
 __global__ void fuse_single_precision_half_kernel (int32_t bits,

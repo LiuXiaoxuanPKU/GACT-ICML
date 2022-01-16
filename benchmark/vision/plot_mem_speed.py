@@ -39,11 +39,7 @@ def read_data(in_file):
 
         val_dict = json.loads(line)
 
-        # network, alg, batch_size, ips = val_dict['network'], val_dict['algorithm'],\
-        #         val_dict['batch_size'], val_dict['ips']
-        if 'benchmark' not in val_dict:
-            continue
-        network, alg, batch_size, ips = val_dict['network'], val_dict['benchmark'],\
+        network, alg, batch_size, ips = val_dict['network'], val_dict['algorithm'],\
                 val_dict['batch_size'], val_dict['ips']
 
         if ips < 0:
@@ -100,10 +96,15 @@ def method_to_marker(method):
 
 def method_to_color(method):
     val_dict = {
-        'exact': 'C1',
-        'actnn': 'C2',
-        'rotor': 'C3',
-        'dtr' : 'C4'
+        'FP32':'C1',
+        'None': 'C1',
+        'L1': 'C2',
+        'L1.2': 'C3',
+        'dtr' : 'C4',
+        'actnn-L1': 'C5',
+        'actnn-L2': 'C6',
+        'actnn-L3': 'C7',
+        'actnn-L4': 'C8',
     }
     if method in val_dict:
         return val_dict[method]
@@ -172,12 +173,14 @@ if __name__ == "__main__":
 
     # for network in ['resnet50', 'resnet152', 'densenet201', 'wide_resnet101_2']:
     for network in ['resnet50', 'resnet152']:
-        fig, ax = plt.subplots(figsize=(4, 1.6))
+        fig, ax = plt.subplots(figsize=(8, 3.2))
         algs = list(data[network].keys())
         algs.sort(key=method_to_order)
 
         # draw curves
         for alg in algs:
+            if alg == 'FP32' or alg == 'actnn-L3.1':
+                continue
             # if alg.startswith('quantize') and alg != 'quantize-best':
             #     continue
             # if alg == 'exact':
@@ -197,9 +200,9 @@ if __name__ == "__main__":
             ax.plot(xs[-1], ys[-1], color='C3', marker='x', markersize=6, zorder=100)
 
         # draw full precision region
-        exact_max_batch, exact_max_ips, _ = get_max_batch_size(data, 'exact', network)
-        max_batch, max_ips, last_ips = get_max_batch_size(data, 'actnn', network)
-        _, max_ips, swap_last_ips = get_max_batch_size(data, 'rotor', network)
+        exact_max_batch, exact_max_ips, _ = get_max_batch_size(data, "None", network)
+        max_batch, max_ips, last_ips = get_max_batch_size(data, 'L1.2', network)
+        _, _, swap_last_ips = get_max_batch_size(data, 'dtr', network)
         # _, _, swap_last_ips = get_max_batch_size(data, 'rotor', network)
         
         y_max = max(max_ips, exact_max_ips) * 1.2

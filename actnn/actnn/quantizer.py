@@ -48,20 +48,20 @@ class Quantizer:
     '''
 
     def check_quantize(self, input_tensor):
+        if input_tensor.data_ptr() in self.unrelated_tensors:
+            return False, False
+        if input_tensor.requires_grad is False:
+            return False, False
         if input_tensor.numel() > 0 and input_tensor.dtype == torch.uint8:
             if (input_tensor.max() == 1) and (input_tensor.min() == 0):
                 return True, True
             return False, False
         if input_tensor.dtype != torch.float32:
             return False, False
-        if input_tensor.requires_grad is False:
-            return False, False
         if ((len(input_tensor.shape) != 2)
             and (len(input_tensor.shape) != 3)
             and (len(input_tensor.shape) != 4)
             ):
-            return False, False
-        if input_tensor.data_ptr() in self.unrelated_tensors:
             return False, False
         return True, False
 
@@ -143,7 +143,6 @@ class Quantizer:
                     q_inputs[0] = q_input_cpu
             self.ptr_qtensor_map[key] = [q_inputs, 1, tid]
         else:
-            # print("===============Skip Quantize", tid)
             # increase the ref count
             self.ptr_qtensor_map[key][1] += 1
         return True, is_dropout_mask, key, input_shape, tid

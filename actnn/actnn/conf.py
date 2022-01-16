@@ -14,6 +14,10 @@ def set_optimization_level(level):
     elif level == 'L1.2':    # fixed 2-bit
         config.auto_prec = False
         config.bit = 2
+    elif level == 'L1.4':
+        config.auto_prec = False
+        config.bit = 4
+        config.swap = True
     elif level == 'L2.0': # auto precision 4-bit, do not check duplicate
         config.check_dup = False
         config.auto_prec = True
@@ -104,6 +108,7 @@ def set_optimization_level(level):
         config.auto_prec = True
         config.bit = 4
         config.swap = True
+        
     elif level == 'L3.1':  # auto precision + swap + prefetch + no_check_dup + no empty_cache
         config.auto_prec = True
         config.bit = 4

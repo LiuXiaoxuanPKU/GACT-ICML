@@ -179,6 +179,7 @@ def parse_args():
     parser.add_argument("--layer_num", type=int, default=24, help="Number of Bert layers")
     parser.add_argument("--hidden_size", type=int, default=1024, help="hidden size")
     parser.add_argument("--intermediate_size", type=int, default=4096, help='customize intermediate size')
+    parser.add_argument("--ckpt", action='store_true', help='enable gradient checkpoint')
     args = parser.parse_args()
 
     # Sanity checks
@@ -305,7 +306,10 @@ def main():
             from_tf=bool(".ckpt" in args.model_name_or_path),
             config=config,
         )
-    # model.gradient_checkpointing_enable()
+    if args.ckpt:
+        model.gradient_checkpointing_enable()
+        args.algo = 'ckpt'
+        
     model.to(args.device)
     if args.actnn:
         actnn.set_optimization_level(args.opt_level)

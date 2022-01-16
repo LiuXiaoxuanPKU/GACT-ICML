@@ -26,7 +26,12 @@ def run_benchmark(network, alg, batch_size, debug_mem=False, debug_speed=False,
     cmd = network_to_command(network)
     cmd = cmd.replace("BS", f"{batch_size}")
     
-    if alg != None:
+    if alg == 'ckpt':
+        cmd += " --ckpt "
+    elif alg == 'ckpt_actnnL1':
+        cmd += " --ckpt "
+        cmd += "--actnn --opt_level L1"
+    elif alg != None:
         cmd += " --output_dir log/sst2/LEVEL/ --actnn --opt_level LEVEL ".replace("LEVEL", alg)
         
     if debug_speed:
@@ -172,9 +177,8 @@ if __name__ == "__main__":
     if args.mode == 'linear_scan':
         networks = ['bert-large-cased']
         # batch_sizes = list(range(4, 20, 4)) + list(range(20, 240, 8))
-        batch_sizes = list(range(236, 300, 16))
-
-        algs = ['L1.2']
+        batch_sizes = list(range(100, 800, 16))
+        algs = ['L1.4']
     else:
         networks = ['bert-large-cased']
         algs = [None, 'L1', 'L1.2']

@@ -296,11 +296,11 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
     for (i, (images, target)) in enumerate(train_loader):
         start = torch.cuda.Event(enable_timing=True)
         end = torch.cuda.Event(enable_timing=True)
+        images = images.cuda(args.gpu, non_blocking=False)
+        target = target.cuda(args.gpu, non_blocking=False)
         
         torch.cuda.synchronize()
         start.record()
-        images = images.cuda(args.gpu, non_blocking=True)
-        target = target.cuda(args.gpu, non_blocking=True)
         
         # if measure_sample:
         #     print("Rotor measure sample", images.shape, rotor_mem_limit)
@@ -308,8 +308,6 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         #     model.compute_sequence(mem_limit=rotor_mem_limit)
         #     measure_sample = False
                   
-        # measure data loading time
-        data_time.update(-1)
 
         if config.debug_memory_model:
             print("========== Init Data Loader ===========")
@@ -364,8 +362,13 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         
         if i % args.print_freq == 0:
             progress.display(i)
+        
+        # measure elapsed time
+        end.record()
+        torch.cuda.synchronize()
+        cur_batch_time = start.elapsed_time(end) / 1000.0 # event in ms
 
-        # only use 32 batch size to get sensitivity
+        # only use 8 batch size to get sensitivity
         def backprop():
             partial_bz = 8
             partial_image = images[:partial_bz, :, :, :]
@@ -383,25 +386,9 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         bs = len(images)
         del images
         
-        # measure elapsed time
-        end.record()
-        torch.cuda.synchronize()
-        cur_batch_time = start.elapsed_time(end) / 1000.0 # event in ms
-        
-        if i > 0:
-            batch_total_time += cur_batch_time
-            
-        if i % 10 == 0 and i > 0:
-            if i == 10:
-                cnt = 9
-            else:
-                cnt = 10
-            avg_ips = cnt * bs / batch_total_time
-            batch_total_time = 0
-            ips.update(avg_ips)
-            if config.debug_speed:
-                train_ips_list.append(avg_ips)
-        
+        train_ips_list.append(bs / cur_batch_time)
+        batch_total_time += cur_batch_time
+           
         torch.cuda.empty_cache()
         if config.debug_speed:
             global train_step_ct, train_max_batch

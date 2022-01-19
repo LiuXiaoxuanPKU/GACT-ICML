@@ -1,3 +1,4 @@
+import torch
 from actnn.conf import config
 from actnn.quantizer import Quantizer
 from actnn.autoprec import AutoPrecision
@@ -32,11 +33,19 @@ class Controller:
 
     def quantize(self, input):
         if not config.compress_activation:
-            return input
+            if config.swap:
+                # swap to cpu
+                tensor_cpu = torch.empty(input.shape, dtype=input.dtype, device='cpu', pin_memory=True)
+                tensor_cpu.copy_(input, non_blocking=True)
+                return tensor_cpu
+            else:
+                return input
         return self.quantizer.quantize(input)
 
     def dequantize(self, input):
         if not config.compress_activation:
+            if config.swap:
+                 input = input.cuda(non_blocking=True)
             return input
         return self.quantizer.dequantize(input)
 

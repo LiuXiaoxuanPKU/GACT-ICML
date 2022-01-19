@@ -10,54 +10,52 @@ from torch.utils.cpp_extension import load
 from actnn.conf import config
 from actnn.utils import empty_cache
 import actnn.cpp_extension.quantization as ext_quantization
+import actnn.cpp_extension.minimax as ext_minimax
 import torch.utils.checkpoint as checkpoint
 
 
 def no_scheme_quantize_pack(input, q_bit):
-    if input.numel() % config.group_size == 0:
-        num_group = input.numel() // config.group_size
-    else:
-        num_group = input.numel() // config.group_size + 1
-    num_ele = num_group * config.group_size
+    N = (input.numel() + config.group_size - 1) //  config.group_size
+    num_ele = N * config.group_size
     pad_num = num_ele - input.numel() 
     if pad_num > 0:
         input = torch.cat([input.reshape(1, -1), torch.zeros([1, pad_num], 
                                             dtype=input.dtype, device=input.device)], dim=1)
 
-    input_groups = input.reshape(num_group, 1, config.group_size)
-    
-    pack_func = ext_quantization.minimax_quantize_single_precision
+    input_groups = input.reshape(-1, config.group_size)  
+          
     if q_bit == 32:  # TODO, use kernel to optimize this
         q_min = input_groups.min(dim=-1, keepdim=True).values
         q_scale = input_groups.max(dim=-1, keepdim=True).values - q_min
         q_input = input_groups
     else:
-        q_input, q_scale, q_min = pack_func(input_groups, q_bit)
+        q_min, mx = ext_minimax.minimax(input_groups)
+        input_groups = input_groups.view(N, -1, config.group_size)
+        q_min = q_min.reshape(N, -1, 1)
+        mx = mx.view(N, -1, 1)
+        q_input, q_scale = ext_quantization.pack_single_precision(input_groups, q_min, mx, q_bit, True)
+        del mx
     return q_input, q_scale, q_min
 
 
 def dequantize_and_unpack(data, shape, q_bit, scale, mn):
-    group_size = config.group_size
-    if np.prod(shape) %  group_size == 0:
-        num_groups = int(np.prod(shape)) // group_size
-    else:
-        num_groups = int(np.prod(shape)) // group_size + 1
-
     if not isinstance(q_bit, int):
         print("bits must be intergers, now bits ", q_bit)
         assert(False)
-
+        
     if q_bit == 32:
-        pass
-    else:
-        unpack_func = ext_quantization.unpack_single_precision
-        data = unpack_func(
-            data, q_bit, scale, mn, num_groups, 1, group_size
-        )
-    return data
+        return data
+        
+    group_size = config.group_size
+    unpack_func = ext_quantization.unpack_single_precision
+    num_groups = (int(np.prod(shape)) + group_size - 1)  // group_size
+    return unpack_func(
+        data, q_bit, scale, mn, num_groups, 1, group_size
+    )
+
 
 def op_quantize_mask(input):
-    return [ext_quantization.act_quantize_dropout_mask(input), input.shape]
+    return [ext_quantization.act_quantize_dropout_mask(input.contiguous()), input.shape]
 
 def op_dequantize_mask(input):
     q_mask, input_shape = input
@@ -65,13 +63,11 @@ def op_dequantize_mask(input):
     return output
 
 def op_quantize(input, q_bit):
-    empty_cache(config.empty_cache_threshold)
     q_input, q_scale, q_min = no_scheme_quantize_pack(input, q_bit)
     return [q_input, q_bit, q_scale, q_min]
 
 
 def op_dequantize(input, input_shape, inject_noise):
-    empty_cache(config.empty_cache_threshold)
     q_input, q_bit, q_scale, q_min = input
     input = dequantize_and_unpack(
         q_input, input_shape, q_bit, q_scale, q_min)
@@ -93,7 +89,6 @@ def op_dequantize(input, input_shape, inject_noise):
     num_features = np.prod(input_shape)
     input = input.ravel()[:num_features]
     input = input.reshape(*input_shape).contiguous()
-    # empty_cache(config.empty_cache_threshold)
     return input
 
 

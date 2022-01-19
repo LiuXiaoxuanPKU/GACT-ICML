@@ -109,7 +109,7 @@ class Quantizer:
             return True, is_dropout_mask, q_inputs, input.shape
 
         if self.iter == 0:
-            self.dims.append(input.numel() // input.shape[0])
+            self.dims.append(input.numel())
             self.bits.append(int(self.default_bit))
             self.inject_noises.append(False)
 

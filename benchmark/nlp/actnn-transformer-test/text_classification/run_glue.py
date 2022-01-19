@@ -180,6 +180,7 @@ def parse_args():
     parser.add_argument("--hidden_size", type=int, default=1024, help="hidden size")
     parser.add_argument("--intermediate_size", type=int, default=4096, help='customize intermediate size')
     parser.add_argument("--ckpt", action='store_true', help='enable gradient checkpoint')
+    parser.add_argument("--eff", action='store_true', help='efficient softmax')
     args = parser.parse_args()
 
     # Sanity checks
@@ -301,6 +302,8 @@ def main():
         model = BertForSequenceClassification(config)        # I assume that we only use BERT.
     else:
         config = AutoConfig.from_pretrained(args.model_name_or_path, num_labels=num_labels, finetuning_task=args.task_name)
+        if args.eff:
+            config.efficient_softmax = True
         model = AutoModelForSequenceClassification.from_pretrained(
             args.model_name_or_path,
             from_tf=bool(".ckpt" in args.model_name_or_path),
@@ -308,13 +311,19 @@ def main():
         )
     if args.ckpt:
         model.gradient_checkpointing_enable()
-        args.algo = 'ckpt'
         
     model.to(args.device)
     if args.actnn:
         actnn.set_optimization_level(args.opt_level)
         controller = Controller(model)
 
+    if args.ckpt and args.actnn:
+        args.opt_level += '_ckpt'
+    elif args.ckpt:
+        args.opt_level = 'ckpt'
+    if args.eff:
+        args.opt_level += '_eff'
+            
     # Preprocessing the datasets
     if args.task_name is not None:
         sentence1_key, sentence2_key = task_to_keys[args.task_name]
@@ -542,10 +551,11 @@ def main():
                 if args.get_mem and iter > 1:
                     # accelerator.print("===============Before Backward=======================")
                     torch.cuda.synchronize()
-                    before_backward = get_memory_usage(False)
+                    before_backward = get_memory_usage(True)
                 optimizer.zero_grad()
                 # accelerator.backward(loss)
                 loss.backward()
+                torch.utils.checkpoint.first_iter = False
                 if args.get_mem and iter > 1:
                     # accelerator.print("===============After Backward=======================")
                     torch.cuda.synchronize()
@@ -563,17 +573,21 @@ def main():
                         torch.cuda.max_memory_allocated())
                     del loss
                     del outputs
-                    break
-                
+                    
+                    accelerator.print("peak %d MB" % (peak_mem.get_value() / 1024 / 1024))
+                    accelerator.print("total %d MB" % (total_mem.get_value() / 1024 / 1024))
+                    accelerator.print("activation %d MB" % (activation_mem.get_value() / 1024 / 1024))
+                    exit(0)
+                    
                 if args.get_speed and iter > 1:
                     end.record()
                     torch.cuda.synchronize()
                     cur_batch_time = start.elapsed_time(end) / 1000.0 # event in ms
                     batch_total_time += cur_batch_time
                     
-                    if iter == 10:
+                    if iter == 6:
                         bs = args.per_device_train_batch_size
-                        train_ips = 9 * bs / batch_total_time
+                        train_ips = 5 * bs / batch_total_time
                         res = "BatchSize: %d\tIPS: %.2f\t,Cost: %.2f ms" % (
                             bs, train_ips, 1000.0 / train_ips)
                         print(res, flush=True)
@@ -611,6 +625,9 @@ def main():
                         optimizer.zero_grad()
                         # accelerator.backward(loss)
                         loss.backward()
+                        del loss
+                        del outputs
+                        del small_batch
                     controller.iterate(backprop)
 
             with torch.no_grad():
@@ -665,11 +682,6 @@ def main():
 
         #     eval_metric = metric.compute()
         #     logger.info(f"mnli-mm: {eval_metric}")
-
-    if args.get_mem:
-        accelerator.print("peak %d MB" % (peak_mem.get_value() / 1024 / 1024))
-        accelerator.print("total %d MB" % (total_mem.get_value() / 1024 / 1024))
-        accelerator.print("activation %d MB" % (activation_mem.get_value() / 1024 / 1024))
 
     # eval_metric = metric.compute()
     # logger.info(f"epoch {epoch}: {eval_metric}")

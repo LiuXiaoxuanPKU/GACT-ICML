@@ -21,21 +21,27 @@ def network_to_command(network):
 
 def run_benchmark(network, alg, batch_size, debug_mem=False, debug_speed=False,
                 hidden_size=None, layer_num=None, intermediate_size=None, get_macs=False):
-    os.environ['DEBUG_MEM'] = str(debug_mem)
     os.environ['DEBUG_SPEED'] = str(debug_speed)
     cmd = network_to_command(network)
     cmd = cmd.replace("BS", f"{batch_size}")
     
     if alg == 'ckpt':
         cmd += " --ckpt "
-    elif alg == 'ckpt_actnnL1':
+    elif alg == 'L1_ckpt':
         cmd += " --ckpt "
-        cmd += "--actnn --opt_level L1"
+        cmd += " --actnn --opt_level L1 "
+    elif alg == 'L1_ckpt_eff':
+        cmd += " --ckpt "
+        cmd += " --actnn --opt_level L1 "
+        cmd += " --eff "
     elif alg != None:
         cmd += " --output_dir log/sst2/LEVEL/ --actnn --opt_level LEVEL ".replace("LEVEL", alg)
         
     if debug_speed:
         cmd += " --get_speed "
+    
+    if debug_mem:
+        cmd += " --get_mem "
     
     if intermediate_size is not None:
         cmd += f" --customize "
@@ -177,8 +183,8 @@ if __name__ == "__main__":
     if args.mode == 'linear_scan':
         networks = ['bert-large-cased']
         # batch_sizes = list(range(4, 20, 4)) + list(range(20, 240, 8))
-        batch_sizes = list(range(100, 800, 16))
-        algs = ['L1.4']
+        batch_sizes = list(range(16, 500, 16))
+        algs = ['L1', 'L1.4']
     else:
         networks = ['bert-large-cased']
         algs = [None, 'L1', 'L1.2']
@@ -191,8 +197,7 @@ if __name__ == "__main__":
                     if run_benchmark(network, alg, batch_size, debug_mem=False, debug_speed=True) != 0:
                         if failed >= args.retry:
                             break
-                        failed += 1
-                                               
+                        failed += 1                                            
     elif args.mode == 'binary_search_max_batch':
         for network in networks:
             for alg in algs:
@@ -286,3 +291,50 @@ if __name__ == "__main__":
                 }
                 fout.write(json.dumps(val_dict) + "\n")
             print(f"save results to {out_file}")
+    elif args.mode == 'swap_prefetch':
+        networks = ['bert-large-cased', 'bert-base-cased']
+        batch_size = 16
+        for network in networks:
+            # original
+            alg = None
+            run_benchmark(network, alg, batch_size, debug_mem=True, debug_speed=False)
+            
+            # swap unquantized tensor
+            alg = 'swap'
+            run_benchmark(network, alg, batch_size, debug_mem=True, debug_speed=False)
+            
+            # # swap actnn 4 bit blocking
+            # alg = 'L4bit-block'
+            # run_benchmark(network, alg, batch_size, debug_mem=False, debug_speed=True)
+            
+            # swap actnn 4 bit
+            alg = 'L4bit-swap'
+            run_benchmark(network, alg, batch_size, debug_mem=True, debug_speed=False)
+            
+            # swap actnn 4 bit + prefetch
+            alg = 'L4bit-swap-prefetch'
+            run_benchmark(network, alg, batch_size, debug_mem=True, debug_speed=False)
+    elif args.mode == 'ckpt-softmax':
+        networks = ['bert-large-cased', 'bert-base-cased']
+        batch_size = 16
+        for network in networks:
+            # original
+            alg = None
+            run_benchmark(network, alg, batch_size, debug_mem=True, debug_speed=False)
+            
+            # swap unquantized tensor
+            alg = 'ckpt'
+            run_benchmark(network, alg, batch_size, debug_mem=True, debug_speed=False)
+            
+            # swap actnn 4 bit
+            alg = 'L1_ckpt'
+            run_benchmark(network, alg, batch_size, debug_mem=True, debug_speed=False)
+            
+            # swap actnn 4 bit + prefetch
+            alg = 'L1_ckpt_eff'
+            run_benchmark(network, alg, batch_size, debug_mem=True, debug_speed=False)      
+    elif args.mode == 'mem':
+        network = 'bert-large-cased'
+        batch_size = 16
+        alg = 'L2.4'
+        run_benchmark(network, alg, batch_size, debug_mem=True, debug_speed=False)

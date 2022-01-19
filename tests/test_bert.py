@@ -98,7 +98,6 @@ def test_self_atten_correctness():
     config_opt = AutoConfig.from_pretrained(model_name, num_labels=2)
     config_opt.attention_probs_dropout_prob = 0
     config_opt.efficient_softmax = True
-    config_opt.nested_checkpoint = False
     setup_seed(0)
     layer_opt = BertSelfAttention(
         config_opt, position_embedding_type=None).cuda()
@@ -106,7 +105,6 @@ def test_self_atten_correctness():
     config_org = AutoConfig.from_pretrained(model_name, num_labels=2)
     config_org.attention_probs_dropout_prob = 0
     config_org.efficient_softmax = False
-    config_org.nested_checkpoint = False
     setup_seed(0)
     layer_org = BertSelfAttention(
         config_org, position_embedding_type=None).cuda()
@@ -117,17 +115,17 @@ def test_self_atten_correctness():
     np.testing.assert_allclose(output_opt, output_org, rtol=1e-5, atol=1e-5)
     np.testing.assert_allclose(grad_opt, grad_org, rtol=1e-5, atol=1e-5)
 
-    # ======================= Checkpoint ================================
-    config_ckpt = AutoConfig.from_pretrained(model_name, num_labels=2)
-    config_ckpt.attention_probs_dropout_prob = 0
-    setup_seed(0)
-    config_opt.efficient_softmax = False
-    config_opt.nested_checkpoint = True
-    layer_ckpt = BertSelfAttention(
-        config_opt, position_embedding_type=None).cuda()
-    output_ckpt, grad_ckpt = test_implementation(layer_ckpt)
-    np.testing.assert_allclose(output_ckpt, output_org, atol=1e-5, rtol=1e-5)
-    np.testing.assert_allclose(grad_ckpt, grad_org, atol=1e-5, rtol=1e-5)
+    # # ======================= Checkpoint ================================
+    # config_ckpt = AutoConfig.from_pretrained(model_name, num_labels=2)
+    # config_ckpt.attention_probs_dropout_prob = 0
+    # setup_seed(0)
+    # config_opt.efficient_softmax = False
+    # config_opt.nested_checkpoint = True
+    # layer_ckpt = BertSelfAttention(
+    #     config_opt, position_embedding_type=None).cuda()
+    # output_ckpt, grad_ckpt = test_implementation(layer_ckpt)
+    # np.testing.assert_allclose(output_ckpt, output_org, atol=1e-5, rtol=1e-5)
+    # np.testing.assert_allclose(grad_ckpt, grad_org, atol=1e-5, rtol=1e-5)
 
 
 def test_bert_layer_correctness():
@@ -316,8 +314,8 @@ def test_bert_layer_speed():
 
 if __name__ == "__main__":
     # test_batchnorm_quantize()
-    test_layernorm_quantize()
-    # test_self_atten_correctness()
+    # test_layernorm_quantize()
+    test_self_atten_correctness()
     # test_bert_layer_correctness()
     # test_bert_layer_speed()
     # test_atten_quantize_correctness()

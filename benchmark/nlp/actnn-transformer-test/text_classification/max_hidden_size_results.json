@@ -1,0 +1,3 @@
+{"network": "bert-large-cased", "algorithm": null, "max_hidden_size": 1280, "ips": 13.06, "macs": 837544878080.0, "params": 410838786.0, "TFLOPS": 0.68, "tstamp": 1642224865.752668}
+{"network": "bert-large-cased", "algorithm": "L1", "max_hidden_size": 1920, "ips": 6.96, "macs": 1497928888320.0, "params": 735402626.0, "TFLOPS": 0.65, "tstamp": 1642225484.8299115}
+{"network": "bert-large-cased", "algorithm": "L1.2", "max_hidden_size": 1936, "ips": 6.37, "macs": 1516502254080.0, "params": 744534834.0, "TFLOPS": 0.6, "tstamp": 1642226053.1314046}

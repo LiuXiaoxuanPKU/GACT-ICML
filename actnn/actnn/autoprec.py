@@ -126,18 +126,82 @@ class AutoPrecision:
         if self.iter == 0:
             # Do full adaptation
             print('ActNN: Initializing AutoPrec...')
-            det_grad = get_grad()
+            # Option 1: different bits
+            # self.quantizer.bits = [32 for bit in self.bits]
+            # det_grad = get_grad()
+            # for l in range(self.L):
+            #     print("%d/%d" % (l, self.L))
+            #     self.quantizer.bits[l] = 1
+            #     grad = get_grad()
+            #     sens = ((grad - det_grad) ** 2).sum()
+            #     del grad
+            #     if torch.isnan(sens) or torch.isinf(sens) or sens > 1e10:
+            #         sens = 1e10
+            #     self.C[l] = sens
+            #     self.quantizer.bits[l] = 32
+
+            # Option 2: different random seeds
             for l in range(self.L):
                 print("%d/%d" % (l, self.L))
-                self.quantizer.inject_noises[l] = True
-                grad = get_grad()
-                sens = ((det_grad - grad) ** 2).sum() * 4
-                del grad
-                if torch.isnan(sens) or torch.isinf(sens):
+                b = self.quantizer.bits[l]
+                self.quantizer.bits[l] = 1
+                grad0 = get_grad()
+                self.quantizer.seeds[l] += 1
+                grad1 = get_grad()
+                self.quantizer.seeds[l] -= 1
+                sens = ((grad0 - grad1) ** 2).sum()
+                del grad0
+                del grad1
+                if torch.isnan(sens) or torch.isinf(sens) or sens > 1e10:
                     sens = 1e10
                 self.C[l] = sens
-                self.quantizer.inject_noises[l] = False
-            self.refresh_bits()
+                self.quantizer.bits[l] = b
+
+            # Option 3: inject noise
+            # det_grad = get_grad()
+            # for l in range(self.L):
+            #     print("%d/%d" % (l, self.L))
+            #     self.quantizer.inject_noises[l] = True                
+            #     grad = get_grad()
+            #     sens = ((grad - det_grad) ** 2).sum() / 4
+            #     del grad
+            #     if torch.isnan(sens) or torch.isinf(sens) or sens > 1e10:
+            #         sens = 1e10
+            #     self.C[l] = sens
+            #     self.quantizer.inject_noises[l] = False
+
+            # self.refresh_bits()
+
+            # Output debug information                        
+            # for l in range(self.L):
+            #     print(l, 'Sensitivity: ', self.C[l].item(), ' bits: ', self.bits[l].item())
+            # predicted_var = (self.C * 2 ** (-2.0 * (self.bits - 1))).sum()
+            # print('Predicted var ap ', predicted_var.item())
+            
+            # grad = get_grad()
+            # self.quantizer.bits = [32 for bit in self.bits]
+            # det_grad = get_grad()
+            # ap_var = ((grad - det_grad)**2).sum()
+            # print('ap var', ap_var.item())
+            # for b in [1, 2, 4, 8]:
+            #     quant_var = 0
+            #     for iter in range(10):
+            #         self.quantizer.bits = [b for bit in self.bits]
+            #         for l in range(self.L):
+            #             self.quantizer.seeds[l] += 1
+            #         grad = get_grad()
+            #         var = ((grad - det_grad)**2).sum()
+            #         print(var)
+            #         quant_var += var
+
+            #     for l in range(self.L):
+            #         self.quantizer.seeds[l] = l
+
+            #     quant_var /= 10
+            #     predicted_var = (self.C * 2 ** (-2.0 * (b - 1))).sum()
+            #     print(b, ' bit ', quant_var.item(), predicted_var.item())
+       
+            # exit(0)
 
         elif self.iter % self.adapt_interval == 0:
             det_grad = get_grad()
@@ -145,19 +209,43 @@ class AutoPrecision:
                 self.perm = torch.randperm(self.L)
             l = self.perm[-1]
             self.perm = self.perm[:-1]
-
-            self.quantizer.inject_noises[l] = True
-            grad = get_grad()
-            sens = ((det_grad - grad) ** 2).sum() * 4  # Hack: always use 2bit
-            del grad
-            if torch.isnan(sens) or torch.isinf(sens):
+            
+            b = self.quantizer.bits[l]
+            self.quantizer.bits[l] = 1
+            grad0 = get_grad()
+            self.quantizer.seeds[l] += 1
+            grad1 = get_grad()
+            self.quantizer.seeds[l] -= 1
+            sens = ((grad0 - grad1) ** 2).sum()
+            # print('Adapting layer ', self.bits[l].item(), l, grad0.norm(), grad1.norm(), sens)
+            del grad0
+            del grad1
+            if torch.isnan(sens) or torch.isinf(sens) or sens > 1e10:
                 sens = 1e10
             self.C[l] = sens
-            self.quantizer.inject_noises[l] = False
-            self.refresh_bits()
-            # print(self.C)
+            self.quantizer.bits[l] = b
+
             # print(self.bits)
-            # print("\n")
+            # print('Before: ', self.quantizer.bits)
+            self.refresh_bits()
+            # print('After: ', self.quantizer.bits)
+            
+            # grad = get_grad()
+            # self.quantizer.bits = [32 for bit in self.bits]
+            # det_grad = get_grad()
+            # ap_var = ((grad - det_grad)**2).sum()
+            # print('ap var', ap_var.item())
+            # for b in [1, 2, 4, 8]:
+            #     quant_var = 0
+            #     for iter in range(1):
+            #         self.quantizer.bits = [b for bit in self.bits]
+            #         grad = get_grad()
+            #         var = ((grad - det_grad)**2).sum()
+            #         quant_var += var
+
+            #     predicted_var = (self.C * 2 ** (-2.0 * (b - 1))).sum()
+            #     print(b, ' bit ', quant_var.item(), predicted_var.item())
+            # self.quantizer.bits = [bit.item() for bit in self.bits]
 
         if self.iter % self.log_iter == 0:
             if det_grad is None:

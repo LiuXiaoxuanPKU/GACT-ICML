@@ -33,6 +33,7 @@ class Quantizer:
 
         # data collected for auto precision
         self.inject_noises = []
+        self.seeds = []
         self.bits = []
         self.dims = []
 
@@ -105,13 +106,15 @@ class Quantizer:
         # special case: use 1 bit to quantize dropout mask
         if is_dropout_mask:
             input = input.to(torch.float32)
-            q_inputs = op_quantize(input, 1)
+            q_inputs = op_quantize(input, 1, 0)
             return True, is_dropout_mask, q_inputs, input.shape
 
         if self.iter == 0:
             self.dims.append(input.numel() // input.shape[0])
             self.bits.append(int(self.default_bit))
             self.inject_noises.append(False)
+            self.seeds.append(self.tid)
+            print('Tensor ', self.tid, input.shape, input.grad_fn, input.dtype)
 
         tid = self.tid
         self.tid += 1
@@ -125,7 +128,7 @@ class Quantizer:
         if not skip_quantize:
             # quantize
             # use tid as quantize seed
-            q_inputs = op_quantize(input, bit, tid)
+            q_inputs = op_quantize(input, bit, self.seeds[tid])
             if self.swap:
                 with torch.cuda.stream(self.swap_out_stream):
                     self.swap_out_stream.wait_stream(self.compute_stream)

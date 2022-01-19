@@ -105,7 +105,7 @@ class Quantizer:
         # special case: use 1 bit to quantize dropout mask
         if is_dropout_mask:
             input = input.to(torch.float32)
-            q_inputs = op_quantize(input, 1)
+            q_inputs = op_quantize(input, 1, 0)
             return True, is_dropout_mask, q_inputs, input.shape
 
         if self.iter == 0:

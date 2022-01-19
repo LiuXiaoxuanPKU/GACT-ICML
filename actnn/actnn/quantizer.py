@@ -86,7 +86,7 @@ class Quantizer:
         # sample 100 elements data pointer as the key
         sample_cnt = min(100, t.numel())
         key = uniform_sample(t, sample_cnt, add_dataptr=True)
-        key.append(t.sum())
+        key.append(t.sum().item())
         return tuple(key)
 
     def quantize(self, input):
@@ -99,7 +99,7 @@ class Quantizer:
             # debug does not quantize dropout mask
             if is_dropout_mask:
                 return False, input
-            ret = op_quantize(input, self.default_bit)
+            ret = op_quantize(input, self.default_bit, 0)
             return True, ret, input.shape
 
         # special case: use 1 bit to quantize dropout mask
@@ -124,7 +124,8 @@ class Quantizer:
 
         if not skip_quantize:
             # quantize
-            q_inputs = op_quantize(input, bit)
+            # use tid as quantize seed
+            q_inputs = op_quantize(input, bit, tid)
             if self.swap:
                 with torch.cuda.stream(self.swap_out_stream):
                     self.swap_out_stream.wait_stream(self.compute_stream)

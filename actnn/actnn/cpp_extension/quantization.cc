@@ -17,7 +17,7 @@ using torch::IntArrayRef;
 // Pack and unpack
 Tensor unpack_single_precision_cuda(
     Tensor data, int bits, Tensor scale, Tensor min, int64_t N, int64_t num_groups, int group_size);
-tensor_list minimax_quantize_single_precision_cuda(Tensor data, int bits);
+tensor_list minimax_quantize_single_precision_cuda(Tensor data, int bits, uint64_t seed);
 
 // ActQuantizedReLU
 std::pair<Tensor, Tensor> act_quantized_relu_forward_cuda(Tensor data);
@@ -40,11 +40,11 @@ Tensor unpack_single_precision(Tensor data,
                                       N, num_groups, group_size);
 }
 
-tensor_list minimax_quantize_single_precision(Tensor data, int bits) {
+tensor_list minimax_quantize_single_precision(Tensor data, int bits, int seed) {
   // CHECK_CUDA_TENSOR_DIM_FLOAT(data, 2);
   // return minimax_quantize_single_precision_cuda(data, bits);
   CHECK_CUDA_TENSOR_DIM_FLOAT(data, 3);
-  return minimax_quantize_single_precision_cuda(data, bits);
+  return minimax_quantize_single_precision_cuda(data, bits, (uint64_t)seed);
 }
 
 // Activation quantized relu: use compressed bit stream to store activation

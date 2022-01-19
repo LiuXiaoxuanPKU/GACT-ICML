@@ -12,7 +12,7 @@ import actnn.cpp_extension.quantization as ext_quantization
 import torch.utils.checkpoint as checkpoint
 
 
-def no_scheme_quantize_pack(input, q_bit):
+def no_scheme_quantize_pack(input, q_bit, seed):
     N = input.shape[0]
     input_flatten = input.reshape(N, -1)
     num_features = input_flatten.shape[1]
@@ -40,7 +40,7 @@ def no_scheme_quantize_pack(input, q_bit):
         q_scale = input_groups.max(dim=-1, keepdim=True).values - q_min
         q_input = input_groups
     else:
-        q_input, q_scale, q_min = pack_func(input_groups, q_bit)
+        q_input, q_scale, q_min = pack_func(input_groups, q_bit, seed)
     return q_input, q_scale, q_min
 
 
@@ -68,8 +68,8 @@ def dequantize_and_unpack(data, shape, q_bit, scale, mn):
     return data
 
 
-def op_quantize(input, q_bit):
-    q_input, q_scale, q_min = no_scheme_quantize_pack(input, q_bit)
+def op_quantize(input, q_bit, seed):
+    q_input, q_scale, q_min = no_scheme_quantize_pack(input, q_bit, seed)
     return [q_input, q_bit, q_scale, q_min]
 
 

@@ -35,22 +35,25 @@ def test_quantize_mask():
 
 
 def test_quantize_error():
+    seed = 3
+    torch.manual_seed(1)
     input_shape = (64, 3, 224, 224)
-    input = torch.rand(input_shape).to("cuda")
+    input = torch.rand(input_shape, device='cuda')
+    # print(torch.rand((1,2), device='cuda'))
     ones_input = torch.ones(input_shape).to("cuda")
     print("==========  Quantization Error Rate Test ==========")
     print("1 bit error rate (value between 0 and 1): ")
-    error_rate(op_dequantize(op_quantize(input, 1), input_shape, False), input)
+    error_rate(op_dequantize(op_quantize(input, 1, seed), input_shape, False), input)
     print("1 bit error rate (value = 0 or 1): ")
-    error_rate(op_dequantize(op_quantize(ones_input, 1),
+    error_rate(op_dequantize(op_quantize(ones_input, 1, seed),
                input_shape, False), ones_input)
     print("2 bit error rate: ")
-    error_rate(op_dequantize(op_quantize(input, 2), input_shape, False), input)
+    error_rate(op_dequantize(op_quantize(input, 2, seed), input_shape, False), input)
     print("4 bit error rate: ")
-    error_rate(op_dequantize(op_quantize(input, 4), input_shape, False), input)
+    error_rate(op_dequantize(op_quantize(input, 4, seed), input_shape, False), input)
     print("8 bit error rate: ")
-    error_rate(op_dequantize(op_quantize(input, 8), input_shape, False), input)
-
+    error_rate(op_dequantize(op_quantize(input, 8, seed), input_shape, False), input)
+    print(torch.rand((1,2), device='cuda'))
 
 def test_quantize_big_min():
     input_shape = (65535 * 10, 256)
@@ -273,11 +276,11 @@ def test_self_atten_saved_tensors():
 
 
 if __name__ == "__main__":
-    test_quantize_32bit()
+    # test_quantize_32bit()
     # test_quantize_1bit()
     # test_quantize_mask()
     # test_quantize_big_min()
-    # test_quantize_error()
+    test_quantize_error()
     # test_quantize_big_error()
     # test_self_atten_correctness()
     # test_self_atten_memory()

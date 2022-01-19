@@ -17,6 +17,7 @@ using torch::IntArrayRef;
 using torch::Tensor;
 using torch::autograd::tensor_list;
 
+
 /****************************************/
 /***** Pack/Unpack Single Precision *****/
 /****************************************/
@@ -236,7 +237,8 @@ __global__ void fuse_single_precision_half_kernel (int32_t bits,
   packed[global_thread_id] = local_packed;
 }
 
-tensor_list minimax_quantize_single_precision_cuda(Tensor data, int bits) {
+
+tensor_list minimax_quantize_single_precision_cuda(Tensor data, int bits, uint64_t seed) {
   int64_t N = data.size(0);
   int64_t num_groups = data.size(1);
   int group_size = data.size(2);
@@ -254,13 +256,16 @@ tensor_list minimax_quantize_single_precision_cuda(Tensor data, int bits) {
   Tensor scale = torch::empty({N, num_groups, 1}, options_minimax);
 
   // Random number generator
-  auto gen = at::check_generator<at::CUDAGeneratorImpl>(at::cuda::detail::getDefaultCUDAGenerator());
+  // auto gen = at::check_generator<at::CUDAGeneratorImpl>(at::cuda::detail::getDefaultCUDAGenerator());
+  auto gen = at::cuda::detail::createCUDAGenerator();
+  auto gen_impl = at::check_generator<at::CUDAGeneratorImpl>(gen);
   std::pair<uint64_t, uint64_t> rng_engine_inputs;
   {
     int threads = 256;
     // See Note [Acquire lock when using random generators]
-    std::lock_guard<std::mutex> lock(gen->mutex_);
-    rng_engine_inputs = gen->philox_engine_inputs(threads * work_per_thread);
+    std::lock_guard<std::mutex> lock(gen_impl->mutex_);
+    gen_impl->set_current_seed(seed);
+    rng_engine_inputs = gen_impl->philox_engine_inputs(threads * work_per_thread);
   };
 
   // Pack

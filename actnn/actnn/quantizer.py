@@ -38,6 +38,7 @@ class Quantizer:
         self.dims = []
 
         self.iter = 0
+        self.bwd_fns = []
 
     def filter_tensors(self, pairs):
         for k, v in pairs:
@@ -82,6 +83,7 @@ class Quantizer:
         # print(self.bits)
 
     def generate_tensor_key(self, t, tid):
+        return tid
         if not t.is_contiguous():
             return (tid)
         # sample 100 elements data pointer as the key
@@ -125,6 +127,7 @@ class Quantizer:
         self.layer_key_map[tid] = key
         skip_quantize = key in self.ptr_qtensor_map
 
+        self.bwd_fns.append(str(type(input.grad_fn)))
         if not skip_quantize:
             # quantize
             # use tid as quantize seed

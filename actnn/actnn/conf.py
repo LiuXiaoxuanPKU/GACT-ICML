@@ -48,7 +48,7 @@ class QuantizationConfig:
         self.group_size = 256
         self.auto_prec = True
         self.work_dir = "./log/" 
-        self.adapt_interval = 20
+        self.adapt_interval = 1
         self.sample_grad_ratio = 1.0
         self.sample_method = 'uniform'
 

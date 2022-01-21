@@ -263,7 +263,6 @@ class AutoPrecision:
                 self.quantizer.bits = [bit.item() for bit in self.bits]
 
         elif self.iter % self.adapt_interval == 0:
-<<<<<<< HEAD
             if False: # Disable adaptation
                 if len(self.perm) == 0:
                     self.perm = torch.randperm(self.L)
@@ -313,72 +312,6 @@ class AutoPrecision:
                     predicted_var = (self.C * 2 ** (-2.0 * (b - 1))).sum()
                     print(b, ' bit ', quant_var.item(), predicted_var.item())
                 self.quantizer.bits = [bit.item() for bit in self.bits]
-=======
-            det_grad = get_grad()
-            if len(self.perm) == 0:
-                self.perm = torch.randperm(self.L)
-            l = self.perm[-1]
-            self.perm = self.perm[:-1]
-
-            # ----------------------- Get True Sens-----------------
-            before_bits = self.quantizer.bits
-            self.quantizer.bits = [32 for bit in self.bits]
-            det_grad = get_grad()
-            true_sens_list = []
-            check_grad = False
-            for b in [1, 2, 4, 8]:  
-            # for b in [1]:
-                # for iter in range(3):
-                self.quantizer.bits[l] = b
-                grad = get_grad(check_grad)
-                true_sens = ((det_grad - grad) ** 2).sum()
-                true_sens_list.append(true_sens)
-                print(l, b, true_sens.item(), torch.rand([]))
-            self.quantizer.bits = before_bits
-            # ----------------------- Get True Sens-----------------
-
-            b = self.quantizer.bits[l]
-            self.quantizer.bits[l] = 1
-            grad0 = get_grad()
-            self.quantizer.seeds[l] += 1
-            grad1 = get_grad()
-            self.quantizer.seeds[l] -= 1
-            sens = ((grad0 - grad1) ** 2).sum()
-            # print('Adapting layer ', self.bits[l].item(), l, grad0.norm(), grad1.norm(), sens)
-            del grad0
-            del grad1
-            if torch.isnan(sens) or torch.isinf(sens) or sens > 1e10:
-                sens = 1e10
-            self.C[l] = sens
-            self.quantizer.bits[l] = b
-
-            print(l, " Estimate sens", sens, " True sens", true_sens_list)
-            if sens > 10000:
-                print("[Sensitivty too big!!!", sens)
-
-            # print(self.bits)
-            # print('Before: ', self.quantizer.bits)
-            self.refresh_bits()
-            # print('After: ', self.quantizer.bits)
-            
-            # grad = get_grad()
-            # self.quantizer.bits = [32 for bit in self.bits]
-            # det_grad = get_grad()
-            # ap_var = ((grad - det_grad)**2).sum()
-            # print('ap var', ap_var.item())
-            # for b in [1, 2, 4, 8]:
-            #     quant_var = 0
-            #     for iter in range(1):
-            #         self.quantizer.bits = [b for bit in self.bits]
-            #         grad = get_grad()
-            #         var = ((grad - det_grad)**2).sum()
-            #         quant_var += var
-
-            #     predicted_var = (self.C * 2 ** (-2.0 * (b - 1))).sum()
-            #     print(b, ' bit ', quant_var.item(), predicted_var.item())
-            # self.quantizer.bits = [bit.item() for bit in self.bits]
->>>>>>> 852b2c6521a56be3006a4dd785cab7964f4229fe
-
         if self.iter % self.log_iter == 0:
             det_grad = get_grad()
 

@@ -20,9 +20,10 @@ class AutoPrecision:
 
     def __init__(self, model, quantizer, bits, max_bits,
                  work_dir, adapt_interval, sample_grad_ratio, sample_method,
-                 momentum=0.99, warmup_iter=100):
+                 momentum=0.99, warmup_iter=100, debug=False):
         self.model = model
         self.quantizer = quantizer
+        self.debug = debug
 
         self.dims = None
 
@@ -123,7 +124,7 @@ class AutoPrecision:
             return grad
 
         det_grad = None
-        if self.iter == 0:
+        if self.iter % 2000 == 0:
             # Do full adaptation
             print('ActNN: Initializing AutoPrec...')
             # Option 1: different bits
@@ -131,37 +132,55 @@ class AutoPrecision:
             # det_grad = get_grad()
             # for l in range(self.L):
             #     print("%d/%d" % (l, self.L))
+            #     b = self.quantizer.bits[l]
             #     self.quantizer.bits[l] = 1
             #     grad = get_grad()
+            #     self.quantizer.bits[l] = 32
+            #     det_grad = get_grad()
             #     sens = ((grad - det_grad) ** 2).sum()
             #     del grad
             #     if torch.isnan(sens) or torch.isinf(sens) or sens > 1e10:
             #         sens = 1e10
             #     self.C[l] = sens
-            #     self.quantizer.bits[l] = 32
+            #     self.quantizer.bits[l] = b
+
+            if self.debug:
+                grad = get_grad()
+                self.quantizer.bits = [32 for bit in self.bits]
+                det_grad = get_grad()
+                ap_var = ((grad - det_grad) ** 2).sum()
+                print('ap var', ap_var.item())
+                self.quantizer.bits = [bit.item() for bit in self.bits]
 
             # Option 2: different random seeds
             for l in range(self.L):
-                print("%d/%d" % (l, self.L))
                 b = self.quantizer.bits[l]
                 self.quantizer.bits[l] = 1
                 grad0 = get_grad()
                 self.quantizer.seeds[l] += 1
                 grad1 = get_grad()
                 self.quantizer.seeds[l] -= 1
-                sens = ((grad0 - grad1) ** 2).sum()
+                self.quantizer.bits[l] = 8
+                grad2 = get_grad()
+                diff01 = ((grad0 - grad1) ** 2).sum()
+                diff02 = ((grad0 - grad2) ** 2).sum()
+                diff12 = ((grad1 - grad2) ** 2).sum()
+                sens = max(diff01, max(diff02, diff12)*2)
                 del grad0
                 del grad1
+                del grad2
                 if torch.isnan(sens) or torch.isinf(sens) or sens > 1e10:
                     sens = 1e10
                 self.C[l] = sens
                 self.quantizer.bits[l] = b
+                # if self.debug:
+                #     print("%d/%d" % (l, self.L), sens.item())
 
             # Option 3: inject noise
             # det_grad = get_grad()
             # for l in range(self.L):
             #     print("%d/%d" % (l, self.L))
-            #     self.quantizer.inject_noises[l] = True                
+            #     self.quantizer.inject_noises[l] = True
             #     grad = get_grad()
             #     sens = ((grad - det_grad) ** 2).sum() / 4
             #     del grad
@@ -170,82 +189,91 @@ class AutoPrecision:
             #     self.C[l] = sens
             #     self.quantizer.inject_noises[l] = False
 
-            # self.refresh_bits()
+            self.refresh_bits()
 
-            # Output debug information                        
-            # for l in range(self.L):
-            #     print(l, 'Sensitivity: ', self.C[l].item(), ' bits: ', self.bits[l].item())
-            # predicted_var = (self.C * 2 ** (-2.0 * (self.bits - 1))).sum()
-            # print('Predicted var ap ', predicted_var.item())
-            
-            # grad = get_grad()
-            # self.quantizer.bits = [32 for bit in self.bits]
-            # det_grad = get_grad()
-            # ap_var = ((grad - det_grad)**2).sum()
-            # print('ap var', ap_var.item())
-            # for b in [1, 2, 4, 8]:
-            #     quant_var = 0
-            #     for iter in range(10):
-            #         self.quantizer.bits = [b for bit in self.bits]
-            #         for l in range(self.L):
-            #             self.quantizer.seeds[l] += 1
-            #         grad = get_grad()
-            #         var = ((grad - det_grad)**2).sum()
-            #         print(var)
-            #         quant_var += var
+            # Output debug information
+            if self.debug:
+                # for l in range(self.L):
+                #     print(l, 'Sensitivity: ', self.C[l].item(), ' bits: ', self.bits[l].item(), ' dims: ', self.dims[l])
+                predicted_var = (self.C * 2 ** (-2.0 * (self.bits - 1))).sum()
+                print('Predicted var ap ', predicted_var.item())
 
-            #     for l in range(self.L):
-            #         self.quantizer.seeds[l] = l
+                grad = get_grad()
+                self.quantizer.bits = [32 for bit in self.bits]
+                det_grad = get_grad()
+                ap_var = ((grad - det_grad)**2).sum()
+                print('ap var', ap_var.item())
+                #for b in [1, 2, 4, 8]:
+                for b in [4]:
+                    quant_var = 0
+                    for iter in range(10):
+                        self.quantizer.bits = [b for bit in self.bits]
+                        for l in range(self.L):
+                            self.quantizer.seeds[l] += 1
+                        grad = get_grad()
+                        var = ((grad - det_grad)**2).sum()
+                        print(var)
+                        quant_var += var
 
-            #     quant_var /= 10
-            #     predicted_var = (self.C * 2 ** (-2.0 * (b - 1))).sum()
-            #     print(b, ' bit ', quant_var.item(), predicted_var.item())
-       
-            # exit(0)
+                    for l in range(self.L):
+                        self.quantizer.seeds[l] = l
+
+                    quant_var /= 10
+                    predicted_var = (self.C * 2 ** (-2.0 * (b - 1))).sum()
+                    print(b, ' bit ', quant_var.item(), predicted_var.item())
+
+                self.quantizer.bits = [bit.item() for bit in self.bits]
 
         elif self.iter % self.adapt_interval == 0:
-            det_grad = get_grad()
-            if len(self.perm) == 0:
-                self.perm = torch.randperm(self.L)
-            l = self.perm[-1]
-            self.perm = self.perm[:-1]
-            
-            b = self.quantizer.bits[l]
-            self.quantizer.bits[l] = 1
-            grad0 = get_grad()
-            self.quantizer.seeds[l] += 1
-            grad1 = get_grad()
-            self.quantizer.seeds[l] -= 1
-            sens = ((grad0 - grad1) ** 2).sum()
-            # print('Adapting layer ', self.bits[l].item(), l, grad0.norm(), grad1.norm(), sens)
-            del grad0
-            del grad1
-            if torch.isnan(sens) or torch.isinf(sens) or sens > 1e10:
-                sens = 1e10
-            self.C[l] = sens
-            self.quantizer.bits[l] = b
+            if False: # Disable adaptation
+                if len(self.perm) == 0:
+                    self.perm = torch.randperm(self.L)
+                l = self.perm[-1]
+                self.perm = self.perm[:-1]
 
-            # print(self.bits)
-            # print('Before: ', self.quantizer.bits)
-            self.refresh_bits()
-            # print('After: ', self.quantizer.bits)
-            
-            # grad = get_grad()
-            # self.quantizer.bits = [32 for bit in self.bits]
-            # det_grad = get_grad()
-            # ap_var = ((grad - det_grad)**2).sum()
-            # print('ap var', ap_var.item())
-            # for b in [1, 2, 4, 8]:
-            #     quant_var = 0
-            #     for iter in range(1):
-            #         self.quantizer.bits = [b for bit in self.bits]
-            #         grad = get_grad()
-            #         var = ((grad - det_grad)**2).sum()
-            #         quant_var += var
+                b = self.quantizer.bits[l]
+                self.quantizer.bits[l] = 1
+                grad0 = get_grad()
+                self.quantizer.seeds[l] += 1
+                grad1 = get_grad()
+                self.quantizer.seeds[l] -= 1
+                self.quantizer.bits[l] = 8
+                grad2 = get_grad()
+                diff01 = ((grad0 - grad1) ** 2).sum()
+                diff02 = ((grad0 - grad2) ** 2).sum()
+                diff12 = ((grad1 - grad2) ** 2).sum()
+                sens = max(diff01, max(diff02, diff12) * 2)
+                del grad0
+                del grad1
+                del grad2
+                if torch.isnan(sens) or torch.isinf(sens) or sens > 1e10:
+                    print('ActNN Warning: Large sensivitity ', sens.item())
+                    sens = 1e10
+                self.C[l] = sens
+                self.quantizer.bits[l] = b
 
-            #     predicted_var = (self.C * 2 ** (-2.0 * (b - 1))).sum()
-            #     print(b, ' bit ', quant_var.item(), predicted_var.item())
-            # self.quantizer.bits = [bit.item() for bit in self.bits]
+                self.refresh_bits()
+
+            if self.debug:
+                # Debug information
+                grad = get_grad()
+                self.quantizer.bits = [32 for bit in self.bits]
+                det_grad = get_grad()
+                ap_var = ((grad - det_grad)**2).sum()
+                predicted_var = (self.C * 2 ** (-2.0 * (self.bits - 1))).sum()
+                print('ap var', ap_var.item(), predicted_var.item())
+
+                for b in [4]:
+                    quant_var = 0
+                    for iter in range(1):
+                        self.quantizer.bits = [b for bit in self.bits]
+                        grad = get_grad()
+                        var = ((grad - det_grad)**2).sum()
+                        quant_var += var
+
+                    predicted_var = (self.C * 2 ** (-2.0 * (b - 1))).sum()
+                    print(b, ' bit ', quant_var.item(), predicted_var.item())
+                self.quantizer.bits = [bit.item() for bit in self.bits]
 
         if self.iter % self.log_iter == 0:
             if det_grad is None:

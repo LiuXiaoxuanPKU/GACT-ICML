@@ -5,6 +5,7 @@ import random
 from actnn.utils import uniform_sample, random_sample, exp_recorder
 import actnn.cpp_extension.calc_precision as ext_calc_precision
 
+import pickle
 # Automatically compute the precision for each tensor
 
 
@@ -20,10 +21,12 @@ class AutoPrecision:
 
     def __init__(self, model, quantizer, bits, max_bits,
                  work_dir, adapt_interval, sample_grad_ratio, sample_method,
-                 momentum=0.99, warmup_iter=100, debug=False):
+                 momentum=0.99, warmup_iter=100, optimizer=None):
         self.model = model
+        self.optimizer = optimizer
+
         self.quantizer = quantizer
-        self.debug = debug
+        self.debug = False
 
         self.dims = None
 
@@ -44,7 +47,7 @@ class AutoPrecision:
         self.sample_grad_ratio = sample_grad_ratio
 
         self.iter = 0
-        self.log_iter = 50
+        self.log_iter = 2
         self.work_dir = work_dir
 
         # self.refresh_bits()
@@ -53,6 +56,17 @@ class AutoPrecision:
         if self.dims is None:
             self.init_from_dims(self.quantizer.dims)
         self.iterate(backprop)
+        self.quantizer.bwd_fns = []
+
+    def check_dict_equal(self, d1, d2):
+        assert(len(d1) == len(d2))
+        for k in d1:
+            if isinstance(d1[k], dict):
+                self.check_dict_equal(d1[k], d2[k])
+            elif isinstance(d1[k], torch.Tensor):
+                assert(d1[k].equal(d2[k]))
+            else:
+                assert(d1[k] == d2[k])
 
     def iterate(self, backprop):
         def sample_grad():
@@ -84,7 +98,7 @@ class AutoPrecision:
             torch.cuda.manual_seed_all(seed)
 
         # TODO det_grad is actually not necessary
-        def get_grad():
+        def get_grad(check=False):
             # TODO this is somewhat tricky...
             # The noise should be injected with other random seeds
             # TODO setstate & getstate won't work, why?
@@ -111,7 +125,31 @@ class AutoPrecision:
             bn_layers = get_bn(self.model)
             for bn in bn_layers:
                 bn.track_running_stats = False
+
+            if check:
+                # Before Model State
+                before_model_stats = {}
+                for param_tensor in self.model.state_dict():
+                    before_model_stats[param_tensor] = self.model.state_dict()[param_tensor].sum().item()
+
+                # Before Optimizer State
+                pickle.dump(self.optimizer.state_dict(), open('before', 'wb'))
+
             backprop()
+
+            if check:
+                # After Model State
+                after_model_stats = {}
+                for param_tensor in self.model.state_dict():
+                    after_model_stats[param_tensor] = self.model.state_dict()[param_tensor].sum().item()
+
+                # After Optimizer State
+                before_optimizer_stats = pickle.load(open('before', 'rb'))
+                after_optimizer_stats = self.optimizer.state_dict()
+            
+                self.check_dict_equal(before_model_stats, after_model_stats)
+                self.check_dict_equal(before_optimizer_stats, after_optimizer_stats)
+
             for bn in bn_layers:
                 bn.track_running_stats = True
             grad = sample_grad()
@@ -225,6 +263,7 @@ class AutoPrecision:
                 self.quantizer.bits = [bit.item() for bit in self.bits]
 
         elif self.iter % self.adapt_interval == 0:
+<<<<<<< HEAD
             if False: # Disable adaptation
                 if len(self.perm) == 0:
                     self.perm = torch.randperm(self.L)
@@ -274,10 +313,74 @@ class AutoPrecision:
                     predicted_var = (self.C * 2 ** (-2.0 * (b - 1))).sum()
                     print(b, ' bit ', quant_var.item(), predicted_var.item())
                 self.quantizer.bits = [bit.item() for bit in self.bits]
+=======
+            det_grad = get_grad()
+            if len(self.perm) == 0:
+                self.perm = torch.randperm(self.L)
+            l = self.perm[-1]
+            self.perm = self.perm[:-1]
+
+            # ----------------------- Get True Sens-----------------
+            before_bits = self.quantizer.bits
+            self.quantizer.bits = [32 for bit in self.bits]
+            det_grad = get_grad()
+            true_sens_list = []
+            check_grad = False
+            for b in [1, 2, 4, 8]:  
+            # for b in [1]:
+                # for iter in range(3):
+                self.quantizer.bits[l] = b
+                grad = get_grad(check_grad)
+                true_sens = ((det_grad - grad) ** 2).sum()
+                true_sens_list.append(true_sens)
+                print(l, b, true_sens.item(), torch.rand([]))
+            self.quantizer.bits = before_bits
+            # ----------------------- Get True Sens-----------------
+
+            b = self.quantizer.bits[l]
+            self.quantizer.bits[l] = 1
+            grad0 = get_grad()
+            self.quantizer.seeds[l] += 1
+            grad1 = get_grad()
+            self.quantizer.seeds[l] -= 1
+            sens = ((grad0 - grad1) ** 2).sum()
+            # print('Adapting layer ', self.bits[l].item(), l, grad0.norm(), grad1.norm(), sens)
+            del grad0
+            del grad1
+            if torch.isnan(sens) or torch.isinf(sens) or sens > 1e10:
+                sens = 1e10
+            self.C[l] = sens
+            self.quantizer.bits[l] = b
+
+            print(l, " Estimate sens", sens, " True sens", true_sens_list)
+            if sens > 10000:
+                print("[Sensitivty too big!!!", sens)
+
+            # print(self.bits)
+            # print('Before: ', self.quantizer.bits)
+            self.refresh_bits()
+            # print('After: ', self.quantizer.bits)
+            
+            # grad = get_grad()
+            # self.quantizer.bits = [32 for bit in self.bits]
+            # det_grad = get_grad()
+            # ap_var = ((grad - det_grad)**2).sum()
+            # print('ap var', ap_var.item())
+            # for b in [1, 2, 4, 8]:
+            #     quant_var = 0
+            #     for iter in range(1):
+            #         self.quantizer.bits = [b for bit in self.bits]
+            #         grad = get_grad()
+            #         var = ((grad - det_grad)**2).sum()
+            #         quant_var += var
+
+            #     predicted_var = (self.C * 2 ** (-2.0 * (b - 1))).sum()
+            #     print(b, ' bit ', quant_var.item(), predicted_var.item())
+            # self.quantizer.bits = [bit.item() for bit in self.bits]
+>>>>>>> 852b2c6521a56be3006a4dd785cab7964f4229fe
 
         if self.iter % self.log_iter == 0:
-            if det_grad is None:
-                det_grad = get_grad()
+            det_grad = get_grad()
 
             # Maintain batch grad
             momentum = self.momentum
@@ -293,6 +396,7 @@ class AutoPrecision:
             exp_recorder.record("layer sensitivity", self.C.tolist())
             exp_recorder.record("bits", self.bits.tolist())
             exp_recorder.record("dims", self.dims.tolist())
+            exp_recorder.record("grad_fn", self.quantizer.bwd_fns)
             exp_recorder.dump(self.work_dir + "autoprec.log")
 
         self.iter += 1

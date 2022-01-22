@@ -4,7 +4,7 @@ from actnn.autoprec import AutoPrecision
 
 
 class Controller:
-    def __init__(self, model, optimizer):
+    def __init__(self, model):
         if not config.compress_activation:
             return
 
@@ -25,7 +25,8 @@ class Controller:
         if self.auto_prec:
             self.ap = AutoPrecision(
                 self.model, self.quantizer, config.bit, config.max_bit, 
-                config.work_dir, config.adapt_interval, config.sample_grad_ratio, config.sample_method, optimizer=optimizer)
+                config.work_dir, config.adapt_interval, config.adapt_interval,
+                config.sample_grad_ratio, config.sample_method)
         self.bit = config.bit
 
         self.iter = 0

@@ -14,18 +14,26 @@ def alg_to_config(algorithm):
 
 
 def network_to_command(network):
-    return "python3 train.py --data ~/imagenet --arch ARCH --b BS CONFIG".replace("ARCH", network)
+    return "python3 train.py --data ~/imagenet --arch ARCH --batch-size BS CONFIG".replace("ARCH", network)
 
 
-def run_benchmark(network, alg, batch_size, debug_mem=False, debug_speed=False, input_size=None):
+def run_benchmark(network, alg, batch_size, debug_mem=False, debug_speed=False, input_size=None, get_macs=False):
     os.environ['DEBUG_MEM'] = str(debug_mem)
     os.environ['DEBUG_SPEED'] = str(debug_speed)
     cmd = network_to_command(network)
     cmd = cmd.replace("BS", f"{batch_size}").replace(
         "CONFIG", alg_to_config(alg))
-
+    
+    if alg is None:
+        cmd += f' --benchmark exact'
+    else:
+        cmd += f' --benchmark actnn'
+        
     if input_size is not None:
-        cmd += f' --input-size {input_size}'
+        cmd += f' --input-size {input_size} '
+        
+    if get_macs:
+        cmd += ' --get_macs'
 
     ret_code = run_cmd(cmd)
 
@@ -131,16 +139,16 @@ def get_ips(network, alg, batch_size, input_size=None):
     return json.loads(line)['ips']
 
 
-# def get_macs(network, alg, batch_size, input_size=None):
-#     run_benchmark(network, alg, batch_size,
-#                   input_size=input_size, get_macs=True)
-#     line = list(open("get_macs.json").readlines())[-1]
-#     return json.loads(line)
+def get_macs(network, alg, batch_size, input_size=None):
+    run_benchmark(network, alg, batch_size,
+                  input_size=input_size, get_macs=True)
+    line = list(open("get_macs.json").readlines())[-1]
+    return json.loads(line)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", type=str, default='binary_search_max_batch')
+    parser.add_argument("--mode", type=str, default='linear_scan')
     parser.add_argument("--retry", type=int, default=1)
     args = parser.parse_args()
 
@@ -148,26 +156,25 @@ if __name__ == "__main__":
         networks = ['resnet50', 'resnet152', 'densenet201', 'wide_resnet101_2']
         batch_sizes = list(range(32, 256, 16)) + list(range(256, 1280, 32))
         algs = ['L0', 'L1', 'L2', 'L3']
-        #networks = ['resnet152']
-        #batch_sizes = list(range(32, 256, 64)) + list(range(256, 1280, 32))
-        #algs = ['exact']
+         
+        networks = ['resnet50', "resnet152"]
+        batch_sizes = list(range(32, 256, 16)) + list(range(256, 1280, 32))
+        algs = ['L1', 'L3']
     else:
         networks = ['resnet152']
-        algs = ['L0', 'L1', 'L2', 'L3']
+        algs = ['L1']
 
     if args.mode == 'linear_scan':
         for network in networks:
+            failed = 0
             for alg in algs:
-                failed = 0
                 for batch_size in batch_sizes:
-                    # do not run O5 too frequently
-                    # if alg == 'quantize-O5' and batch_size % 32 != 0:
-                    #     continue
-
                     if run_benchmark(network, alg, batch_size, debug_mem=False, debug_speed=True) != 0:
                         if failed >= args.retry:
                             break
                         failed += 1
+                           
+                        
     elif args.mode == 'binary_search_max_batch':
         for network in networks:
             for alg in algs:
@@ -187,6 +194,7 @@ if __name__ == "__main__":
                     }
                     fout.write(json.dumps(val_dict) + "\n")
                 print(f"save results to {out_file}")
+
     elif args.mode == 'binary_search_max_input_size':
         for alg in algs:
             low, high = 224, 768
@@ -195,8 +203,8 @@ if __name__ == "__main__":
             max_input_size = binary_search_max_input_size(
                 alg, low, high, network, batch_size)
             ips = get_ips(network, alg, batch_size, input_size=max_input_size)
-            # macs, params = get_macs(
-            #     network, alg, batch_size, input_size=max_input_size)
+            macs, params = get_macs(
+                network, alg, batch_size, input_size=max_input_size)
 
             out_file = "max_input_size_results.json"
             with open(out_file, "a") as fout:
@@ -205,13 +213,14 @@ if __name__ == "__main__":
                     "algorithm": alg,
                     "max_input_size": max_input_size,
                     "ips": ips,
-                    # "macs": macs,
-                    # "params": params,
-                    # "TFLOPS": round(macs * ips / 1e12, 2),
+                    "macs": macs,
+                    "params": params,
+                    "TFLOPS": round(macs * ips / 1e12, 2),
                     "tstamp": time.time()
                 }
                 fout.write(json.dumps(val_dict) + "\n")
             print(f"save results to {out_file}")
+
     elif args.mode == 'binary_search_max_layer':
         for alg in algs:
             low, high = 152, 1024
@@ -219,7 +228,7 @@ if __name__ == "__main__":
             max_layer = binary_search_max_layer(alg, low, high, batch_size)
             network = 'scaled_resnet_%d' % max_layer
             ips = get_ips(network, alg, batch_size)
-            # macs, params = get_macs(network, alg, batch_size)
+            macs, params = get_macs(network, alg, batch_size)
 
             out_file = "max_layer_results.json"
             with open(out_file, "a") as fout:
@@ -228,13 +237,14 @@ if __name__ == "__main__":
                     "algorithm": alg,
                     "max_layer": max_layer,
                     "ips": ips,
-                    # "macs": macs,
-                    # "params": params,
-                    # "TFLOPS": round(macs * ips / 1e12, 2),
+                    "macs": macs,
+                    "params": params,
+                    "TFLOPS": round(macs * ips / 1e12, 2),
                     "tstamp": time.time()
                 }
                 fout.write(json.dumps(val_dict) + "\n")
             print(f"save results to {out_file}")
+    
     elif args.mode == 'binary_search_max_width':
         for alg in algs:
             low, high = 64, 512
@@ -243,7 +253,7 @@ if __name__ == "__main__":
                 alg, low, high, batch_size=batch_size)
             network = 'scaled_wide_resnet_%d' % max_width
             ips = get_ips(network, alg, batch_size)
-            # macs, params = get_macs(network, alg, batch_size)
+            macs, params = get_macs(network, alg, batch_size)
 
             out_file = "max_width_results.json"
             with open(out_file, "a") as fout:
@@ -252,9 +262,9 @@ if __name__ == "__main__":
                     "algorithm": alg,
                     "max_width": max_width,
                     "ips": ips,
-                    # "macs": macs,
-                    # "params": params,
-                    # "TFLOPS": round(macs * ips / 1e12, 2),
+                    "macs": macs,
+                    "params": params,
+                    "TFLOPS": round(macs * ips / 1e12, 2),
                     "tstamp": time.time()
                 }
                 fout.write(json.dumps(val_dict) + "\n")

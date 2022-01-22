@@ -1,0 +1,9 @@
+accelerate==0.5.1
+adapter_transformers==2.2.0
+datasets==1.16.1
+huggingface_hub==0.1.2
+scikit_learn==1.0.1
+scipy==1.7.3
+torch==1.10.0
+tqdm==4.62.3
+transformers==4.12.5

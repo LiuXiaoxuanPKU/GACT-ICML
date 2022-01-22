@@ -6,16 +6,23 @@ import random
 import numpy as np
 import torch
 from torch import nn, autograd
-from torch.nn import init, functional as F
+from torch.nn import functional as F
 from torch.autograd.function import Function
 
 from timeit_v2 import py_benchmark
 
-from actnn.ops import ext_quantization, op_quantize, op_dequantize
+from actnn.ops import ext_quantization, op_quantize, op_dequantize, op_quantize_mask, op_dequantize_mask
 from actnn.ops import self_atten
 from utils import setup_seed, error_rate
 
 
+def test_quantize_dropout_mask():
+    vocab = 1000
+    input = F.one_hot(torch.tensor(range(vocab)), vocab).cuda().to(torch.uint8)
+    q_input = op_quantize_mask(input)
+    output = op_dequantize_mask(q_input)
+    np.testing.assert_allclose(input.cpu(), output.cpu())
+    
 def test_quantize_1bit():
     vocab = 1000
     input = F.one_hot(torch.tensor(range(vocab)), vocab).cuda()
@@ -276,6 +283,10 @@ def test_self_atten_saved_tensors():
 
 
 if __name__ == "__main__":
+<<<<<<< HEAD
+=======
+    test_quantize_dropout_mask()
+>>>>>>> mem_speed
     # test_quantize_32bit()
     # test_quantize_1bit()
     # test_quantize_mask()

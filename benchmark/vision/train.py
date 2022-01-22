@@ -24,12 +24,14 @@ import torchvision.datasets as datasets
 import torchvision.models as models
 import numpy as np
 
-# from scaled_resnet import scaled_resnet, scaled_wide_resnet
+from scaled_resnet import scaled_resnet, scaled_wide_resnet
 import actnn
 from actnn import config
 from actnn.utils import get_memory_usage, compute_tensor_bytes, exp_recorder, empty_cache
+
 MB = 1024**2
 GB = 1024**3
+MEM_LIMIT = 15 * GB
 
 model_names = sorted(name for name in models.__dict__
                      if name.islower() and not name.startswith("__")
@@ -88,67 +90,43 @@ parser.add_argument('--multiprocessing-distributed', action='store_true',
                          'multi node data parallel training')
 parser.add_argument('--ablation', action="store_true",
                     help="Do ablation?")
+parser.add_argument('--benchmark', type=str, default='exact')
+parser.add_argument('--limit', type=float, default=1, help="memory percentage")
 parser.add_argument('--alg', type=str, default="L0",
                     help="Actnn optimization level, default does not quantize")
 parser.add_argument('--input-size', type=int)
+parser.add_argument('--get_macs', action='store_true')
 
 best_acc1 = 0
 
 
 def main():
     args = parser.parse_args()
-
-    if args.seed is not None:
-        random.seed(args.seed)
-        torch.manual_seed(args.seed)
-        cudnn.deterministic = True
-        warnings.warn('You have chosen to seed training. '
-                      'This will turn on the CUDNN deterministic setting, '
-                      'which can slow down your training considerably! '
-                      'You may see unexpected behavior when restarting '
-                      'from checkpoints.')
-
+    
     if args.gpu is not None:
         warnings.warn('You have chosen a specific GPU. This will completely '
                       'disable data parallelism.')
 
-    if args.dist_url == "env://" and args.world_size == -1:
-        args.world_size = int(os.environ["WORLD_SIZE"])
-
-    args.distributed = args.world_size > 1 or args.multiprocessing_distributed
-
-    ngpus_per_node = torch.cuda.device_count()
-    if args.multiprocessing_distributed:
-        # Since we have ngpus_per_node processes per node, the total world_size
-        # needs to be adjusted accordingly
-        args.world_size = ngpus_per_node * args.world_size
-        # Use torch.multiprocessing.spawn to launch distributed processes: the
-        # main_worker process function
-        mp.spawn(main_worker, nprocs=ngpus_per_node,
-                 args=(ngpus_per_node, args))
-    else:
-        # Simply call main_worker function
-        main_worker(args.gpu, ngpus_per_node, args)
+    # Simply call main_worker function
+    ngpus_per_node = 1
+    main_worker(args.gpu, ngpus_per_node, args)
 
 
 def main_worker(gpu, ngpus_per_node, args):
     torch.cuda.empty_cache()
+    seed = 0
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    
     global best_acc1
     args.gpu = gpu
 
     if args.gpu is not None:
         print("Use GPU: {} for training".format(args.gpu))
 
-    if args.distributed:
-        if args.dist_url == "env://" and args.rank == -1:
-            args.rank = int(os.environ["RANK"])
-        if args.multiprocessing_distributed:
-            # For multiprocessing distributed training, rank needs to be the
-            # global rank among all the processes
-            args.rank = args.rank * ngpus_per_node + gpu
-        dist.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
-                                world_size=args.world_size, rank=args.rank)
-    train_model = None
     # create model
     if args.pretrained:
         print("=> using pre-trained model '{}'".format(args.arch))
@@ -156,52 +134,15 @@ def main_worker(gpu, ngpus_per_node, args):
     else:
         print("=> creating model '{}'".format(args.arch))
         if args.arch.startswith('scaled_wide_resnet'):
-            print("[Error] scale resnet is not implemented")
-            assert(False)
-            # model = scaled_wide_resnet(args.arch)
+            model = scaled_wide_resnet(args.arch)
         elif args.arch.startswith('scaled_resnet'):
-            # model = scaled_resnet(args.arch)
-            print("Sacle net not implemented")
-            assert(False)
+            model = scaled_resnet(args.arch)
         else:
             if args.arch in ['inception_v3']:
                 kwargs = {"aux_logits": False}
             else:
                 kwargs = {}
             model = models.__dict__[args.arch](**kwargs)
-
-    if not torch.cuda.is_available():
-        print('using CPU, this will be slow')
-    elif args.distributed:
-        # For multiprocessing distributed, DistributedDataParallel constructor
-        # should always set the single device scope, otherwise,
-        # DistributedDataParallel will use all available devices.
-        if args.gpu is not None:
-            torch.cuda.set_device(args.gpu)
-            model.cuda(args.gpu)
-            # When using a single GPU per process and per
-            # DistributedDataParallel, we need to divide the batch size
-            # ourselves based on the total number of GPUs we have
-            args.batch_size = int(args.batch_size / ngpus_per_node)
-            args.workers = int(
-                (args.workers + ngpus_per_node - 1) / ngpus_per_node)
-            model = torch.nn.parallel.DistributedDataParallel(
-                model, device_ids=[args.gpu])
-        else:
-            model.cuda()
-            # DistributedDataParallel will divide and allocate batch_size to all
-            # available GPUs if device_ids are not set
-            model = torch.nn.parallel.DistributedDataParallel(model)
-    elif args.gpu is not None:
-        torch.cuda.set_device(args.gpu)
-        model = model.cuda(args.gpu)
-    else:
-        # DataParallel will divide and allocate batch_size to all available GPUs
-        if args.arch.startswith('alexnet') or args.arch.startswith('vgg'):
-            model.features = torch.nn.DataParallel(model.features)
-            model.cuda()
-        else:
-            model = torch.nn.DataParallel(model).cuda()
 
     model.cuda()
 
@@ -218,28 +159,6 @@ def main_worker(gpu, ngpus_per_node, args):
     optimizer = torch.optim.SGD(model.parameters(), args.lr,
                                 momentum=args.momentum,
                                 weight_decay=args.weight_decay)
-
-    # optionally resume from a checkpoint
-    if args.resume:
-        if os.path.isfile(args.resume):
-            print("=> loading checkpoint '{}'".format(args.resume))
-            if args.gpu is None:
-                checkpoint = torch.load(args.resume)
-            else:
-                # Map model to be loaded to specified single gpu.
-                loc = 'cuda:{}'.format(args.gpu)
-                checkpoint = torch.load(args.resume, map_location=loc)
-            args.start_epoch = checkpoint['epoch']
-            best_acc1 = checkpoint['best_acc1']
-            if args.gpu is not None:
-                # best_acc1 may be from a checkpoint from a different GPU
-                best_acc1 = best_acc1.to(args.gpu)
-            model.load_state_dict(checkpoint['state_dict'])
-            optimizer.load_state_dict(checkpoint['optimizer'])
-            print("=> loaded checkpoint '{}' (epoch {})"
-                  .format(args.resume, checkpoint['epoch']))
-        else:
-            print("=> no checkpoint found at '{}'".format(args.resume))
 
     cudnn.benchmark = True
 
@@ -266,11 +185,7 @@ def main_worker(gpu, ngpus_per_node, args):
             normalize,
         ]))
 
-    if args.distributed:
-        train_sampler = torch.utils.data.distributed.DistributedSampler(
-            train_dataset)
-    else:
-        train_sampler = None
+    train_sampler = None
 
     train_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=args.batch_size, shuffle=(
@@ -291,20 +206,21 @@ def main_worker(gpu, ngpus_per_node, args):
         ])),
         batch_size=args.batch_size, shuffle=False,
         num_workers=args.workers, pin_memory=True)
+    
+    if args.get_macs:
+        from thop import profile
+        input = torch.randn(1, 3, input_size, input_size).cuda()
+        macs, params = profile(model, inputs=(input, ), custom_ops={})
+        print(f"Macs: {macs}\t Params: {params}")
+        out_file = "get_macs.json"
+        with open(out_file, 'w') as fout:
+            fout.write(json.dumps([macs, params]))
+        print(f"save results to {out_file}")
+        exit()
 
-    if args.evaluate:
-        validate(val_loader, model, criterion, args)
-        return
-
-    if train_model == None:
-        train_model = model
-    else:
-        assert isinstance(
-            train_model, torch.nn.parallel.DistributedDataParallel)
-
+    train_model = model
+    
     for epoch in range(args.start_epoch, args.epochs):
-        if args.distributed:
-            train_sampler.set_epoch(epoch)
         adjust_learning_rate(optimizer, epoch, args)
 
         # train for one epoch
@@ -346,113 +262,132 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         [batch_time, data_time, losses, top1, top5, ips],
         prefix="Epoch: [{}]".format(epoch))
 
-    actnn.set_optimization_level(args.alg)
-    controller = actnn.controller.Controller(model)
+    measure_sample = False
+    if args.benchmark == "exact":
+        pass
+    elif args.benchmark == "actnn":
+        actnn.set_optimization_level(args.alg)
+        controller = actnn.controller.Controller(model)
 
-    def pack_hook(input):
-        return controller.quantize(input)
+        def pack_hook(input):
+            return controller.quantize(input)
 
-    def unpack_hook(input):
-        return controller.dequantize(input)
+        def unpack_hook(input):
+            return controller.dequantize(input)
 
-    torch._C._autograd._register_saved_tensors_default_hooks(
-        pack_hook, unpack_hook)
+        torch._C._autograd._register_saved_tensors_default_hooks(
+            pack_hook, unpack_hook)
+
     # switch to train mode
     model.train()
-
-    end = time.time()
     for (i, (images, target)) in enumerate(train_loader):
-        # measure data loading time
-        data_time.update(time.time() - end)
-
+        images = images.cuda(args.gpu, non_blocking=False)
+        target = target.cuda(args.gpu, non_blocking=False)
+        
+        start = torch.cuda.Event(enable_timing=True)
+        end = torch.cuda.Event(enable_timing=True)
+        torch.cuda.synchronize()
+        start.record()
+        
         if config.debug_memory_model:
             print("========== Init Data Loader ===========")
             init_mem = get_memory_usage(True)
             exp_recorder.record("data_loader", init_mem /
                                 GB - exp_recorder.val_dict['model_only'], 2)
 
-        if args.gpu is not None:
-            images = images.cuda(args.gpu, non_blocking=True)
-        if torch.cuda.is_available():
-            target = target.cuda(args.gpu, non_blocking=True)
-
         # compute output
         output = model(images)
         loss = criterion(output, target)
 
         if config.debug_memory_model:
+            torch.cuda.reset_peak_memory_stats()
+
             print("========== Before Backward ===========")
             before_backward = get_memory_usage(True)
             act_mem = get_memory_usage() - init_mem - \
                 compute_tensor_bytes([loss, output])
-            res = "Batch size: %d\tTotal Mem: %.2f MB\tAct Mem: %.2f MB" % (
-                len(output), before_backward / MB, act_mem / MB)
+
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            controller.iterate(None)
             del loss
+
             print("========== After Backward ===========")
             after_backward = get_memory_usage(True)
             total_mem = before_backward + (after_backward - init_mem)
-            res = "Batch size: %d\tTotal Mem: %.2f MB\tAct Mem: %.2f MB" % (
-                len(output), total_mem / MB, act_mem / MB)
+            ref_act = before_backward - after_backward
+            peak_mem = torch.cuda.max_memory_allocated()
+            res = "Batch size: %d\tTotal Mem: %.2f MB\tAct Mem: %.2f MB\tRef Mem: %.2f\tPeak Mem: %.2f" % (
+                len(output), total_mem / MB, act_mem / MB, ref_act / MB, peak_mem / MB)
             print(res)
             exp_recorder.record("batch_size", len(output))
             exp_recorder.record("total", total_mem / GB, 2)
             exp_recorder.record("activation", act_mem / GB, 2)
             exp_recorder.dump('mem_results.json')
-            exit()
+            exit(0)
 
         # measure accuracy and record loss
         acc1, acc5 = accuracy(output, target, topk=(1, 5))
         losses.update(loss.item(), images.size(0))
         top1.update(acc1[0], images.size(0))
         top5.update(acc5[0], images.size(0))
+        
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
         loss.backward()
         with torch.no_grad():
             optimizer.step()
-
-        # measure elapsed time
-        bs = len(images)
-        batch_total_time = time.time() - end
-        train_ips = bs / batch_total_time
-        batch_time.update(batch_total_time)
-        ips.update(train_ips)
-        end = time.time()
-
+        
         if i % args.print_freq == 0:
             progress.display(i)
+        
+        # measure elapsed time
+        end.record()
+        torch.cuda.synchronize()
+        cur_batch_time = start.elapsed_time(end) / 1000.0 # event in ms
 
+        # only use 8 batch size to get sensitivity
+        def backprop():
+            partial_bz = 8
+            partial_image = images[:partial_bz, :, :, :]
+            partial_target = target[:partial_bz]
+            output = model(partial_image)
+            loss = criterion(output, partial_target)
+            optimizer.zero_grad()
+            loss.backward()
+            del loss
+            del output
+            del partial_image
+            del partial_target
+        if args.benchmark == "actnn":
+            controller.iterate(backprop)
+        bs = len(images)
+        del images
+        train_ips_list.append(bs / cur_batch_time)
+           
         if config.debug_speed:
-            global train_step_ct, train_ips_list, train_max_batch
-            train_ips_list.append(train_ips)
+            global train_step_ct, train_max_batch
             train_max_batch = max(train_max_batch, bs)
-            if train_step_ct >= 4:
+            if train_step_ct >= 6:
                 train_ips = np.median(train_ips_list)
                 res = "BatchSize: %d\tIPS: %.2f\t,Cost: %.2f ms" % (
-                    bs, train_ips, 1000.0 / train_ips)
+                    bs, train_ips, cur_batch_time)
                 print(res, flush=True)
                 exp_recorder.record("network", args.arch)
                 exp_recorder.record("algorithm", args.alg)
+                exp_recorder.record("benchmark", args.benchmark)
                 exp_recorder.record("batch_size", train_max_batch)
                 exp_recorder.record("ips", train_ips, 2)
                 exp_recorder.record("tstamp", time.time(), 2)
                 exp_recorder.dump('speed_results.json')
                 exit(0)
             train_step_ct += 1
-
-        def backprop():
-            output = model(images)
-            loss = criterion(output, target)
-            optimizer.zero_grad()
-            loss.backward()
-
-        controller.iterate(backprop)
-
-    torch._C._autograd._reset_saved_tensors_default_hooks()
+        
+    if args.benchmark == "actnn":
+        torch._C._autograd._reset_saved_tensors_default_hooks()
+    
 
 
 def validate(val_loader, model, criterion, args):

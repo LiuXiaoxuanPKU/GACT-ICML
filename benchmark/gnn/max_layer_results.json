@@ -1,0 +1,3 @@
+{"network": "gcn", "algorithm": null, "num_layer": 24, "hidden_size": 256, "batch_time": 1.346334, "macs": 268165399816.0, "params": 1502504.0, "TFLOPS": 0.2, "tstamp": 1642201815.288984}
+{"network": "gcn", "algorithm": "L1", "num_layer": 152, "hidden_size": 256, "batch_time": 12.384626, "macs": 1781242053896.0, "params": 9989416.0, "TFLOPS": 0.14, "tstamp": 1642202789.496307}
+{"network": "gcn", "algorithm": "L1.2", "num_layer": 240, "hidden_size": 256, "batch_time": 18.87943, "macs": 2821482253576.0, "params": 15824168.0, "TFLOPS": 0.15, "tstamp": 1642204026.261536}

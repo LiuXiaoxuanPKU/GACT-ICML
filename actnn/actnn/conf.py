@@ -11,31 +11,30 @@ def set_optimization_level(level):
     elif level == 'L1.1':    # fixed 8-bit
         config.auto_prec = False
         config.bit = 8
-    elif level == 'L2':    # auto precision 4-bit
+    elif level == 'L1.2':    # fixed 2-bit
+        config.auto_prec = False
+        config.bit = 2
+    elif level == 'L2': # auto precision 4-bit, do not check duplicate
+        config.check_dup = False
         config.auto_prec = True
         config.bit = 4
-    elif level == 'L2.1':   # auto precision 2-bit
-        config.auto_prec = True
-        config.bit = 2
     elif level == 'L3':  # auto precision 4-bit + swap
         config.auto_prec = True
         config.bit = 4
         config.swap = True
-    elif level == 'L3.1':  # auto precision + swap + prefetch
-        config.auto_prec = True
-        config.bit = 4
-        config.swap = True
         config.prefetch = True
-    elif level == 'L4':    # auto precision + swap + prefetch + defragmentation
-        config.auto_prec = True
-        config.bit = 4
-        config.swap = True
-        config.prefetch = True
-        config.defrag = True  # TODO: implement memory defragmentation
-    elif level == 'swap':
-        # TODO: implement naive swap
+    elif level == 'swap': # naive swap
         config.swap = True
         config.compress_activation = False
+    elif level == 'L4bit-swap':
+        config.bit = 4
+        config.swap = True
+        config.auto_prec = False
+    elif level == 'L4bit-swap-prefetch':
+        config.bit = 4
+        config.swap = True
+        config.prefetch = True
+        config.auto_prec = False
     else:
         raise ValueError("Invalid level: " + level)
 
@@ -50,8 +49,8 @@ class QuantizationConfig:
         self.work_dir = "./log/" 
         self.adapt_interval = 1000
         self.log_interval = 1000
-        self.sample_grad_ratio = 1.0
-        self.sample_method = 'uniform'
+        
+        self.check_dup = True
 
         # Memory management flag
         self.empty_cache_threshold = None

@@ -66,7 +66,7 @@ class AutoPrecision:
                 assert(d1[k] == d2[k])
 
     def iterate(self, backprop):
-        def sample_grad():
+        def sample_grad(sample):
             grad = []
             for param in self.model.parameters():
                 if param.grad is not None:
@@ -81,7 +81,7 @@ class AutoPrecision:
             torch.cuda.manual_seed_all(seed)
 
         # TODO det_grad is actually not necessary
-        def get_grad():
+        def get_grad(sample):
             # TODO this is somewhat tricky...
             # TODO setstate & getstate won't work, why?
             setup_seed(self.iter)
@@ -108,7 +108,7 @@ class AutoPrecision:
 
             for bn in bn_layers:
                 bn.track_running_stats = True
-            grad = sample_grad()
+            grad = sample_grad(sample)
             self.quantizer.iterate()
 
             return grad
@@ -165,14 +165,14 @@ class AutoPrecision:
         if self.log_iter > 0 and self.iter % self.log_iter == 0:
             det_grad = get_grad()
 
-            # Maintain batch grad
-            momentum = self.momentum
-            self.beta1 = self.beta1 * momentum + 1 - momentum
-            self.batch_grad = self.batch_grad * \
-                momentum + (1 - momentum) * det_grad
-            bgrad = self.batch_grad / self.beta1
-            gvar = ((bgrad - det_grad)**2).sum()
-            self.grad_var = self.grad_var * momentum + (1 - momentum) * gvar
+        #     # Maintain batch grad
+        #     momentum = self.momentum
+        #     self.beta1 = self.beta1 * momentum + 1 - momentum
+        #     self.batch_grad = self.batch_grad * \
+        #         momentum + (1 - momentum) * det_grad
+        #     bgrad = self.batch_grad / self.beta1
+        #     gvar = ((bgrad - det_grad)**2).sum()
+        #     self.grad_var = self.grad_var * momentum + (1 - momentum) * gvar
 
             # log sensitivity information
             exp_recorder.record("iter", self.iter)

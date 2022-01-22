@@ -1,6 +1,7 @@
 import torch
-from actnn.ops import op_quantize, op_dequantize
-from actnn.utils import random_sample, uniform_sample
+from actnn.conf import config
+from actnn.ops import op_quantize, op_dequantize, op_quantize_mask, op_dequantize_mask
+from actnn.utils import random_sample, uniform_sample, compute_tensor_bytes
 
 
 class Quantizer:
@@ -49,20 +50,20 @@ class Quantizer:
     '''
 
     def check_quantize(self, input_tensor):
-        if input_tensor.numel() > 0 and input_tensor.dtype == torch.uint8:
-            if (input_tensor.max() == 1) and (input_tensor.min() == 0):
-                return True, True
-            return False, False
-        if input_tensor.dtype != torch.float32:
-            return False, False
-        if input_tensor.requires_grad is False:
+        if input_tensor.data_ptr() in self.unrelated_tensors:
             return False, False
         if ((len(input_tensor.shape) != 2)
             and (len(input_tensor.shape) != 3)
             and (len(input_tensor.shape) != 4)
             ):
             return False, False
-        if input_tensor.data_ptr() in self.unrelated_tensors:
+        if input_tensor.requires_grad is False:
+            return False, False
+        if input_tensor.dtype == torch.uint8:
+            if (input_tensor.max() == 1) and (input_tensor.min() == 0):
+                return True, True
+            return False, False
+        if input_tensor.dtype != torch.float32:
             return False, False
         return True, False
 
@@ -79,18 +80,16 @@ class Quantizer:
         self.tid = 0
         self.start_bwd = True
         self.iter += 1
-        # print("bits")
-        # print(self.bits)
 
     def generate_tensor_key(self, t, tid):
-        return tid
-        if not t.is_contiguous():
+        if config.check_dup:
+            # sample 100 elements data pointer as the key
+            sample_cnt = min(100, t.numel())
+            key = uniform_sample(t, sample_cnt, add_dataptr=True)
+            key.append(t.sum().item())
+            return tuple(key)
+        else:
             return (tid)
-        # sample 100 elements data pointer as the key
-        sample_cnt = min(100, t.numel())
-        key = uniform_sample(t, sample_cnt, add_dataptr=True)
-        key.append(t.sum().item())
-        return tuple(key)
 
     def quantize(self, input):
         quantize, is_dropout_mask = self.check_quantize(input)
@@ -107,9 +106,8 @@ class Quantizer:
 
         # special case: use 1 bit to quantize dropout mask
         if is_dropout_mask:
-            input = input.to(torch.float32)
-            q_inputs = op_quantize(input, 1, 0)
-            return True, is_dropout_mask, q_inputs, input.shape
+            q_inputs = op_quantize_mask(input)
+            return True, is_dropout_mask, q_inputs
 
         if self.iter == 0:
             self.dims.append(input.numel())
@@ -133,21 +131,20 @@ class Quantizer:
             # use tid as quantize seed
             q_inputs = op_quantize(input, bit, self.seeds[tid])
             if self.swap:
-                with torch.cuda.stream(self.swap_out_stream):
-                    self.swap_out_stream.wait_stream(self.compute_stream)
-                    q_input_cpu = torch.empty(
-                        q_inputs[0].shape,
-                        dtype=q_inputs[0].dtype,
-                        device="cpu",
-                        pin_memory=True,
-                    )
-                    q_input_cpu.copy_(q_inputs[0], non_blocking=True)
-                    q_input_gpu = q_inputs[0]
-                    del q_input_gpu
-                    q_inputs[0] = q_input_cpu
+                #  with torch.cuda.stream(self.swap_out_stream):
+                    # self.swap_out_stream.wait_stream(self.compute_stream)
+                q_input_cpu = torch.empty(
+                    q_inputs[0].shape,
+                    dtype=q_inputs[0].dtype,
+                    device="cpu",
+                    pin_memory=True,
+                )
+                q_input_cpu.copy_(q_inputs[0], non_blocking=True)
+                q_input_gpu = q_inputs[0]
+                del q_input_gpu
+                q_inputs[0] = q_input_cpu
             self.ptr_qtensor_map[key] = [q_inputs, 1, tid]
         else:
-            # print("===============Skip Quantize", tid)
             # increase the ref count
             self.ptr_qtensor_map[key][1] += 1
         return True, is_dropout_mask, key, input_shape, tid
@@ -164,14 +161,13 @@ class Quantizer:
 
         is_dropout_mask = input[1]
         if is_dropout_mask:
-            _, is_dropout_mask, q_inputs, input_shape = input
-            ret = op_dequantize(q_inputs, input_shape, False)
-            ret = ret.to(torch.uint8)
+            _, is_dropout_mask, q_inputs = input
+            ret = op_dequantize_mask(q_inputs)
             return ret
 
         _, _, key, input_shape, tid = input
         q_inputs, ref_cnt, key_tid = self.ptr_qtensor_map[key]
-
+            
         if self.start_bwd and self.swap:
             self.compute_stream.wait_stream(self.swap_out_stream)
             self.start_bwd = False
@@ -191,11 +187,12 @@ class Quantizer:
                 if tid > 0:
                     self.start_prefetch_event.wait(self.swap_in_stream)
                     previous_key = self.layer_key_map[tid - 1]
-                    q_previous_inputs, _, _ = self.ptr_qtensor_map[previous_key]
-                    if not q_previous_inputs[0].is_cuda:
-                        q_previous_inputs[0] = q_previous_inputs[0].cuda(
-                            non_blocking=True
-                        )
+                    if previous_key in self.ptr_qtensor_map:
+                        q_previous_inputs, _, _ = self.ptr_qtensor_map[previous_key]
+                        if not q_previous_inputs[0].is_cuda:
+                            q_previous_inputs[0] = q_previous_inputs[0].cuda(
+                                non_blocking=True
+                            )
                     self.end_prefetch_event.record()
 
         ret = op_dequantize(q_inputs, input_shape, self.inject_noises[tid])

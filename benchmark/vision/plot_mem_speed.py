@@ -63,17 +63,27 @@ def read_data(in_file):
     # for batch_size in capuchin_resnet50:
     #     ret[network][alg][batch_size] = capuchin_resnet50[batch_size] * ret[network]['exact'][128]
 
-    # # add quantize-best
-    # best_name = 'quantize-best'
-    # to_delete = []
-    # for network in ret:
-    #     ret[network][best_name] = dict()
-    #     for alg in ret[network]:
-    #         if not alg.startswith('quantize'):
-    #             continue
-    #         for batch_size in ret[network][alg]:
-    #             ips = ret[network][best_name].get(batch_size, 0)
-    #             ret[network][best_name][batch_size] = max(ret[network][alg][batch_size], ips)
+    # add v2 quantize-best
+    best_name = 'v2-quantize-best'
+    for network in ret:
+        ret[network][best_name] = dict()
+        for alg in ret[network]:
+            if not alg.startswith('L'):
+                continue
+            for batch_size in ret[network][alg]:
+                ips = ret[network][best_name].get(batch_size, 0)
+                ret[network][best_name][batch_size] = max(ret[network][alg][batch_size], ips)
+                
+     # add v1 quantize-best
+    best_name = 'v1-quantize-best'
+    for network in ret:
+        ret[network][best_name] = dict()
+        for alg in ret[network]:
+            if not alg.startswith('actnn'):
+                continue
+            for batch_size in ret[network][alg]:
+                ips = ret[network][best_name].get(batch_size, 0)
+                ret[network][best_name][batch_size] = max(ret[network][alg][batch_size], ips)
 
     return ret
 
@@ -81,11 +91,9 @@ def show_name(name):
     replace_dict = {
         'swap': 'swap',
         'dtr': 'DTR',
-        'blpa': 'BLPA',
-        'capuchin': 'CAP',
-        'monet': 'MONet',
         'exact': 'FP32',
-        'quantize-best': 'ActNN',
+        'v1-quantize-best': 'ActNN-v1',
+        'v2-quantize-best': 'ActNN-v2',
     }
 
     return replace_dict.get(name, name)
@@ -96,15 +104,10 @@ def method_to_marker(method):
 
 def method_to_color(method):
     val_dict = {
-        'FP32':'C1',
-        'None': 'C1',
-        'L1': 'C2',
-        'L1.2': 'C3',
+        'exact': 'C1',
         'dtr' : 'C4',
-        'actnn-L1': 'C5',
-        'actnn-L2': 'C6',
-        'actnn-L3': 'C7',
-        'actnn-L4': 'C8',
+        'v2-quantize-best': 'C2',
+        'v1-quantize-best': 'C5',
     }
     if method in val_dict:
         return val_dict[method]
@@ -131,30 +134,40 @@ def get_max_batch_size(data, alg, network):
     return max_batch, max_ips, last_ips
 
 
-def get_seg_points(data, network):
+def get_seg_points(data, network, name):
     methods = list(data[network].keys())
-    quantize_methods = [m for m in methods if m.startswith('quantize') and m != 'quantize-best']
+    if name.startswith('v2'):
+        quantize_methods = [m for m in methods if m.startswith('L')]
+    elif name.startswith('v1'):
+        quantize_methods = [m for m in methods if m.startswith('actnn')]
 
-    batch_sizes = list(data[network]['quantize-best'].keys())
+    batch_sizes = list(data[network][name].keys())
     batch_sizes.sort()
 
     pre_alg = None
     seg_points = []
     for batch_size in batch_sizes:
         for alg in quantize_methods:
+            cur_alg = None
             if batch_size not in data[network][alg]:
                 continue
-            if data[network][alg][batch_size] == data[network]['quantize-best'][batch_size]:
+            if data[network][alg][batch_size] == data[network][name][batch_size]:
+                cur_alg = alg
                 break
 
-        if alg != pre_alg:
-            seg_points.append(batch_size)
+        if cur_alg != pre_alg:
+            if batch_size == 32:
+                batch_size += 1
+            batch_size -= 1
+            while batch_size not in data[network][name]:
+                batch_size -= 1
+            seg_points.append((batch_size, data[network][name][batch_size]))
             pre_alg = alg
 
-    seg_points[0] = 0
-    if network in ['resnet152', 'wide_resnet101_2']:
-        del seg_points[4]
-    seg_points.append(batch_size)
+    seg_points.insert(0, (0, 0))
+    # if network in ['resnet152', 'wide_resnet101_2']:
+    #     del seg_points[4]
+    seg_points.append((batch_size, data[network][name][batch_size]))
     return seg_points
 
 
@@ -173,18 +186,14 @@ if __name__ == "__main__":
 
     # for network in ['resnet50', 'resnet152', 'densenet201', 'wide_resnet101_2']:
     for network in ['resnet50', 'resnet152']:
-        fig, ax = plt.subplots(figsize=(8, 3.2))
+        fig, ax = plt.subplots(figsize=(4, 1.6))
         algs = list(data[network].keys())
         algs.sort(key=method_to_order)
 
         # draw curves
         for alg in algs:
-            if alg == 'FP32' or alg == 'actnn-L3.1':
+            if alg not in ['dtr', 'v1-quantize-best', 'v2-quantize-best']:
                 continue
-            # if alg.startswith('quantize') and alg != 'quantize-best':
-            #     continue
-            # if alg == 'exact':
-            #     continue
 
             xs = list(data[network][alg].keys())
             xs.sort()
@@ -200,10 +209,9 @@ if __name__ == "__main__":
             ax.plot(xs[-1], ys[-1], color='C3', marker='x', markersize=6, zorder=100)
 
         # draw full precision region
-        exact_max_batch, exact_max_ips, _ = get_max_batch_size(data, "None", network)
-        max_batch, max_ips, last_ips = get_max_batch_size(data, 'L1.2', network)
-        _, _, swap_last_ips = get_max_batch_size(data, 'dtr', network)
-        # _, _, swap_last_ips = get_max_batch_size(data, 'rotor', network)
+        exact_max_batch, exact_max_ips, _ = get_max_batch_size(data, "L0", network)
+        max_batch, max_ips, last_ips = get_max_batch_size(data, 'L3', network)
+        _, _, swap_last_ips = get_max_batch_size(data, 'L3', network)
         
         y_max = max(max_ips, exact_max_ips) * 1.2
         ax.bar([exact_max_batch / 2], [y_max], width=exact_max_batch, alpha=0.2,
@@ -215,19 +223,35 @@ if __name__ == "__main__":
         y_val = swap_last_ips // 2
         ax.arrow(x=exact_max_batch, y=y_val, dx=max_batch - exact_max_batch - 10, dy=0,
                  width=0.01, head_width=y_max / 40, head_length=max_batch / 60, fc='black', ec='black')
-        ax.annotate('$%.1f \\times$' % (max_batch / exact_max_batch), xy=(max_batch * 2 / 3, y_val + 2))
-        ax.arrow(x=max_batch, y=y_val, dx=0, dy=last_ips-y_val, width=0.01, linestyle=(0, (1, y_val)),
+        ax.annotate('$%.1f \\times$' % (max_batch / exact_max_batch), xy=(max_batch * 2 / 3, y_val + 5), fontsize=12)
+        ax.arrow(x=max_batch, y=y_val, dx=0, dy=last_ips-y_val, width=0.01, linestyle=(0, (1, 2)),
                  color='gray')
 
         # draw grid
         ax.xaxis.grid(linewidth=0.4, linestyle='dotted')
 
-        # # draw opt level
-        # seg_points = get_seg_points(data, network)
-        # for i in range(len(seg_points) - 1):
-        #     x = (seg_points[i] + seg_points[i+1]) / 2
-        #     y = data[network]['quantize-best'][x // 32 * 32]
-        #     ax.annotate('L%d' % i, xy=(x, y + y_max/13), ha='center', va='center')
+        # draw opt level
+        v1_seg_points = get_seg_points(data, network, 'v1-quantize-best')
+        v1_seg_xs = [x for (x, y) in v1_seg_points if x != 32]
+        v1_seg_ys = [y for (x, y) in v1_seg_points if x != 32]
+        ax.scatter(v1_seg_xs[1:], v1_seg_ys[1:],  s=14, c='C5', zorder=100)
+        
+        seg_points = get_seg_points(data, network, 'v2-quantize-best')
+        seg_xs = [x for (x, y) in seg_points if x != 32]
+        seg_ys = [y for (x, y) in seg_points if x != 32]
+        ax.scatter(seg_xs[1:], seg_ys[1:],  s=14, c='green', zorder=100)
+        
+        seg_points = seg_points[1:]
+        for (x, y) in seg_points[1:-1]:
+            ax.arrow(x=x, y=y-15, dx=0, dy=30, width=0.01, linestyle=(0, (1, 2)), zorder=99,
+                    color='gray')
+         
+        for i in range(len(seg_points) - 1):
+            x = (seg_points[i][0] + seg_points[i+1][0]) / 2
+            while x not in data[network]['v2-quantize-best']:
+                x += 1
+            y = data[network]['v2-quantize-best'][x]
+            ax.annotate('L%d' % i, xy=(x, y + y_max/13), ha='center', va='center')
 
         # draw legend
         ax.legend(loc="upper left", ncol=1, columnspacing=0.8, handlelength=1.0,

@@ -18,6 +18,7 @@ def set_optimization_level(level):
         config.auto_prec = False
         config.bit = 4
         config.swap = True
+        config.prefetch = True
     elif level == 'L2.0': # auto precision 4-bit, do not check duplicate
         config.check_dup = False
         config.auto_prec = True
@@ -30,127 +31,24 @@ def set_optimization_level(level):
         config.bit = 3
     elif level == 'L2.2':   # auto precision 2-bit
         config.auto_prec = True
-        config.bit = 2
-        
-    elif level == 'LH.1': # auto precision 2-bit
-        config.auto_prec = True
-        config.bit = 3
-        config.check_dup = False
-        config.empty_cache_threshold = None
-        
-    elif level == 'LH.2': # auto precision 2-bit
-        config.auto_prec = True
-        config.bit = 3
-        config.check_dup = False
-        config.empty_cache_threshold = 0.8
-        
-    elif level == 'LH.3': # auto precision 2-bit
-        config.auto_prec = True
-        config.bit = 3
-        config.check_dup = True
-        config.empty_cache_threshold = None
-        
-    elif level == 'LH.4': # auto precision 2-bit
-        config.auto_prec = True
-        config.bit = 3
-        config.check_dup = True
-        config.empty_cache_threshold =  0.8
-        
-    elif level == 'LF.1': # auto precision 2-bit
-        config.auto_prec = True
-        config.bit = 4
-        config.check_dup = False
-        config.empty_cache_threshold = None
-        
-    elif level == 'LF.2': # auto precision 2-bit
-        config.auto_prec = True
-        config.bit = 4
-        config.check_dup = False
-        config.empty_cache_threshold =  0.8
-        
-    elif level == 'LF.3': # auto precision 2-bit
-        config.auto_prec = True
-        config.bit = 4
-        config.check_dup = True
-        config.empty_cache_threshold = None
-        
-    elif level == 'LF.4': # auto precision 2-bit
-        config.auto_prec = True
-        config.bit = 4
-        config.check_dup = True
-        config.empty_cache_threshold = 0.8
-    
-    elif level == 'LT.1': # auto precision 2-bit
-        config.auto_prec = True
-        config.bit = 2
-        config.check_dup = False
-        config.empty_cache_threshold = None
-        
-    elif level == 'LT.2': # auto precision 2-bit
-        config.auto_prec = True
-        config.bit = 2
-        config.check_dup = False
-        config.empty_cache_threshold =  0.8
-        
-    elif level == 'LT.3': # auto precision 2-bit
-        config.auto_prec = True
-        config.bit = 2
-        config.check_dup = True
-        config.empty_cache_threshold = None
-        
-    elif level == 'LT.4': # auto precision 2-bit
-        config.auto_prec = True
-        config.bit = 2
-        config.check_dup = True
-        config.empty_cache_threshold =  0.8
-        
+        config.bit = 2     
     elif level == 'L3':  # auto precision 4-bit + swap
         config.auto_prec = True
         config.bit = 4
         config.swap = True
-        
-    elif level == 'L3.1':  # auto precision + swap + prefetch + no_check_dup + no empty_cache
-        config.auto_prec = True
-        config.bit = 4
-        config.swap = True
         config.prefetch = True
-        config.check_dup = False
-        config.empty_cache_threshold = None
-        
-    elif level == 'L3.2':  # auto precision + swap + prefetch + check dup + no empty_cache
-        config.auto_prec = True
-        config.bit = 4
-        config.swap = True
-        config.prefetch = True
-        config.check_dup = True
-        config.empty_cache_threshold = None
-        
-    elif level == 'L3.3':  # auto precision + swap + prefetch + no_check_dup + empty_cache
-        config.auto_prec = True
-        config.bit = 4
-        config.swap = True
-        config.prefetch = True
-        config.check_dup = False
-        config.empty_cache_threshold = 0.7
-        
-    elif level == 'L3.4':  # auto precision + swap + prefetch + check dup + empty_cache
-        config.auto_prec = True
-        config.bit = 4
-        config.swap = True
-        config.prefetch = True
-        config.check_dup = True
-        config.empty_cache_threshold = 0.7
-    
-    elif level == 'L4':    # auto precision + swap + prefetch + defragmentation
-        config.auto_prec = True
-        config.bit = 4
-        config.swap = True
-        config.prefetch = True
-        config.threshold = 1
-    elif level == 'swap':
-        # TODO: implement naive swap
+    elif level == 'swap': # naive swap
         config.swap = True
         config.compress_activation = False
+    elif level == 'L4bit-swap':
+        config.bit = 4
+        config.swap = True
+        config.auto_prec = False
+    elif level == 'L4bit-swap-prefetch':
+        config.bit = 4
+        config.swap = True
+        config.prefetch = True
+        config.auto_prec = False
     else:
         raise ValueError("Invalid level: " + level)
 

@@ -28,7 +28,6 @@ from scaled_resnet import scaled_resnet, scaled_wide_resnet
 import actnn
 from actnn import config
 from actnn.utils import get_memory_usage, compute_tensor_bytes, exp_recorder, empty_cache
-# import rotor
 
 MB = 1024**2
 GB = 1024**3
@@ -134,13 +133,7 @@ def main_worker(gpu, ngpus_per_node, args):
         model = models.__dict__[args.arch](pretrained=True)
     else:
         print("=> creating model '{}'".format(args.arch))
-        if args.benchmark == "rotor":
-            pass
-            print("[Error] rotor not implement")
-            exit(0)
-            # print("===> Create rotor model")
-            # model = rotor.models.__dict__[args.arch]()
-        elif args.arch.startswith('scaled_wide_resnet'):
+        if args.arch.startswith('scaled_wide_resnet'):
             model = scaled_wide_resnet(args.arch)
         elif args.arch.startswith('scaled_resnet'):
             model = scaled_resnet(args.arch)
@@ -284,31 +277,18 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
 
         torch._C._autograd._register_saved_tensors_default_hooks(
             pack_hook, unpack_hook)
-    # elif args.benchmark == "rotor":
-    #     model = rotor.Checkpointable(model)
-    #     measure_sample = True
-    #     rotor_mem_limit = MEM_LIMIT * args.limit
-    #     rotor_mem_limit = 4 * GB
-        
+
     # switch to train mode
     model.train()
-    batch_total_time = 1
     for (i, (images, target)) in enumerate(train_loader):
-        start = torch.cuda.Event(enable_timing=True)
-        end = torch.cuda.Event(enable_timing=True)
         images = images.cuda(args.gpu, non_blocking=False)
         target = target.cuda(args.gpu, non_blocking=False)
         
+        start = torch.cuda.Event(enable_timing=True)
+        end = torch.cuda.Event(enable_timing=True)
         torch.cuda.synchronize()
         start.record()
         
-        # if measure_sample:
-        #     print("Rotor measure sample", images.shape, rotor_mem_limit)
-        #     model.measure(images)
-        #     model.compute_sequence(mem_limit=rotor_mem_limit)
-        #     measure_sample = False
-                  
-
         if config.debug_memory_model:
             print("========== Init Data Loader ===========")
             init_mem = get_memory_usage(True)
@@ -319,22 +299,23 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         output = model(images)
         loss = criterion(output, target)
 
-        if config.debug_memory_model and i > 0:
+        if config.debug_memory_model:
             torch.cuda.reset_peak_memory_stats()
+
             print("========== Before Backward ===========")
             before_backward = get_memory_usage(True)
             act_mem = get_memory_usage() - init_mem - \
                 compute_tensor_bytes([loss, output])
-            res = "Batch size: %d\tTotal Mem: %.2f MB\tAct Mem: %.2f MB" % (
-                len(output), before_backward / MB, act_mem / MB)
+
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             controller.iterate(None)
             del loss
+
             print("========== After Backward ===========")
             after_backward = get_memory_usage(True)
-            total_mem = before_backward
+            total_mem = before_backward + (after_backward - init_mem)
             ref_act = before_backward - after_backward
             peak_mem = torch.cuda.max_memory_allocated()
             res = "Batch size: %d\tTotal Mem: %.2f MB\tAct Mem: %.2f MB\tRef Mem: %.2f\tPeak Mem: %.2f" % (
@@ -344,7 +325,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
             exp_recorder.record("total", total_mem / GB, 2)
             exp_recorder.record("activation", act_mem / GB, 2)
             exp_recorder.dump('mem_results.json')
-            exit()
+            exit(0)
 
         # measure accuracy and record loss
         acc1, acc5 = accuracy(output, target, topk=(1, 5))
@@ -355,7 +336,6 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
-        torch.cuda.empty_cache()
         loss.backward()
         with torch.no_grad():
             optimizer.step()
@@ -385,18 +365,15 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
             controller.iterate(backprop)
         bs = len(images)
         del images
-        
         train_ips_list.append(bs / cur_batch_time)
-        batch_total_time += cur_batch_time
            
-        torch.cuda.empty_cache()
         if config.debug_speed:
             global train_step_ct, train_max_batch
             train_max_batch = max(train_max_batch, bs)
-            if train_step_ct >= 10:
+            if train_step_ct >= 6:
                 train_ips = np.median(train_ips_list)
                 res = "BatchSize: %d\tIPS: %.2f\t,Cost: %.2f ms" % (
-                    bs, train_ips, 1000.0 / train_ips)
+                    bs, train_ips, cur_batch_time)
                 print(res, flush=True)
                 exp_recorder.record("network", args.arch)
                 exp_recorder.record("algorithm", args.alg)

@@ -157,16 +157,12 @@ if __name__ == "__main__":
         batch_sizes = list(range(32, 256, 16)) + list(range(256, 1280, 32))
         algs = ['L0', 'L1', 'L2', 'L3']
          
-        networks = ['resnet50']
-        batch_sizes = list(range(256, 1280, 32))
-        algs = [ None, 
-                'LF.1', 'LF.2', 'LF.3', 'LF.4', 
-                'LH.1', 'LH.2', 'LH.3', 'LH.4', 
-                'LT.1', 'LT.2', 'LT.3', 'LT.4']
-        # algs = ['L1']
+        networks = ['resnet50', "resnet152"]
+        batch_sizes = list(range(32, 256, 16)) + list(range(256, 1280, 32))
+        algs = ['L1', 'L3']
     else:
         networks = ['resnet152']
-        algs = ['L1', 'L2', 'L3']
+        algs = ['L1']
 
     if args.mode == 'linear_scan':
         for network in networks:

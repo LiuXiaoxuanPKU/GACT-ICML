@@ -20,7 +20,7 @@ class AutoPrecision:
         self.order = torch.randperm(self.L)
 
     def __init__(self, model, quantizer, bits, max_bits,
-                 work_dir, adapt_interval, log_iter, sample_grad_ratio, sample_method,
+                 work_dir, adapt_interval, log_interval, sample_grad_ratio, sample_method,
                  momentum=0.99, warmup_iter=100, debug=False):
         self.model = model
 
@@ -46,7 +46,7 @@ class AutoPrecision:
         self.sample_grad_ratio = sample_grad_ratio
 
         self.iter = 0
-        self.log_iter = log_iter
+        self.log_iter = log_interval
         self.work_dir = work_dir
 
     def iterate_wrapper(self, backprop):

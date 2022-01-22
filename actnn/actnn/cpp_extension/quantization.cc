@@ -16,10 +16,9 @@ using torch::IntArrayRef;
 // Declarations for functions in ext_quantization_cuda_kernel.cu
 // Pack and unpack
 std::pair<Tensor, Tensor> pack_single_precision_cuda(
-    Tensor data, Tensor min, Tensor max, int bits, bool stochastic, int seed);
+    Tensor data, Tensor min, Tensor max, int bits, bool stochastic, uint64_t seed);
 Tensor unpack_single_precision_cuda(
-    Tensor data, int bits, Tensor scale, Tensor min, int64_t N, int64_t num_groups, int group_size);
-tensor_list minimax_quantize_single_precision_cuda(Tensor data, int bits, uint64_t seed);
+    Tensor data, int bits, Tensor scale, Tensor min, int64_t N, int64_t num_groups, int64_t group_size);
 
 Tensor act_quantize_dropout_mask_cuda(Tensor data);
 Tensor act_dequantize_dropout_mask_cuda(Tensor mask, int N);
@@ -58,7 +57,7 @@ std::pair<Tensor, Tensor> pack_single_precision(Tensor data,
   CHECK_CUDA_TENSOR_DIM_FLOAT(min, 3);
   CHECK_CUDA_TENSOR_DIM_FLOAT(max, 3);
 
-  return pack_single_precision_cuda(data, min, max, bits, stochastic, seed);
+  return pack_single_precision_cuda(data, min, max, bits, stochastic, (uint64_t)seed);
 }
 
 

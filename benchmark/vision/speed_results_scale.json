@@ -1,0 +1,71 @@
+{"network": "scaled_wide_resnet_288", "algorithm": "L1", "batch_size": 64, "ips": -1}
+{"network": "scaled_wide_resnet_172", "algorithm": "L1", "benchmark": "actnn", "batch_size": 64, "ips": 10.33, "tstamp": 1642208879.79}
+{"network": "scaled_wide_resnet_228", "algorithm": "L1", "benchmark": "actnn", "batch_size": 64, "ips": 6.64, "tstamp": 1642209006.68}
+{"network": "scaled_wide_resnet_256", "algorithm": "L1", "benchmark": "actnn", "batch_size": 64, "ips": 5.86, "tstamp": 1642209149.26}
+{"network": "scaled_wide_resnet_272", "algorithm": "L1", "benchmark": "actnn", "batch_size": 64, "ips": 5.27, "tstamp": 1642209307.97}
+{"network": "scaled_wide_resnet_280", "algorithm": "L1", "benchmark": "actnn", "batch_size": 64, "ips": 5.09, "tstamp": 1642209472.0}
+{"network": "scaled_wide_resnet_284", "algorithm": "L1", "benchmark": "actnn", "batch_size": 64, "ips": 3.27, "tstamp": 1642209699.56}
+{"network": "scaled_wide_resnet_284", "algorithm": "L1", "benchmark": "actnn", "batch_size": 64, "ips": 3.24, "tstamp": 1642209928.96}{"network": "scaled_wide_resnet_288", "algorithm": null, "batch_size": 64, "ips": -1}
+{"network": "scaled_wide_resnet_172", "algorithm": null, "batch_size": 64, "ips": -1}
+{"network": "scaled_wide_resnet_116", "algorithm": null, "batch_size": 64, "ips": -1}
+{"network": "scaled_wide_resnet_88", "algorithm": "None", "benchmark": "exact", "batch_size": 64, "ips": 23.92, "tstamp": 1642211428.39}
+{"network": "scaled_wide_resnet_100", "algorithm": null, "batch_size": 64, "ips": -1}
+{"network": "scaled_wide_resnet_92", "algorithm": null, "batch_size": 64, "ips": -1}
+{"network": "scaled_wide_resnet_88", "algorithm": "None", "benchmark": "exact", "batch_size": 64, "ips": 23.42, "tstamp": 1642211513.32}
+{"network": "scaled_wide_resnet_288", "algorithm": "L1.2", "benchmark": "actnn", "batch_size": 64, "ips": 5.12, "tstamp": 1642211693.06}
+{"network": "scaled_wide_resnet_400", "algorithm": "L1.2", "batch_size": 64, "ips": -1}
+{"network": "scaled_wide_resnet_344", "algorithm": "L1.2", "batch_size": 64, "ips": -1}
+{"network": "scaled_wide_resnet_316", "algorithm": "L1.2", "benchmark": "actnn", "batch_size": 64, "ips": 4.47, "tstamp": 1642212020.2}
+{"network": "scaled_wide_resnet_328", "algorithm": "L1.2", "batch_size": 64, "ips": -1}
+{"network": "scaled_wide_resnet_320", "algorithm": "L1.2", "batch_size": 64, "ips": -1}
+{"network": "scaled_wide_resnet_316", "algorithm": "L1.2", "benchmark": "actnn", "batch_size": 64, "ips": 4.4, "tstamp": 1642212341.18}
+{"network": "scaled_resnet_588", "algorithm": null, "batch_size": 64, "ips": -1}
+{"network": "scaled_resnet_368", "algorithm": null, "batch_size": 64, "ips": -1}
+{"network": "scaled_resnet_256", "algorithm": null, "batch_size": 64, "ips": -1}
+{"network": "scaled_resnet_200", "algorithm": null, "batch_size": 64, "ips": -1}
+{"network": "scaled_resnet_172", "algorithm": null, "batch_size": 64, "ips": -1}
+{"network": "scaled_resnet_160", "algorithm": "None", "benchmark": "exact", "batch_size": 64, "ips": 32.37, "tstamp": 1642216546.76}
+{"network": "scaled_resnet_164", "algorithm": null, "batch_size": 64, "ips": -1}
+{"network": "scaled_resnet_160", "algorithm": "None", "benchmark": "exact", "batch_size": 64, "ips": 31.98, "tstamp": 1642216601.32}
+{"network": "scaled_resnet_588", "algorithm": "L1.2", "batch_size": 64, "ips": -1}
+{"network": "scaled_resnet_368", "algorithm": "L1.2", "benchmark": "actnn", "batch_size": 64, "ips": 5.82, "tstamp": 1642216793.03}
+{"network": "scaled_resnet_476", "algorithm": "L1.2", "benchmark": "actnn", "batch_size": 64, "ips": 3.94, "tstamp": 1642216977.14}
+{"network": "scaled_resnet_532", "algorithm": "L1.2", "batch_size": 64, "ips": -1}
+{"network": "scaled_resnet_504", "algorithm": "L1.2", "benchmark": "actnn", "batch_size": 64, "ips": 3.64, "tstamp": 1642217225.41}
+{"network": "scaled_resnet_516", "algorithm": "L1.2", "benchmark": "actnn", "batch_size": 64, "ips": 3.51, "tstamp": 1642217430.4}
+{"network": "scaled_resnet_524", "algorithm": "L1.2", "benchmark": "actnn", "batch_size": 64, "ips": 3.44, "tstamp": 1642217638.76}
+{"network": "scaled_resnet_528", "algorithm": "L1.2", "benchmark": "actnn", "batch_size": 64, "ips": 3.32, "tstamp": 1642217851.95}
+{"network": "scaled_resnet_528", "algorithm": "L1.2", "benchmark": "actnn", "batch_size": 64, "ips": 3.36, "tstamp": 1642218062.77}
+{"network": "resnet152", "algorithm": null, "batch_size": 64, "ips": -1}
+{"network": "resnet152", "algorithm": null, "batch_size": 64, "ips": -1}
+{"network": "resnet152", "algorithm": null, "batch_size": 64, "ips": -1}
+{"network": "resnet152", "algorithm": null, "batch_size": 64, "ips": -1}
+{"network": "resnet152", "algorithm": null, "batch_size": 64, "ips": -1}
+{"network": "resnet152", "algorithm": "None", "benchmark": "exact", "batch_size": 64, "ips": 31.7, "tstamp": 1642220603.91}
+{"network": "resnet152", "algorithm": "None", "benchmark": "exact", "batch_size": 64, "ips": 31.5, "tstamp": 1642220639.94}
+{"network": "resnet152", "algorithm": "None", "benchmark": "exact", "batch_size": 64, "ips": 30.87, "tstamp": 1642220676.36}
+{"network": "resnet152", "algorithm": "L1", "batch_size": 64, "ips": -1}
+{"network": "resnet152", "algorithm": "L1", "benchmark": "actnn", "batch_size": 64, "ips": 9.59, "tstamp": 1642220808.86}
+{"network": "resnet152", "algorithm": "L1", "benchmark": "actnn", "batch_size": 64, "ips": 6.72, "tstamp": 1642220926.16}
+{"network": "resnet152", "algorithm": "L1", "benchmark": "actnn", "batch_size": 64, "ips": 5.52, "tstamp": 1642221065.24}
+{"network": "resnet152", "algorithm": "L1", "benchmark": "actnn", "batch_size": 64, "ips": 5.15, "tstamp": 1642221212.68}
+{"network": "resnet152", "algorithm": "L1", "benchmark": "actnn", "batch_size": 64, "ips": 4.86, "tstamp": 1642221367.65}
+{"network": "resnet152", "algorithm": "L1", "benchmark": "actnn", "batch_size": 64, "ips": 4.81, "tstamp": 1642221522.5}
+{"network": "resnet152", "algorithm": "L1", "benchmark": "actnn", "batch_size": 64, "ips": 4.76, "tstamp": 1642221679.7}
+{"network": "resnet152", "algorithm": "L1", "benchmark": "actnn", "batch_size": 64, "ips": 4.76, "tstamp": 1642221836.64}
+{"network": "resnet152", "algorithm": "L1.2", "benchmark": "actnn", "batch_size": 64, "ips": 5.1, "tstamp": 1642222001.8}
+{"network": "resnet152", "algorithm": "L1.2", "batch_size": 64, "ips": -1}
+{"network": "resnet152", "algorithm": "L1.2", "benchmark": "actnn", "batch_size": 64, "ips": 3.95, "tstamp": 1642222235.88}
+{"network": "resnet152", "algorithm": "L1.2", "batch_size": 64, "ips": -1}
+{"network": "resnet152", "algorithm": "L1.2", "batch_size": 64, "ips": -1}
+{"network": "resnet152", "algorithm": "L1.2", "benchmark": "actnn", "batch_size": 64, "ips": 3.84, "tstamp": 1642222512.77}
+{"network": "resnet152", "algorithm": "L1.2", "benchmark": "actnn", "batch_size": 64, "ips": 3.93, "tstamp": 1642222701.69}
+{"network": "resnet152", "algorithm": "L1.2", "benchmark": "actnn", "batch_size": 64, "ips": 3.9, "tstamp": 1642222891.98}
+{"network": "scaled_resnet_588", "algorithm": "L1", "batch_size": 64, "ips": -1}
+{"network": "scaled_resnet_368", "algorithm": "L1", "benchmark": "actnn", "batch_size": 64, "ips": 5.73, "tstamp": 1642223411.32}
+{"network": "scaled_resnet_476", "algorithm": "L1", "batch_size": 64, "ips": -1}
+{"network": "scaled_resnet_420", "algorithm": "L1", "batch_size": 64, "ips": -1}
+{"network": "scaled_resnet_392", "algorithm": "L1", "batch_size": 64, "ips": -1}
+{"network": "scaled_resnet_380", "algorithm": "L1", "batch_size": 64, "ips": -1}
+{"network": "scaled_resnet_372", "algorithm": "L1", "batch_size": 64, "ips": -1}
+{"network": "scaled_resnet_368", "algorithm": "L1", "benchmark": "actnn", "batch_size": 64, "ips": 5.17, "tstamp": 1642223733.06}

@@ -34,6 +34,13 @@ def run_benchmark(network, alg, batch_size, debug_mem=False, debug_speed=False,
         cmd += " --ckpt "
         cmd += " --actnn --opt_level L1 "
         cmd += " --eff "
+    elif alg == "L1.4_ckpt":
+        cmd += " --ckpt "
+        cmd += " --actnn --opt_level L1.4 "
+    elif alg == "L1.4_ckpt_effi":
+        cmd += " --ckpt "
+        cmd += " --actnn --opt_level L1.4 "
+        cmd += " --eff "
     elif alg != None:
         cmd += " --output_dir log/sst2/LEVEL/ --actnn --opt_level LEVEL ".replace("LEVEL", alg)
         
@@ -181,10 +188,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.mode == 'linear_scan':
-        networks = ['bert-large-cased']
+        networks = ['bert-base-cased']
         # batch_sizes = list(range(4, 20, 4)) + list(range(20, 240, 8))
-        batch_sizes = list(range(16, 500, 16))
-        algs = ['L1', 'L1.4']
+        batch_sizes = list(range(896, 2000, 32))
+        algs = ["L1_ckpt", "L1_ckpt_eff"]
     else:
         networks = ['bert-large-cased']
         algs = [None, 'L1', 'L1.2']

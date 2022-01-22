@@ -21,7 +21,7 @@ class AutoPrecision:
 
     def __init__(self, model, quantizer, bits, max_bits,
                  work_dir, adapt_interval, log_iter, sample_grad_ratio, sample_method,
-                 momentum=0.99, warmup_iter=100, debug=True):
+                 momentum=0.99, warmup_iter=100, debug=False):
         self.model = model
 
         self.quantizer = quantizer
@@ -114,7 +114,7 @@ class AutoPrecision:
             return grad
 
         if (self.iter % self.adapt_interval == 0 and self.iter < 10 * self.adapt_interval) \
-            or (self.iter % 10 * self.adapt_interval == 0):
+            or (self.iter % (10 * self.adapt_interval) == 0):
             # Do full adaptation
             print('ActNN: Initializing AutoPrec...')
             # different random seeds
@@ -162,7 +162,7 @@ class AutoPrecision:
                 print(b, ' bit ', quant_var.item(), predicted_var.item())
             self.quantizer.bits = [bit.item() for bit in self.bits]
 
-        if self.iter % self.log_iter == 0:
+        if self.log_iter > 0 and self.iter % self.log_iter == 0:
             det_grad = get_grad()
 
             # Maintain batch grad

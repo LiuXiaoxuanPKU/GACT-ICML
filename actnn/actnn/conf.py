@@ -14,8 +14,7 @@ def set_optimization_level(level):
     elif level == 'L1.2':    # fixed 2-bit
         config.auto_prec = False
         config.bit = 2
-    elif level == 'L2': # auto precision 4-bit, do not check duplicate
-        config.check_dup = False
+    elif level == 'L2': # auto precision 4-bit, check duplicate
         config.auto_prec = True
         config.bit = 4
     elif level == 'L3':  # auto precision 4-bit + swap
@@ -47,7 +46,7 @@ class QuantizationConfig:
         self.group_size = 256
         self.auto_prec = True
         self.work_dir = "./log/" 
-        self.adapt_interval = 1000
+        self.adapt_interval = 50
         self.log_interval = 1000
         
         self.check_dup = True

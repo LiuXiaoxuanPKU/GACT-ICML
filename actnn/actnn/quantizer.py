@@ -2,7 +2,7 @@ import torch
 from actnn.conf import config
 from actnn.ops import op_quantize, op_dequantize, op_quantize_mask, op_dequantize_mask
 from actnn.utils import random_sample, uniform_sample, compute_tensor_bytes
-
+from collections import OrderedDict
 
 class Quantizer:
     """
@@ -33,13 +33,11 @@ class Quantizer:
         self.start_bwd = True
 
         # data collected for auto precision
-        self.inject_noises = []
-        self.seeds = []
-        self.bits = []
-        self.dims = []
+        self.seeds = {}
+        self.bits = {}
+        self.dims = {}
 
         self.iter = 0
-        self.bwd_fns = []
 
     def filter_tensors(self, pairs):
         for k, v in pairs:
@@ -73,10 +71,11 @@ class Quantizer:
         del self.unrelated_tensors
 
     def iterate(self):
+        # print("---------------------------")
         del self.ptr_qtensor_map
         del self.layer_key_map
         self.ptr_qtensor_map = {}
-        self.layer_key_map = {}
+        self.layer_key_map = {}        
         self.tid = 0
         self.start_bwd = True
         self.iter += 1
@@ -109,24 +108,24 @@ class Quantizer:
             q_inputs = op_quantize_mask(input)
             return True, is_dropout_mask, q_inputs
 
-        if self.iter == 0:
-            self.dims.append(input.numel())
-            self.bits.append(int(self.default_bit))
-            self.inject_noises.append(False)
-            self.seeds.append(self.tid)
-            print('Tensor ', self.tid, input.shape, input.grad_fn, input.dtype)
 
         tid = self.tid
         self.tid += 1
         input_shape = input.shape
 
-        bit = self.bits[tid]
         key = self.generate_tensor_key(input, tid)
         self.layer_key_map[tid] = key
         skip_quantize = key in self.ptr_qtensor_map
 
-        self.bwd_fns.append(str(type(input.grad_fn)))
         if not skip_quantize:
+            if self.iter == 0:
+                bit = self.default_bit
+                self.bits[tid] = bit
+                self.dims[tid] = input.numel()
+                self.seeds[tid] = tid
+            else:
+                bit = self.bits[tid]
+            
             # quantize
             # use tid as quantize seed
             q_inputs = op_quantize(input, bit, self.seeds[tid])
@@ -195,7 +194,8 @@ class Quantizer:
                             )
                     self.end_prefetch_event.record()
 
-        ret = op_dequantize(q_inputs, input_shape, self.inject_noises[tid])
+        inject_noise = False
+        ret = op_dequantize(q_inputs, input_shape, inject_noise)
 
         ref_cnt -= 1
         if ref_cnt < 0:

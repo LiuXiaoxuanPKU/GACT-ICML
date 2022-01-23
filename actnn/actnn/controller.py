@@ -26,8 +26,7 @@ class Controller:
         if self.auto_prec:
             self.ap = AutoPrecision(
                 self.model, self.quantizer, config.bit, config.max_bit, 
-                config.work_dir, config.adapt_interval, config.log_interval,
-                config.sample_grad_ratio, config.sample_method)
+                config.work_dir, config.adapt_interval, config.log_interval)
         self.bit = config.bit
 
         self.iter = 0

@@ -119,8 +119,9 @@ class AutoPrecision:
                 del grad1
                 del grad2
                 if torch.isnan(sens) or torch.isinf(sens) or sens > 1e10:
-                    sens = 1e10
-                self.C[l] = sens.item()
+                    self.C[l] = 1e10
+                else:
+                    self.C[l] = sens.item()
                 self.quantizer.bits[l] = b
 
             self.refresh_bits()
@@ -132,7 +133,12 @@ class AutoPrecision:
                 self.quantizer.bits[l] = 32
             det_grad = get_grad()
             ap_var = ((grad - det_grad)**2).sum()
-            predicted_var = (np.array(list(self.C.values())) * 2 ** (-2.0 * (np.array(list(self.bits.values())) - 1))).sum()
+            C_list = []
+            bits_list = []
+            for l in self.C:
+                C_list.append(self.C[l])
+                bits_list.append(self.bits[l])
+            predicted_var = (np.array(C_list) * 2 ** (-2.0 * (np.array(bits_list) - 1))).sum()
             print('ap var', ap_var.item(), predicted_var.item())
 
             for b in [4]:
@@ -144,7 +150,6 @@ class AutoPrecision:
                     grad = get_grad()
                     var = ((grad - det_grad)**2).sum()
                     quant_var += var
-
                 predicted_var = (np.array(list(self.C.values())) * 2 ** (-2.0 * (b - 1))).sum()
                 print(b, ' bit ', quant_var.item(), predicted_var.item())
             
@@ -196,8 +201,12 @@ class AutoPrecision:
         # Warning if the quantization variance is too large
         if self.log_iter > 0 and self.iter > self.warmpup_iter:
             overall_var = self.grad_var / self.beta1
-            quantization_var = (
-                np.array(list(self.C.values())) * 2 ** (-2.0 * np.array(list(self.bits.values())))).sum()
+            C_list = []
+            bits_list = []
+            for l in self.C:
+                C_list.append(self.C[l])
+                bits_list.append(self.bits[l])
+            quantization_var = (np.array(C_list) * 2 ** (-2.0 * np.array(bits_list))).sum()
             if quantization_var > overall_var * 0.1:
                 print("========================================")
                 print('ActNN Warning: Quantization variance is too large. Consider increasing number of bits.',

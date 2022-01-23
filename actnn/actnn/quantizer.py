@@ -2,7 +2,6 @@ import torch
 from actnn.conf import config
 from actnn.ops import op_quantize, op_dequantize, op_quantize_mask, op_dequantize_mask
 from actnn.utils import random_sample, uniform_sample, compute_tensor_bytes
-from collections import OrderedDict
 
 class Quantizer:
     """

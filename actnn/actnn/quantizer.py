@@ -37,6 +37,7 @@ class Quantizer:
         self.dims = {}
 
         self.iter = 0
+        self.seed_iter = 0
 
     def filter_tensors(self, pairs):
         for k, v in pairs:
@@ -120,13 +121,13 @@ class Quantizer:
                 bit = self.default_bit
                 self.bits[tid] = bit
                 self.dims[tid] = input.numel()
+                self.seeds[tid] = tid
             else:
                 bit = self.bits[tid]
-            
-            self.seeds[tid] = tid + self.iter
+            # self.seeds[tid] = tid + self.seed_iter
             # quantize
             # use tid as quantize seed
-            q_inputs = op_quantize(input, bit, self.seeds[tid])
+            q_inputs = op_quantize(input, bit, self.seeds[tid] + self.seed_iter)
             if self.swap:
                 #  with torch.cuda.stream(self.swap_out_stream):
                     # self.swap_out_stream.wait_stream(self.compute_stream)

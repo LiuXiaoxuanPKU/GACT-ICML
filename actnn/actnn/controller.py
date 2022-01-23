@@ -57,3 +57,4 @@ class Controller:
         if self.auto_prec:
             self.ap.iterate_wrapper(get_grad)
         self.iter += 1
+        self.quantizer.seed_iter = self.iter

@@ -120,10 +120,10 @@ class Quantizer:
                 bit = self.default_bit
                 self.bits[tid] = bit
                 self.dims[tid] = input.numel()
-                self.seeds[tid] = tid
             else:
                 bit = self.bits[tid]
             
+            self.seeds[tid] = tid + self.iter
             # quantize
             # use tid as quantize seed
             q_inputs = op_quantize(input, bit, self.seeds[tid])

@@ -120,7 +120,7 @@ class AutoPrecision:
                 del grad2
                 if torch.isnan(sens) or torch.isinf(sens) or sens > 1e10:
                     sens = 1e10
-                self.C[l] = sens
+                self.C[l] = sens.item()
                 self.quantizer.bits[l] = b
 
             self.refresh_bits()
@@ -164,18 +164,12 @@ class AutoPrecision:
 
             # log sensitivity information
             exp_recorder.record("iter", self.iter)
-            exp_recorder.record("layer sensitivity", self.dict_tensor_to_list(self.C))
+            exp_recorder.record("layer sensitivity", self.C)
             exp_recorder.record("bits", self.bits)
             exp_recorder.record("dims", self.dims)
             exp_recorder.dump(self.work_dir + "autoprec.log")
 
         self.iter += 1
-
-    def dict_tensor_to_list(self, d):
-        dic_list = {}
-        for l in d:
-            dic_list[l] = d[l].tolist()
-        return dic_list
     
     def refresh_bits(self):
         dims_list = []
@@ -184,7 +178,7 @@ class AutoPrecision:
         for l in self.dims:
             l_list.append(l)
             dims_list.append(self.dims[l])
-            C_list.append(self.C[l].item())
+            C_list.append(self.C[l])
             
         
         bits_tensor = torch.ones(len(self.bits), dtype=torch.int32) * self.max_bits
@@ -203,13 +197,13 @@ class AutoPrecision:
         if self.log_iter > 0 and self.iter > self.warmpup_iter:
             overall_var = self.grad_var / self.beta1
             quantization_var = (
-                np.array(list(self.C.values())) * 2 ** (-2.0 * np.array(list(self.bits.values())))).sum().cuda()
+                np.array(list(self.C.values())) * 2 ** (-2.0 * np.array(list(self.bits.values())))).sum()
             if quantization_var > overall_var * 0.1:
                 print("========================================")
                 print('ActNN Warning: Quantization variance is too large. Consider increasing number of bits.',
                       quantization_var, overall_var)
                 exp_recorder.record("iter", self.iter)
-                exp_recorder.record("layer sensitivity", self.dict_tensor_to_list(self.C))
+                exp_recorder.record("layer sensitivity", self.C)
                 exp_recorder.record("bits", self.bits)
                 exp_recorder.record("dims", self.dims)
                 exp_recorder.record("warning", True)

@@ -198,7 +198,6 @@ class AutoPrecision:
             self.bits[l] = bits_tensor[i].item()
             
         self.quantizer.bits = self.bits.copy()
-        print(self.bits)
         
         # Warning if the quantization variance is too large
         if self.log_iter > 0 and self.iter > self.warmpup_iter:

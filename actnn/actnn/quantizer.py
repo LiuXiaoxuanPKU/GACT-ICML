@@ -71,7 +71,6 @@ class Quantizer:
         del self.unrelated_tensors
 
     def iterate(self):
-        # print("---------------------------")
         del self.ptr_qtensor_map
         del self.layer_key_map
         self.ptr_qtensor_map = {}

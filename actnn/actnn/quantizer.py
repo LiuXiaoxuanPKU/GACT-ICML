@@ -12,7 +12,7 @@ class Quantizer:
     verbose: print debug log
     """
 
-    def __init__(self, default_bit=4, swap=False, debug=False, prefetch=False, verbose=True):
+    def __init__(self, default_bit=4, swap=False, debug=False, prefetch=False, verbose=False):
         self.unrelated_tensors = set()
         self.default_bit = default_bit
         self.debug = debug
@@ -58,20 +58,20 @@ class Quantizer:
     def check_quantize(self, input_tensor):
         if input_tensor.data_ptr() in self.unrelated_tensors:
             return False, False
-        if ((len(input_tensor.shape) != 2)
-            and (len(input_tensor.shape) != 3)
-            and (len(input_tensor.shape) != 4)
-            ):
+        if input_tensor.numel() > 0 and input_tensor.dtype == torch.uint8:
+            if (input_tensor.max() == 1) and (input_tensor.min() == 0):
+                return True, True
+            return False, False
+        if input_tensor.dtype != torch.float32:
             return False, False
         if input_tensor.requires_grad is False:
             if self.verbose:
                 self.no_grad_size += compute_tensor_bytes([input_tensor])
             return False, False
-        if input_tensor.dtype == torch.uint8:
-            if (input_tensor.max() == 1) and (input_tensor.min() == 0):
-                return True, True
-            return False, False
-        if input_tensor.dtype != torch.float32:
+        if ((len(input_tensor.shape) != 2)
+            and (len(input_tensor.shape) != 3)
+            and (len(input_tensor.shape) != 4)
+            ):
             return False, False
         return True, False
 

@@ -12,7 +12,7 @@ class Quantizer:
     verbose: print debug log
     """
 
-    def __init__(self, default_bit=4, swap=False, debug=False, prefetch=False, verbose=False):
+    def __init__(self, default_bit=4, swap=False, debug=False, prefetch=False, verbose=True):
         self.unrelated_tensors = set()
         self.default_bit = default_bit
         self.debug = debug
@@ -40,6 +40,7 @@ class Quantizer:
         self.seed_iter = 0
         
         self.verbose = verbose
+        self.print = False
         if self.verbose:
             self.before_quantize_size = 0
             self.no_grad_size = 0

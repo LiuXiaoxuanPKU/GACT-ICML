@@ -38,6 +38,13 @@ class Quantizer:
 
         self.iter = 0
         self.seed_iter = 0
+        
+        self.verbose = verbose
+        if self.verbose:
+            self.before_quantize_size = 0
+            self.no_grad_size = 0
+            self.quantize_size = 0
+            self.print = True
 
     def filter_tensors(self, pairs):
         for k, v in pairs:
@@ -56,6 +63,8 @@ class Quantizer:
             ):
             return False, False
         if input_tensor.requires_grad is False:
+            if self.verbose:
+                self.no_grad_size += compute_tensor_bytes([input_tensor])
             return False, False
         if input_tensor.dtype == torch.uint8:
             if (input_tensor.max() == 1) and (input_tensor.min() == 0):
@@ -78,6 +87,11 @@ class Quantizer:
         self.tid = 0
         self.start_bwd = True
         self.iter += 1
+        
+        if self.verbose:
+            self.before_quantize_size = 0
+            self.no_grad_size = 0
+            self.quantize_size = 0
 
     def generate_tensor_key(self, t, tid):
         if config.check_dup:
@@ -128,6 +142,9 @@ class Quantizer:
             # quantize
             # use tid as quantize seed
             q_inputs = op_quantize(input, bit, self.seeds[tid] + self.seed_iter)
+            if self.verbose:
+                self.quantize_size += compute_tensor_bytes(q_inputs)
+                self.before_quantize_size += compute_tensor_bytes([input])
             if self.swap:
                 #  with torch.cuda.stream(self.swap_out_stream):
                     # self.swap_out_stream.wait_stream(self.compute_stream)
@@ -166,6 +183,12 @@ class Quantizer:
         _, _, key, input_shape, tid = input
         q_inputs, ref_cnt, key_tid = self.ptr_qtensor_map[key]
             
+        if self.print:
+            print("Before quantize size", self.before_quantize_size / 1024 / 1024)
+            print("Quantize size", self.quantize_size / 1024 / 1024)
+            print("No grad size", self.no_grad_size / 1024 / 1024)
+            self.print = False
+        
         if self.start_bwd and self.swap:
             self.compute_stream.wait_stream(self.swap_out_stream)
             self.start_bwd = False

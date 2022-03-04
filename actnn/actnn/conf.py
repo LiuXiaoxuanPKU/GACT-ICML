@@ -52,8 +52,8 @@ class QuantizationConfig:
         self.group_size = 256
         self.auto_prec = True
         self.work_dir = "./log/" 
-        self.adapt_interval = 2000
-        self.log_interval = 500
+        self.adapt_interval = 20
+        self.log_interval = 20
         
         self.check_dup = True
 

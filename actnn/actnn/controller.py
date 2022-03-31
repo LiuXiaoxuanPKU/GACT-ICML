@@ -33,7 +33,7 @@ class Controller:
         self.iter = 0
         
     def __del__(self):
-        torch._C._autograd._reset_saved_tensors_default_hooks()
+        self.uninstall_hook()
 
     def install_hook(self):
         def pack_hook(x):
@@ -47,6 +47,9 @@ class Controller:
             return r
         torch._C._autograd._register_saved_tensors_default_hooks(
             pack_hook, unpack_hook)
+    
+    def uninstall_hook(self):
+        torch._C._autograd._reset_saved_tensors_default_hooks()
         
     def iterate(self, get_grad):
         if not config.compress_activation:

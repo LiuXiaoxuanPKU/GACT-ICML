@@ -71,7 +71,6 @@ class AutoPrecision:
         def get_grad():
             # TODO this is somewhat tricky...
             # TODO setstate & getstate won't work, why?
-            setup_seed(self.iter)
             
             # get bn module
             def get_bn(model):
@@ -89,8 +88,11 @@ class AutoPrecision:
             for bn in bn_layers:
                 bn.track_running_stats = False
 
+            org_state = torch.get_rng_state().clone()
+            setup_seed(self.iter)
             backprop()
-
+            torch.set_rng_state(org_state)
+            
             for bn in bn_layers:
                 bn.track_running_stats = True
             grad = sample_grad()
@@ -100,7 +102,7 @@ class AutoPrecision:
 
         if self.iter % self.adapt_interval == 0:
             # Do full adaptation
-            print('ActNN: Initializing AutoPrec...')
+            print('ActNN: Initializing AutoPrec..., run extra %d iters' % (len(self.quantizer.bits)))
             # different random seeds
             for l in self.quantizer.bits:
                 b = self.quantizer.bits[l]

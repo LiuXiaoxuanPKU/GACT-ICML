@@ -1,3 +1,0 @@
-{"network": "resnet152", "algorithm": null, "max_input_size": 232, "ips": 30.87, "macs": 13169099520.0, "params": 60192808.0, "TFLOPS": 0.41, "tstamp": 1642220692.9987006}
-{"network": "resnet152", "algorithm": "L1", "max_input_size": 492, "ips": 4.76, "macs": 56822255360.0, "params": 60192808.0, "TFLOPS": 0.27, "tstamp": 1642221853.9947505}
-{"network": "resnet152", "algorithm": "L1.2", "max_input_size": 576, "ips": 3.9, "macs": 76418357248.0, "params": 60192808.0, "TFLOPS": 0.3, "tstamp": 1642222910.3285851}

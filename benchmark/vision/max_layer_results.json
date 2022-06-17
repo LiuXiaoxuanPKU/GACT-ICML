@@ -1,3 +1,0 @@
-{"network": "scaled_resnet_160", "algorithm": null, "max_layer": 160, "ips": 31.98, "macs": 13311183872.0, "params": 68293160.0, "TFLOPS": 0.43, "tstamp": 1642216618.1420476}
-{"network": "scaled_resnet_528", "algorithm": "L1.2", "max_layer": 528, "ips": 3.36, "macs": 93931772928.0, "params": 423329832.0, "TFLOPS": 0.32, "tstamp": 1642218086.3955948}
-{"network": "scaled_resnet_368", "algorithm": "L1", "max_layer": 368, "ips": 5.17, "macs": 58879421440.0, "params": 268856872.0, "TFLOPS": 0.3, "tstamp": 1642223753.5671573}

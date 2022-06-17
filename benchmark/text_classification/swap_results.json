@@ -1,8 +1,0 @@
-{"network": "bert-large-cased", "algorithm": "L4bit-swap", "batch_size": 16, "ips": 12.95, "bacth_time": 1.229828, "layer_num": 24, "hidden_size": 1024, "intermediate_size": 4096, "tstamp": 1642446222.33}
-{"network": "bert-large-cased", "algorithm": "L4bit-swap-prefetch", "batch_size": 16, "ips": 13.52, "bacth_time": 1.186581, "layer_num": 24, "hidden_size": 1024, "intermediate_size": 4096, "tstamp": 1642446260.57}
-{"network": "bert-base-cased", "algorithm": "L4bit-swap", "batch_size": 16, "ips": 39.85, "bacth_time": 0.404133, "layer_num": 24, "hidden_size": 1024, "intermediate_size": 4096, "tstamp": 1642446299.59}
-{"network": "bert-base-cased", "algorithm": "L4bit-swap-prefetch", "batch_size": 16, "ips": 42.09, "bacth_time": 0.382661, "layer_num": 24, "hidden_size": 1024, "intermediate_size": 4096, "tstamp": 1642446328.43}
-{"network": "bert-large-cased", "algorithm": null, "batch_size": 16, "ips": 16.41, "bacth_time": 0.974002, "layer_num": 24, "hidden_size": 1024, "intermediate_size": 4096, "tstamp": 1642446380.61}
-{"network": "bert-base-cased", "algorithm": null, "batch_size": 16, "ips": 56.7, "bacth_time": 0.282264, "layer_num": 24, "hidden_size": 1024, "intermediate_size": 4096, "tstamp": 1642446435.81}
-{"network": "bert-large-cased", "algorithm": "swap", "batch_size": 16, "ips": 6.02, "bacth_time": 2.660664, "layer_num": 24, "hidden_size": 1024, "intermediate_size": 4096, "tstamp": 1642446879.86}
-{"network": "bert-base-cased", "algorithm": "swap", "batch_size": 16, "ips": 17.32, "bacth_time": 0.923644, "layer_num": 24, "hidden_size": 1024, "intermediate_size": 4096, "tstamp": 1642446910.49}

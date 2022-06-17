@@ -50,7 +50,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     networks = ["swin_tiny"]
-    algs = ["L0"]
+    algs = [None, "L1", "L2"]
     
     for net in networks:
         for alg in algs:

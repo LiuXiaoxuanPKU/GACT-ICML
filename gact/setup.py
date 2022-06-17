@@ -1,20 +1,20 @@
 from setuptools import setup, Extension, find_packages
 from torch.utils import cpp_extension
 
-setup(name='actnn',
+setup(name='gact',
       ext_modules=[
           cpp_extension.CUDAExtension(
-              'actnn.cpp_extension.calc_precision',
-              ['actnn/cpp_extension/calc_precision.cc']
+              'gact.cpp_extension.calc_precision',
+              ['gact/cpp_extension/calc_precision.cc']
           ),
           cpp_extension.CUDAExtension(
-              'actnn.cpp_extension.minimax',
-              ['actnn/cpp_extension/minimax.cc', 'actnn/cpp_extension/minimax_cuda_kernel.cu']
+              'gact.cpp_extension.minimax',
+              ['gact/cpp_extension/minimax.cc', 'gact/cpp_extension/minimax_cuda_kernel.cu']
           ),
           cpp_extension.CUDAExtension(
-              'actnn.cpp_extension.quantization',
-              ['actnn/cpp_extension/quantization.cc',
-                  'actnn/cpp_extension/quantization_cuda_kernel.cu']
+              'gact.cpp_extension.quantization',
+              ['gact/cpp_extension/quantization.cc',
+                  'gact/cpp_extension/quantization_cuda_kernel.cu']
           ),
       ],
       cmdclass={'build_ext': cpp_extension.BuildExtension},

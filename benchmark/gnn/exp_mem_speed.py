@@ -18,7 +18,7 @@ def run_benchmark(network, alg, debug_mem=False, debug_speed=False,
     cmd = network_to_command(network)
     
     if alg is not None:
-        cmd += f' --actnn --level {alg}'
+        cmd += f' --gact --level {alg}'
         
     if hidden_size is not None:
         cmd += f' --hidden-size {hidden_size} '

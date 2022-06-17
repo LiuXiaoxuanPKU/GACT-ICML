@@ -1,7 +1,9 @@
+import os
+import random
+
 import torch
 import torch.nn as nn
 import numpy as np
-import random
 from gact.utils import exp_recorder
 import gact.cpp_extension.calc_precision as ext_calc_precision
 
@@ -49,7 +51,7 @@ class AutoPrecision:
 
     def iterate_wrapper(self, backprop):
         if self.dims is None:
-            self.init_from_dims(self.quantizer.dims)
+            self.init_from_dims()
         self.iterate(backprop)
 
     def iterate(self, backprop):
@@ -69,10 +71,6 @@ class AutoPrecision:
 
         # TODO det_grad is actually not necessary
         def get_grad():
-            if not self.model.training:
-                print("[GACT Error] Backprop should be called in training mode")
-                exit(-1)
-                
             # get bn module
             def get_bn(model):
                 bns = []
@@ -174,6 +172,8 @@ class AutoPrecision:
             exp_recorder.record("layer sensitivity", self.C)
             exp_recorder.record("bits", self.bits)
             exp_recorder.record("dims", self.dims)
+            if not os.path.isdir(self.work_dir):
+                os.mkdir(self.work_dir)
             exp_recorder.dump(self.work_dir + "autoprec.log")
 
         self.iter += 1

@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 import random
-import actnn
+import gact
 from transformers import AutoConfig
 from transformers.models.bert.modeling_bert import BertSelfAttention, BertLayer, BertAttention, BertModel
 from timeit_v2 import py_benchmark
@@ -32,8 +32,8 @@ def test_batchnorm_quantize():
         return controller.dequantize(input)
 
     batchnorm_q = nn.BatchNorm2d(C).cuda()
-    actnn.set_optimization_level("L1")
-    controller = actnn.controller.Controller(batchnorm_q)
+    gact.set_optimization_level("L1")
+    controller = gact.controller.Controller(batchnorm_q)
     with torch.autograd.graph.saved_tensors_hooks(pack_hook, unpack_hook):
         output_q, grad_q, grad_wei_q, grad_bias_q = test_implementation(
             batchnorm_q)
@@ -68,8 +68,8 @@ def test_layernorm_quantize():
         return controller.dequantize(input)
 
     layernorm_q = nn.LayerNorm(feature, eps=0).cuda()
-    actnn.set_optimization_level("L1.1")
-    controller = actnn.controller.Controller(layernorm_q)
+    gact.set_optimization_level("L1.1")
+    controller = gact.controller.Controller(layernorm_q)
     with torch.autograd.graph.saved_tensors_hooks(pack_hook, unpack_hook):
         output_q, grad_q, grad_wei_q, grad_bias_q = test_implementation(
             layernorm_q)
@@ -211,8 +211,8 @@ def test_atten_quantize_correctness():
     def unpack_hook(input):
         return controller.dequantize(input)
 
-    actnn.set_optimization_level("L1.1")
-    controller = actnn.controller.Controller(layer_opt)
+    gact.set_optimization_level("L1.1")
+    controller = gact.controller.Controller(layer_opt)
 
     with torch.autograd.graph.saved_tensors_hooks(pack_hook, unpack_hook):
         output_opt, grad_opt = test_implementation(layer_opt)
@@ -260,8 +260,8 @@ def test_bert_layer_quantize_correctness():
         # return input
         return controller.dequantize(input)
 
-    actnn.set_optimization_level("L1.1")
-    controller = actnn.controller.Controller(layer_opt)
+    gact.set_optimization_level("L1.1")
+    controller = gact.controller.Controller(layer_opt)
 
     with torch.autograd.graph.saved_tensors_hooks(pack_hook, unpack_hook):
         output_opt, grad_opt = test_implementation(layer_opt)

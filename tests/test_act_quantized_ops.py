@@ -11,8 +11,8 @@ from torch.autograd.function import Function
 
 from timeit_v2 import py_benchmark
 
-from actnn.ops import ext_quantization, op_quantize, op_dequantize, op_quantize_mask, op_dequantize_mask
-from actnn.ops import self_atten
+from gact.ops import ext_quantization, op_quantize, op_dequantize, op_quantize_mask, op_dequantize_mask
+from gact.ops import self_atten
 from utils import setup_seed, error_rate
 
 

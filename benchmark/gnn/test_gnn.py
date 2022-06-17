@@ -9,12 +9,12 @@ import numpy as np
 
 from tqdm import tqdm
 
-import actnn
-from actnn import config
-from actnn.controller import Controller  # import actnn controller
-from actnn.utils import get_memory_usage, compute_tensor_bytes
-# from actnn.utils import get_memory_usage, compute_tensor_bytes, set_seeds, error_rate, get_flatten_gradient
-from actnn.utils import exp_recorder
+import gact
+from gact import config
+from gact.controller import Controller  # import gact controller
+from gact.utils import get_memory_usage, compute_tensor_bytes
+# from gact.utils import get_memory_usage, compute_tensor_bytes, set_seeds, error_rate, get_flatten_gradient
+from gact.utils import exp_recorder
 
 from utils import AverageMeter
 
@@ -23,8 +23,8 @@ from models import GCN, SAGE, GAT
 from thop import profile
 import json
 
-# wandb.init(project="ActNN-Graph")
-parser = argparse.ArgumentParser(description="GNN (ActNN)")
+wandb.init(project="gact-Graph")
+parser = argparse.ArgumentParser(description="GNN (gact)")
 parser.add_argument("--num-layers", type=int, default=3)
 parser.add_argument("--hidden-size", type=int, default=256)
 parser.add_argument("--dropout", type=float, default=0.5)
@@ -36,15 +36,15 @@ parser.add_argument("--level", type=str, default="L2.2")
 parser.add_argument("--nhead", type=int, default=3)
 parser.add_argument("--norm", type=str, default="batchnorm")
 parser.add_argument("--activation", type=str, default="relu")
-parser.add_argument("--actnn", action="store_true")
+parser.add_argument("--gact", action="store_true")
 parser.add_argument("--get-mem", action="store_true")
 parser.add_argument("--get-speed", action="store_true")
 parser.add_argument("--get-macs", action="store_true")
 args = parser.parse_args()
 
-# wandb.config.update(args)
+wandb.config.update(args)
 
-quantize = args.actnn
+quantize = args.gact
 get_mem = args.get_mem
 get_speed = args.get_speed
 
@@ -111,7 +111,7 @@ if args.get_macs:
     print(f"save results to {out_file}")
     exit()
 
-actnn.set_optimization_level(args.level)
+gact.set_optimization_level(args.level)
 controller = Controller(model)
 
 optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
@@ -202,7 +202,7 @@ with torch.autograd.graph.saved_tensors_hooks(pack_hook, unpack_hook):
                     num_nodes, train_ips, 1000.0 / train_ips)
                 print(res, flush=True)
                 exp_recorder.record("network", 'gcn')
-                if args.actnn:
+                if args.gact:
                     exp_recorder.record("algorithm", args.level)
                 else:
                     exp_recorder.record("algorithm", None)
@@ -228,8 +228,8 @@ with torch.autograd.graph.saved_tensors_hooks(pack_hook, unpack_hook):
 
         epoch_iter.set_description(
             f"Epoch: {i}" + " val_loss: %.4f" % val_loss + " val_acc: %.4f" % val_acc)
-        # wandb.log({"train_loss": loss.item(),
-        #           "val_loss": val_loss, "val_acc": val_acc})
+        wandb.log({"train_loss": loss.item(),
+                  "val_loss": val_loss, "val_acc": val_acc})
         if val_acc > best_acc:
             best_acc = val_acc
             patience = 0
@@ -258,6 +258,7 @@ with torch.autograd.graph.saved_tensors_hooks(pack_hook, unpack_hook):
         del output
 
         def get_grad():
+            model.train()
             output = model(graph)
             loss = F.cross_entropy(
                 output[graph.train_mask], graph.y[graph.train_mask])
@@ -274,7 +275,7 @@ with torch.autograd.graph.saved_tensors_hooks(pack_hook, unpack_hook):
         logits = model(graph)
         test_acc = accuracy(logits[graph.test_mask], graph.y[graph.test_mask])
         print("Final Test Acc:", test_acc)
-        # wandb.log({"test_acc": test_acc})
+        wandb.log({"test_acc": test_acc})
 
     print(batch_time.summary())
     print(data_time.summary())

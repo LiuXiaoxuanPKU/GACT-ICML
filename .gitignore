@@ -24,7 +24,7 @@ __pycache__
 *.swp
 
 # Build
-actnn/build
-actnn/dist
-actnn/actnn.egg-info
-actnn/actnn/cpp_extension/*.so
+gact/build
+gact/dist
+gact/gact.egg-info
+gact/gact/cpp_extension/*.so

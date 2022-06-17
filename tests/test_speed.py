@@ -1,5 +1,5 @@
 import torch
-from actnn.ops import op_quantize, op_dequantize
+from gact.ops import op_quantize, op_dequantize
 from timeit_v2 import py_benchmark
 
 def test_speed():

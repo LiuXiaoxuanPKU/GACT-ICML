@@ -1,4 +1,4 @@
-# ActNN : Activation Compressed Training
+# gact : Activation Compressed Training
 
 ## Install
 - Requirements
@@ -8,16 +8,15 @@ torch>=1.9
 
 - Build
 ```bash
-cd actnn
+cd gact
 pip install -v -e .
 ```
 
 ## Usage
 ```python
-from actnn.controller import Controller # import actnn controller
-controller = Controller(default_bit=4, swap=False, debug=False, prefetch=False)
+from gact.controller import Controller # import gact controller
+controller = Controller(default_bit=4, swap=False, prefetch=False)
 model = .... # define your model here
-controller.filter_tensors(model.named_parameters()) # do not quantize parameters
 
 def pack_hook(tensor): # quantize hook
     return controller.quantize(tensor)

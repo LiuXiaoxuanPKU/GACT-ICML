@@ -1,5 +1,5 @@
-from actnn.controller import Controller
-from actnn import get_memory_usage, compute_tensor_bytes
+from gact.controller import Controller
+from gact import get_memory_usage, compute_tensor_bytes
 import time
 import random
 import numpy as np

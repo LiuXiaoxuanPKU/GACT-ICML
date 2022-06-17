@@ -1,6 +1,6 @@
 import torch
-import actnn
-from actnn.utils import uniform_sample_ref, uniform_sample, random_sample
+import gact
+from gact.utils import uniform_sample_ref, uniform_sample, random_sample
 from timeit_v2 import py_benchmark
 from utils import setup_seed, error_rate
 import time

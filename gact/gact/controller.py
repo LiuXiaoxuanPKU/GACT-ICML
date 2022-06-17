@@ -1,7 +1,7 @@
 import torch
-from actnn.conf import config
-from actnn.quantizer import Quantizer
-from actnn.autoprec import AutoPrecision
+from gact.conf import config
+from gact.quantizer import Quantizer
+from gact.autoprec import AutoPrecision
 
 
 class Controller:
@@ -19,7 +19,7 @@ class Controller:
             default_bit = 8    
         
         self.quantizer = Quantizer(
-            default_bit=default_bit, swap=config.swap, debug=config.debug, prefetch=config.prefetch)
+            default_bit=default_bit, swap=config.swap, prefetch=config.prefetch)
         self.quantizer.filter_tensors(model.named_parameters())
 
         self.auto_prec = config.auto_prec

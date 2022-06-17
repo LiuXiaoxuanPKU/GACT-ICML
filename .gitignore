@@ -2,9 +2,8 @@
 results
 *.log
 *.npz
-image_classification/results.tar.gz
-image_classification/results
-image_classification/results.tsv
+benchmark/gnn/data/
+benchmark/gnn/wandb/
 
 # IDE & OS
 .idea

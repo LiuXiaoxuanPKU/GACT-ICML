@@ -15,8 +15,8 @@ pip install -v -e .
 ## Usage
 ```python
 from gact.controller import Controller # import gact controller
-controller = Controller(default_bit=4, swap=False, prefetch=False)
 model = .... # define your model here
+controller = Controller(controller)
 
 def pack_hook(tensor): # quantize hook
     return controller.quantize(tensor)
@@ -29,6 +29,13 @@ with torch.autograd.graph.saved_tensors_hooks(pack_hook, unpack_hook): # install
     for epoch in ...
       for iter in ....
         ......
-        controller.iterate() # update the controller for each iteration
+        def backprop():
+            model.train() # make sure you are in the training mode
+            output = model(input) # forward
+            loss = calculate_loss()
+            optimizer.zero_grad()
+            loss.backward()
+
+        controller.iterate(backprop) # pass forward/backward to controller
             
 ```

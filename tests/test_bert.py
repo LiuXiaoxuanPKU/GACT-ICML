@@ -313,10 +313,10 @@ def test_bert_layer_speed():
 
 
 if __name__ == "__main__":
-    # test_batchnorm_quantize()
-    # test_layernorm_quantize()
+    test_batchnorm_quantize()
+    test_layernorm_quantize()
     test_self_atten_correctness()
-    # test_bert_layer_correctness()
-    # test_bert_layer_speed()
-    # test_atten_quantize_correctness()
-    # test_bert_layer_quantize_correctness()
+    test_bert_layer_correctness()
+    test_bert_layer_speed()
+    test_atten_quantize_correctness()
+    test_bert_layer_quantize_correctness()

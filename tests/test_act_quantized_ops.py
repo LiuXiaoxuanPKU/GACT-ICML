@@ -25,18 +25,18 @@ def test_quantize_dropout_mask():
     
 def test_quantize_1bit():
     vocab = 1000
+    seed = 0
     input = F.one_hot(torch.tensor(range(vocab)), vocab).cuda()
-    d_input = op_dequantize(op_quantize(
-        input.to(torch.float32), 1), input.shape, False)
+    d_input = op_dequantize(op_quantize(input.to(torch.float32), 1, seed), input.shape)
     e = error_rate(d_input.to(torch.uint8), input)
     assert(e < 1e-10)
 
 
 def test_quantize_mask():
     print("==========  Mask Quantization Eror Rate Test ==========")
+    seed = 0
     input = F.one_hot(torch.arange(0, 100) % 77).to(torch.uint8).to('cuda')
-    d_input = op_dequantize(op_quantize(
-        input.to(torch.float32), 1), input.shape, False)
+    d_input = op_dequantize(op_quantize(input.to(torch.float32), 1, seed), input.shape)
     e = error_rate(d_input.to(torch.uint8), input)
     assert(e < 1e-10)
 
@@ -50,22 +50,23 @@ def test_quantize_error():
     ones_input = torch.ones(input_shape).to("cuda")
     print("==========  Quantization Error Rate Test ==========")
     print("1 bit error rate (value between 0 and 1): ")
-    error_rate(op_dequantize(op_quantize(input, 1, seed), input_shape, False), input)
+    error_rate(op_dequantize(op_quantize(input, 1, seed), input_shape), input)
     print("1 bit error rate (value = 0 or 1): ")
     error_rate(op_dequantize(op_quantize(ones_input, 1, seed),
-               input_shape, False), ones_input)
+               input_shape), ones_input)
     print("2 bit error rate: ")
-    error_rate(op_dequantize(op_quantize(input, 2, seed), input_shape, False), input)
+    error_rate(op_dequantize(op_quantize(input, 2, seed), input_shape), input)
     print("4 bit error rate: ")
-    error_rate(op_dequantize(op_quantize(input, 4, seed), input_shape, False), input)
+    error_rate(op_dequantize(op_quantize(input, 4, seed), input_shape), input)
     print("8 bit error rate: ")
-    error_rate(op_dequantize(op_quantize(input, 8, seed), input_shape, False), input)
+    error_rate(op_dequantize(op_quantize(input, 8, seed), input_shape), input)
     print(torch.rand((1,2), device='cuda'))
 
 def test_quantize_big_min():
+    seed = 0
     input_shape = (65535 * 10, 256)
     input = torch.rand(input_shape).to("cuda")
-    q_input, q_bit, q_scale, q_min = op_quantize(input, 4)
+    q_input, q_bit, q_scale, q_min = op_quantize(input, 4, seed)
     ref_min = torch.min(input, dim=1).values
     q_min = q_min.reshape(1, -1)
     ref_min = ref_min.reshape(1, -1)
@@ -74,8 +75,9 @@ def test_quantize_big_min():
 
 def test_quantize_32bit():
     input_shape = (2048, 256)
+    seed = 0
     input = torch.rand(input_shape).to("cuda")
-    q_output = op_quantize(input, 32)
+    q_output = op_quantize(input, 32, seed)
     q_input, q_bit, q_scale, q_min = q_output
 
     ref_min = torch.min(input, dim=1).values
@@ -88,26 +90,27 @@ def test_quantize_32bit():
     ref_scale = ref_max.reshape(1, -1) - ref_min
     np.testing.assert_allclose(q_scale.cpu(), ref_scale.cpu())
 
-    d_input = op_dequantize(q_output, input_shape, False)
+    d_input = op_dequantize(q_output, input_shape)
     np.testing.assert_allclose(d_input.cpu(), input.cpu())
 
 
 def test_quantize_big_error():
     input_shape = (65535 * 10, 512)
+    seed = 0
     input = torch.rand(input_shape).to("cuda")
     ones_input = torch.ones(input_shape).to("cuda")
     print("==========  Quantization Big Error Rate Test ==========")
     print("1 bit error rate (value between 0 and 1): ")
-    error_rate(op_dequantize(op_quantize(input, 1), input_shape, False), input)
+    error_rate(op_dequantize(op_quantize(input, 1, seed), input_shape), input)
     print("1 bit error rate (value = 0 or 1): ")
     error_rate(op_dequantize(op_quantize(
-        ones_input, 1), input_shape, False), ones_input)
+        ones_input, 1, seed), input_shape), ones_input)
     print("2 bit error rate: ")
-    error_rate(op_dequantize(op_quantize(input, 2), input_shape, False), input)
+    error_rate(op_dequantize(op_quantize(input, 2, seed), input_shape), input)
     print("4 bit error rate: ")
-    error_rate(op_dequantize(op_quantize(input, 4), input_shape, False), input)
+    error_rate(op_dequantize(op_quantize(input, 4, seed), input_shape), input)
     print("8 bit error rate: ")
-    error_rate(op_dequantize(op_quantize(input, 8), input_shape, False), input)
+    error_rate(op_dequantize(op_quantize(input, 8, seed), input_shape), input)
 
 
 def self_atten_ref_imp(dropout_p, q, k, v):
@@ -283,17 +286,13 @@ def test_self_atten_saved_tensors():
 
 
 if __name__ == "__main__":
-<<<<<<< HEAD
-=======
-    test_quantize_dropout_mask()
->>>>>>> mem_speed
-    # test_quantize_32bit()
-    # test_quantize_1bit()
-    # test_quantize_mask()
-    # test_quantize_big_min()
+    test_quantize_32bit()
+    test_quantize_1bit()
+    test_quantize_mask()
+    test_quantize_big_min()
     test_quantize_error()
-    # test_quantize_big_error()
-    # test_self_atten_correctness()
-    # test_self_atten_memory()
-    # test_self_atten_speed()
-    # test_self_atten_saved_tensors()
+    test_quantize_big_error()
+    test_self_atten_correctness()
+    test_self_atten_memory()
+    test_self_atten_speed()
+    test_self_atten_saved_tensors()

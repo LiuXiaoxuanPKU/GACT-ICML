@@ -104,7 +104,7 @@ if __name__ == "__main__":
     orig_losses, org_mems, org_ips_list = train()
 
     # 4 bit debug
-    debug_controller = Controller(verbose=False, swap=False, debug=True)
+    debug_controller = Controller(verbose=False, swap=False)
 
     def pack_hook(tensor):
         return debug_controller.quantize(tensor)
@@ -116,7 +116,7 @@ if __name__ == "__main__":
             debug_controller)
 
     # 4 bit quantization
-    controller = Controller(verbose=False, swap=False, debug=False)
+    controller = Controller(verbose=False, swap=False)
 
     def pack_hook(tensor):
         return controller.quantize(tensor)
@@ -128,7 +128,7 @@ if __name__ == "__main__":
 
     # 4 bit with swap
     swap_controller = Controller(
-        verbose=False, swap=True, debug=False, prefetch=True)
+        verbose=False, swap=True, prefetch=True)
 
     def pack_hook(tensor):
         return swap_controller.quantize(tensor)

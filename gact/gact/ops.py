@@ -6,7 +6,7 @@ import torch.nn as nn
 from gact.conf import config
 import gact.cpp_extension.quantization as ext_quantization
 import gact.cpp_extension.minimax as ext_minimax
-
+from torch.utils.checkpoint import checkpoint
 
 def no_scheme_quantize_pack(input, q_bit, seed):
     N = (input.numel() + config.group_size - 1) //  config.group_size

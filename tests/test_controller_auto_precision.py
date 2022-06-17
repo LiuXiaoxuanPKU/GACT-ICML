@@ -1,5 +1,6 @@
 from gact.controller import Controller
 from gact.utils import get_memory_usage, compute_tensor_bytes
+from gact import config
 import time
 import random
 import numpy as np
@@ -51,27 +52,15 @@ class TestNet(nn.Module):
 
 N = 256
 x = torch.rand((N, 3, 224, 224), device="cuda")
-num_classes = 100
+num_classes = 1000
 y = torch.randint(0, num_classes, (N, num_classes), device="cuda").float()
 
 
-def train():
+def train(model, controller):
+    model.cuda()
     set_random_seed(0)
-    model = TestNet(num_classes=100).cuda()
     criterion = torch.nn.MSELoss(reduction='sum')
-    optimizer = torch.optim.SGD(model.parameters(), lr=1e-8, momentum=0.9)
-
-    controller = Controller(model, bit=4, swap=False,
-                            prefetch=False, debug=False)
-
-    def pack_hook(tensor):
-        return controller.quantize(tensor)
-
-    def unpack_hook(tensor):
-        return controller.dequantize(tensor)
-
-    torch._C._autograd._register_saved_tensors_default_hooks(
-        pack_hook, unpack_hook)
+    optimizer = torch.optim.SGD(model.parameters(), lr=1e-10, momentum=0.9)
 
     print("===========Start Train==========")
     losses = []
@@ -101,74 +90,68 @@ def train():
         end = time.time()
 
         def get_grad():
+            model.train()
             output = model(x)
             loss = criterion(output, y)
-            # optimizer.zero_grad()   # Why do we need this?
-
+            optimizer.zero_grad()
             loss.backward()
-            torch.cuda.synchronize()  # Why do we need this?
-            grad = []
-            for param in model.parameters():
-                if param.grad is not None:
-                    grad.append(param.grad.ravel())
-
-            return loss, output, torch.cat(grad, 0)
 
         if controller:
             controller.iterate(get_grad)
 
-    torch._C._autograd._reset_saved_tensors_default_hooks()
     return losses, mems, train_ips_list
 
 
 if __name__ == "__main__":
-    # # original warmup
-    # orig_losses, org_mems, org_ips_list = train()
+    # original warmup
+    model = TestNet()
+    controller = None
+    orig_losses, org_mems, org_ips_list = train(model, controller)
 
-    # # original
-    # orig_losses, org_mems, org_ips_list = train()
+    # original
+    model = TestNet()
+    controller = None
+    orig_losses, org_mems, org_ips_list = train(model, controller)
 
-    # 4 bit debug
+    # 4 bit quantization
+    model = TestNet()
+    config.swap = False
+    config.bit = 4
+    config.auto_prec = False
+    controller = Controller(model)
+    def pack_hook(tensor):
+        return controller.quantize(tensor)
 
-    q4_debug_losses, q4_debug_mems, q4_debug_ips_list = train()
+    def unpack_hook(tensor):
+        return controller.dequantize(tensor)
+    with torch.autograd.graph.saved_tensors_hooks(pack_hook, unpack_hook):
+        q4_losses, q4_mems, q4_ips_list = train(model, controller)
 
-    # # 4 bit quantization
-    # controller = Controller(verbose=False, swap=False, debug=False)
+    # 4 bit with swap
+    model = TestNet()
+    config.swap = True
+    config.bit = 4
+    config.auto_prec = False
+    controller = Controller(model)
+    def pack_hook(tensor):
+        return controller.quantize(tensor)
 
-    # def pack_hook(tensor):
-    #     return controller.quantize(tensor)
+    def unpack_hook(tensor):
+        return controller.dequantize(tensor)
+    with torch.autograd.graph.saved_tensors_hooks(pack_hook, unpack_hook):
+        q4_swap_losses, q4_swap_mems, q4_swap_ips_list = train(model, controller)
 
-    # def unpack_hook(tensor):
-    #     return controller.dequantize(tensor)
-    # with torch.autograd.graph.saved_tensors_hooks(pack_hook, unpack_hook):
-    #     q4_losses, q4_mems, q4_ips_list = train(controller)
+    # test swap correctness
+    np.testing.assert_allclose(q4_losses, q4_swap_losses)
 
-    # # 4 bit with swap
-    # swap_controller = Controller(
-    #     verbose=False, swap=True, debug=False, prefetch=True)
+    # test memory
+    print("=========Test Memory============")
+    print("original activation mems %d MB" % (org_mems[-1]/1024/1024))
+    print("4 bit activation mems %d MB" % (q4_mems[-1]/1024/1024))
+    print("4 bit + swap activation mems %d MB" % (q4_swap_mems[-1]/1024/1024))
 
-    # def pack_hook(tensor):
-    #     return swap_controller.quantize(tensor)
-
-    # def unpack_hook(tensor):
-    #     return swap_controller.dequantize(tensor)
-    # with torch.autograd.graph.saved_tensors_hooks(pack_hook, unpack_hook):
-    #     q4_swap_losses, q4_swap_mems, q4_swap_ips_list = train(swap_controller)
-
-    # # test swap correctness
-    # np.testing.assert_allclose(q4_debug_losses, q4_losses)
-    # np.testing.assert_allclose(q4_losses, q4_swap_losses)
-
-    # # test memory
-    # print("=========Test Memory============")
-    # print("original activation mems %d MB" % (org_mems[-1]/1024/1024))
-    # print("4 bit debug mems %d MB" % (q4_debug_mems[-1]/1024/1024))
-    # print("4 bit activation mems %d MB" % (q4_mems[-1]/1024/1024))
-    # print("4 bit + swap activation mems %d MB" % (q4_swap_mems[-1]/1024/1024))
-
-    # # test speed
-    # print("=========Test Speed============")
-    # print("original speed %f ips" % (np.median(org_ips_list)))
-    # print("4 bit debug speed %f ips" % (np.median(q4_debug_ips_list)))
-    # print("4 bit speed %f ips" % (np.median(q4_ips_list)))
-    # print("4 bit + swap speed %f ips" % (np.median(q4_swap_ips_list)))
+    # test speed
+    print("=========Test Speed============")
+    print("original speed %f ips" % (np.median(org_ips_list)))
+    print("4 bit speed %f ips" % (np.median(q4_ips_list)))
+    print("4 bit + swap speed %f ips" % (np.median(q4_swap_ips_list)))

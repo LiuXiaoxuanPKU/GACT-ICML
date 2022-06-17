@@ -1,11 +1,7 @@
-import os
 from collections import OrderedDict
 import json
-
 import torch
 import numpy as np
-import json
-
 
 def uniform_sample_ref(input, sample_cnt, add_dataptr=True):
     step = max(torch.numel(input) // sample_cnt, 1)
@@ -17,7 +13,6 @@ def uniform_sample_ref(input, sample_cnt, add_dataptr=True):
         key.append(input.view(-1)[idx].item())
     return key
 
-
 def uniform_sample(input, sample_cnt, add_dataptr=True):
     num_elem = input.numel()
     sample_cnt = min(num_elem, sample_cnt)
@@ -27,7 +22,6 @@ def uniform_sample(input, sample_cnt, add_dataptr=True):
     key += input.ravel()[torch.arange(0, sample_cnt).to(torch.long) *
                           (num_elem // sample_cnt)].tolist()
     return key
-
 
 def random_sample(input, sample_cnt, add_dataptr=True):
     num_elem = input.numel()
@@ -43,7 +37,6 @@ def random_sample(input, sample_cnt, add_dataptr=True):
     torch.set_rng_state(rng_state)
     return key
 
-
 def get_memory_usage(print_info=False):
     """Get accurate gpu memory usage by querying torch runtime"""
     allocated = torch.cuda.memory_allocated()
@@ -52,7 +45,6 @@ def get_memory_usage(print_info=False):
         print("allocated: %.2f MB" % (allocated / 1024 / 1024), flush=True)
         print("reserved:  %.2f MB" % (reserved / 1024 / 1024), flush=True)
     return allocated
-
 
 def compute_tensor_bytes(tensors):
     """Compute the bytes used by a list of tensors"""
@@ -77,7 +69,6 @@ def compute_tensor_bytes(tensors):
 
     return ret
 
-
 def empty_cache(ratio):
     if ratio is None:
         return
@@ -85,15 +76,6 @@ def empty_cache(ratio):
     reserved = torch.cuda.memory_reserved(0)
     if reserved > 0 and allocated / reserved < ratio:
         torch.cuda.empty_cache()
-
-
-def disable_cache_allocator():
-    os.environ['PYTORCH_NO_CUDA_MEMORY_CACHING'] = '1'
-
-
-def enable_cache_allocator():
-    del os.environ['PYTORCH_NO_CUDA_MEMORY_CACHING']
-
 
 class GlobalExpRecorder:
     def __init__(self):

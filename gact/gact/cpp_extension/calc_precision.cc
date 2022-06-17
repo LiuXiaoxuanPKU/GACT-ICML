@@ -6,51 +6,6 @@
 #include <queue>
 
 // Greedy algorithm
-/*torch::Tensor calc_precision_table(torch::Tensor b, torch::Tensor cost, torch::Tensor C, torch::Tensor w, double target) {
-    TORCH_CHECK(b.device().is_cpu(), "b must be a CPU tensor!");
-    TORCH_CHECK(b.is_contiguous(), "b must be contiguous!");
-    TORCH_CHECK(cost.device().is_cpu(), "cost must be a CPU tensor!");
-    TORCH_CHECK(cost.is_contiguous(), "cost must be contiguous!");
-    TORCH_CHECK(C.device().is_cpu(), "C must be a CPU tensor!");
-    TORCH_CHECK(C.is_contiguous(), "C must be contiguous!");
-    TORCH_CHECK(w.device().is_cpu(), "w must be a CPU tensor!");
-    TORCH_CHECK(w.is_contiguous(), "w must be contiguous!");
-
-    // min \sum_i C_i / (2^b_i - 1)^2, s.t., \sum_i b_i = N b
-    std::priority_queue<std::pair<float, int64_t>> q;
-
-    auto *b_data = b.data_ptr<int>();
-    auto *cost_data = cost.data_ptr<float>();   // L * 8
-    auto *C_data = C.data_ptr<float>();
-    auto *w_data = w.data_ptr<int64_t>();
-
-    auto get_obj = [&](int l, int b) {
-        return C_data[l] * (cost_data[l * 8 + b - 1] - cost_data[l * 8 + b - 2]); // negative
-    };
-
-    int64_t N = b.size(0);
-    double b_sum = 0;
-    for (int64_t i = 0; i < N; i++) {
-        auto delta = get_obj(i, b_data[i]) / w_data[i];
-        q.push(std::make_pair(delta, i));
-        b_sum += b_data[i] * w_data[i];
-    }
-
-    while (b_sum > target) {        // Pick up the smallest increment (largest decrement)
-        assert(!q.empty());
-        auto i = q.top().second;
-        q.pop();
-        b_data[i] -= 1;
-        b_sum -= w_data[i];
-        if (b_data[i] > 1) {
-            auto delta = get_obj(i, b_data[i]) / w_data[i];
-            q.push(std::make_pair(delta, i));
-        }
-    }
-    return b;
-}*/
-
-// Greedy algorithm
 torch::Tensor calc_precision_table(torch::Tensor b, torch::Tensor cost, torch::Tensor C, torch::Tensor w, double target) {
     TORCH_CHECK(b.device().is_cpu(), "b must be a CPU tensor!");
     TORCH_CHECK(b.is_contiguous(), "b must be contiguous!");
@@ -151,7 +106,6 @@ torch::Tensor calc_precision(torch::Tensor b, torch::Tensor C, torch::Tensor w, 
         auto i = q.top().second;
         q.pop();
         auto delta_b = b_data[i] - next_b[b_data[i]];
-//        std::cout << delta << ' ' << i << ' ' << b_data[i] << ' ' << q.size() << ' ' << b_sum << std::endl;
         b_data[i] = next_b[b_data[i]];
         b_sum -= w_data[i] * delta_b;
         if (b_data[i] > 1) {

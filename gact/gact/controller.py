@@ -10,10 +10,9 @@ class Controller:
             return
 
         self.model = model
-
         if config.bit <= 4:
             default_bit = 4
-        elif 4 < config.bit and config.bit <= 8:
+        elif config.bit <= 8:
             default_bit = 8
         else:
             assert(config.bit <= 16)
@@ -40,11 +39,11 @@ class Controller:
             r = self.quantize(x)
             del x
             return r
-        
         def unpack_hook(x):
             r = self.dequantize(x)
             del x
             return r
+
         torch._C._autograd._register_saved_tensors_default_hooks(
             pack_hook, unpack_hook)
     

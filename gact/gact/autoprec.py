@@ -2,12 +2,12 @@ import torch
 import torch.nn as nn
 import numpy as np
 import random
-from actnn.utils import uniform_sample, random_sample, exp_recorder
-import actnn.cpp_extension.calc_precision as ext_calc_precision
+from gact.utils import exp_recorder
+import gact.cpp_extension.calc_precision as ext_calc_precision
 
 # Automatically compute the precision for each tensor
 class AutoPrecision:
-    def init_from_dims(self, dims):
+    def init_from_dims(self):
         self.bits = {}
         self.C = {}
         self.dims = self.quantizer.dims
@@ -15,9 +15,9 @@ class AutoPrecision:
         total_ele = 0
         for l in self.dims:
             self.C[l] = 1.0
-            self.bits[l] = self.abits
+            self.bits[l] = self.avg_bits
             total_ele += self.dims[l]
-        self.total_bits = self.abits * total_ele
+        self.total_bits = self.avg_bits * total_ele
 
     def __init__(self, model, quantizer, bits, max_bits,
                  work_dir, adapt_interval, log_interval,
@@ -29,7 +29,7 @@ class AutoPrecision:
 
         self.dims = None
 
-        self.abits = bits
+        self.avg_bits = bits
         self.max_bits = max_bits
         self.perm = []
 
@@ -69,13 +69,14 @@ class AutoPrecision:
 
         # TODO det_grad is actually not necessary
         def get_grad():
-            # TODO this is somewhat tricky...
-            # TODO setstate & getstate won't work, why?
-            
+            if not self.model.training:
+                print("[GACT Error] Backprop should be called in training mode")
+                exit(-1)
+                
             # get bn module
             def get_bn(model):
                 bns = []
-                for name, child in model.named_children():
+                for _, child in model.named_children():
                     if isinstance(child, nn.BatchNorm1d) or \
                         isinstance(child, nn.BatchNorm2d) or \
                           isinstance(child, nn.BatchNorm3d):
@@ -102,7 +103,7 @@ class AutoPrecision:
 
         if self.iter % self.adapt_interval == 0:
             # Do full adaptation
-            print('ActNN: Initializing AutoPrec..., run extra %d iters' % (len(self.quantizer.bits)))
+            print('GACT: Initializing AutoPrec..., run extra %d iters' % (len(self.quantizer.bits)))
             # different random seeds
             for l in self.quantizer.bits:
                 b = self.quantizer.bits[l]
@@ -128,7 +129,7 @@ class AutoPrecision:
 
             self.refresh_bits()
 
-        if self.debug and self.iter % 10 == 0:
+        if self.debug and self.iter % self.adapt_interval == 0:
             # Debug information
             grad = get_grad()
             for l in self.quantizer.bits:
@@ -141,19 +142,18 @@ class AutoPrecision:
                 C_list.append(self.C[l])
                 bits_list.append(self.bits[l])
             predicted_var = (np.array(C_list) * 2 ** (-2.0 * (np.array(bits_list) - 1))).sum()
-            print('ap var', ap_var.item(), predicted_var.item())
+            print('Exact Variance %f, Predicted Variance %f' %(ap_var.item(), predicted_var.item()))
 
             for b in [4]:
                 quant_var = 0
-                for iter in range(1):
-                    self.quantizer.bits = self.bits.copy()
-                    for l in self.quantizer.bits:
-                        self.quantizer.bits[l] = b
-                    grad = get_grad()
-                    var = ((grad - det_grad)**2).sum()
-                    quant_var += var
+                self.quantizer.bits = self.bits.copy()
+                for l in self.quantizer.bits:
+                    self.quantizer.bits[l] = b
+                grad = get_grad()
+                var = ((grad - det_grad)**2).sum()
+                quant_var += var
                 predicted_var = (np.array(list(self.C.values())) * 2 ** (-2.0 * (b - 1))).sum()
-                print(b, ' bit ', quant_var.item(), predicted_var.item())
+                print('use %d bit to compare, exact variance %f, predicted variance %f' %(b, quant_var.item(), predicted_var.item()))
             
             self.quantizer.bits = self.bits.copy()
 
@@ -194,7 +194,6 @@ class AutoPrecision:
                                                       torch.tensor(dims_list, dtype=torch.int64),
                                                       self.total_bits)
 
-        dims = {}
         for i, l in enumerate(l_list):
             self.bits[l] = bits_tensor[i].item()
             
@@ -211,7 +210,7 @@ class AutoPrecision:
             quantization_var = (np.array(C_list) * 2 ** (-2.0 * np.array(bits_list))).sum()
             if quantization_var > overall_var * 0.1:
                 print("========================================")
-                print('ActNN Warning: Quantization variance is too large. Consider increasing number of bits.',
+                print('GACT Warning: Quantization variance is too large. Consider increasing number of bits.',
                       quantization_var, overall_var)
                 exp_recorder.record("iter", self.iter)
                 exp_recorder.record("layer sensitivity", self.C)

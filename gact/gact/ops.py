@@ -1,17 +1,11 @@
-from collections import namedtuple
-
 import math
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from torch.utils.cpp_extension import load
 
-from actnn.conf import config
-from actnn.utils import empty_cache
-import actnn.cpp_extension.quantization as ext_quantization
-import actnn.cpp_extension.minimax as ext_minimax
-import torch.utils.checkpoint as checkpoint
+from gact.conf import config
+import gact.cpp_extension.quantization as ext_quantization
+import gact.cpp_extension.minimax as ext_minimax
 
 
 def no_scheme_quantize_pack(input, q_bit, seed):
@@ -37,7 +31,6 @@ def no_scheme_quantize_pack(input, q_bit, seed):
         del mx
     return q_input, q_scale, q_min
 
-
 def dequantize_and_unpack(data, shape, q_bit, scale, mn):
     if not isinstance(q_bit, int):
         print("bits must be intergers, now bits ", q_bit)
@@ -53,7 +46,6 @@ def dequantize_and_unpack(data, shape, q_bit, scale, mn):
         data, q_bit, scale, mn, num_groups, 1, group_size
     )
 
-
 def op_quantize_mask(input):
     return [ext_quantization.act_quantize_dropout_mask(input.contiguous()), input.shape]
 
@@ -66,32 +58,18 @@ def op_quantize(input, q_bit, seed):
     q_input, q_scale, q_min = no_scheme_quantize_pack(input, q_bit, seed)
     return [q_input, q_bit, q_scale, q_min]
 
-
-def op_dequantize(input, input_shape, inject_noise):
+def op_dequantize(input, input_shape):
     q_input, q_bit, q_scale, q_min = input
     input = dequantize_and_unpack(
         q_input, input_shape, q_bit, q_scale, q_min)
-
-    if inject_noise:    # Save and load rng state
-        if q_bit == 32:
-            scale = q_scale
-        else:
-            scale = 1.0 / q_scale * ((1 << q_bit) - 1)
-        rng_state = torch.get_rng_state()
-        noise = torch.randn_like(input)
-        torch.set_rng_state(rng_state)
-        q_max = q_min + scale
-        bin_size = scale / 8
-        # org_input = input
-        input = torch.clamp(input + noise * bin_size, q_min, q_max)
-        # print("[Diff]", (org_input - input).norm() / input.norm())
 
     num_features = np.prod(input_shape)
     input = input.ravel()[:num_features]
     input = input.reshape(*input_shape).contiguous()
     return input
 
-
+# Implementation of efficient self attention
+# https://arxiv.org/abs/2112.05682
 def self_atten(dropout_p, query_layer, key_layer, value_layer,
                q_chunk_size, k_chunk_size, use_checkpoint=True):
     batch_size, num_heads, seq_len, q_features = query_layer.shape
@@ -138,7 +116,6 @@ def self_atten(dropout_p, query_layer, key_layer, value_layer,
                 chunk_value, chunk_weight, chunk_max = summarize_chunk(
                     query, key_chunk, value_chunk)
 
-            # with torch.no_grad():
             if global_max is None:
                 global_max = chunk_max
                 chunk_values = chunk_value

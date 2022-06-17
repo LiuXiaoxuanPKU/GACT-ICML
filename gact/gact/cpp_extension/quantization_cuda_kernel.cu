@@ -1,5 +1,5 @@
 /*
- * Cuda kernels for quantization and mixed-precision packing.
+ * Cuda kernels for quantization
  */
 
 #include <torch/extension.h>

@@ -1,21 +1,18 @@
 import torch
-from actnn.conf import config
-from actnn.ops import op_quantize, op_dequantize, op_quantize_mask, op_dequantize_mask
-from actnn.utils import random_sample, uniform_sample, compute_tensor_bytes
+from gact.conf import config
+from gact.ops import op_quantize, op_dequantize, op_quantize_mask, op_dequantize_mask
+from gact.utils import uniform_sample, compute_tensor_bytes
 
 class Quantizer:
     """
     default_bit: the number of bits used to quantize
     swap: if turned on, swap activation memory to CPU
     prefetch: if turned on, activation of the previous layer will be prefetched. the parameter is meaningful only when swap is True
-    debug: if turned on, the same tensor that is saved twice will be quantized twice, which introduces memory overhead
-    verbose: print debug log
     """
 
-    def __init__(self, default_bit=4, swap=False, debug=False, prefetch=False, verbose=False):
+    def __init__(self, default_bit=4, swap=False, prefetch=False):
         self.unrelated_tensors = set()
         self.default_bit = default_bit
-        self.debug = debug
 
         self.swap = swap
         if swap:
@@ -39,7 +36,8 @@ class Quantizer:
         self.iter = 0
         self.seed_iter = 0
         
-        self.verbose = verbose
+        # some debug knob
+        self.verbose = False # print quantize context size 
         self.print = False
         if self.verbose:
             self.before_quantize_size = 0
@@ -48,13 +46,10 @@ class Quantizer:
             self.print = True
 
     def filter_tensors(self, pairs):
-        for k, v in pairs:
+        for _, v in pairs:
             self.unrelated_tensors.add(v.data_ptr())
 
-    '''
-    return should_be_quantized, is_dropout_mask
-    '''
-
+    # return should_be_quantized, is_dropout_mask
     def check_quantize(self, input_tensor):
         if input_tensor.data_ptr() in self.unrelated_tensors:
             return False, False
@@ -62,7 +57,7 @@ class Quantizer:
             if (input_tensor.max() == 1) and (input_tensor.min() == 0):
                 return True, True
             return False, False
-        if input_tensor.dtype != torch.float32:
+        if input_tensor.dtype not in [torch.float32, torch.float16]:
             return False, False
         if input_tensor.requires_grad is False:
             if self.verbose:
@@ -88,11 +83,7 @@ class Quantizer:
         self.tid = 0
         self.start_bwd = True
         self.iter += 1
-        
-        if self.verbose:
-            self.before_quantize_size = 0
-            self.no_grad_size = 0
-            self.quantize_size = 0
+
 
     def generate_tensor_key(self, t, tid):
         if config.check_dup:
@@ -109,13 +100,6 @@ class Quantizer:
 
         if not quantize:
             return False, input
-
-        if self.debug:
-            # debug does not quantize dropout mask
-            if is_dropout_mask:
-                return False, input
-            ret = op_quantize(input, self.default_bit, 0)
-            return True, ret, input.shape
 
         # special case: use 1 bit to quantize dropout mask
         if is_dropout_mask:
@@ -139,13 +123,9 @@ class Quantizer:
                 self.seeds[tid] = tid
             else:
                 bit = self.bits[tid]
-            # self.seeds[tid] = tid + self.seed_iter
             # quantize
             # use tid as quantize seed
             q_inputs = op_quantize(input, bit, self.seeds[tid] + self.seed_iter)
-            if self.verbose:
-                self.quantize_size += compute_tensor_bytes(q_inputs)
-                self.before_quantize_size += compute_tensor_bytes([input])
             if self.swap:
                 #  with torch.cuda.stream(self.swap_out_stream):
                     # self.swap_out_stream.wait_stream(self.compute_stream)
@@ -169,11 +149,6 @@ class Quantizer:
         quantized = input[0]
         if not quantized:
             return input[1]
-
-        if self.debug:
-            _, q_inputs, input_shape = input
-            ret = op_dequantize(q_inputs, input_shape, False)
-            return ret
 
         is_dropout_mask = input[1]
         if is_dropout_mask:
@@ -217,13 +192,12 @@ class Quantizer:
                             )
                     self.end_prefetch_event.record()
 
-        inject_noise = False
-        ret = op_dequantize(q_inputs, input_shape, inject_noise)
+        ret = op_dequantize(q_inputs, input_shape)
 
         ref_cnt -= 1
         if ref_cnt < 0:
             print("[Error] Ref count < 0", key, ref_cnt)
-            exit(0)
+            exit(-1)
         elif ref_cnt == 0:
             del self.ptr_qtensor_map[key]
         else:

@@ -1,7 +1,3 @@
-import ast
-import os
-
-
 def set_optimization_level(level):
     if level == 'L0':      # Do nothing
         config.compress_activation = False
@@ -52,23 +48,14 @@ class QuantizationConfig:
         self.group_size = 256
         self.auto_prec = True
         self.work_dir = "./log/" 
-        self.adapt_interval = 100
+        self.adapt_interval = 1000
         self.log_interval = 1000
         
         self.debug = False
-        self.check_dup = True
+        self.check_dup = False
 
         # Memory management flag
-        self.empty_cache_threshold = None
         self.swap = False
         self.prefetch = False
-        self.defrag = False
-
-        # Debug related flag
-        self.debug_memory_model = ast.literal_eval(
-            os.environ.get('DEBUG_MEM', "False"))
-        self.debug_speed = ast.literal_eval(
-            os.environ.get('DEBUG_SPEED', "False"))
-
 
 config = QuantizationConfig()

@@ -1,5 +1,5 @@
 /*
- * Cuda operators for quantization and mixed-precision packing
+ * Cuda operators for quantization 
  */
 
 #include <torch/extension.h>

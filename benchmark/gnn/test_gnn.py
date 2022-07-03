@@ -4,7 +4,6 @@ import time
 import copy
 import argparse
 import torch.nn.functional as F
-import random
 import numpy as np
 
 from tqdm import tqdm
@@ -12,9 +11,7 @@ from tqdm import tqdm
 import gact
 from gact import config
 from gact.controller import Controller  # import gact controller
-from gact.utils import get_memory_usage, compute_tensor_bytes
-# from gact.utils import get_memory_usage, compute_tensor_bytes, set_seeds, error_rate, get_flatten_gradient
-from gact.utils import exp_recorder
+from gact.utils import get_memory_usage, exp_recorder
 
 from utils import AverageMeter
 
@@ -50,15 +47,7 @@ get_speed = args.get_speed
 
 device = torch.device("cuda:0")
 
-# fix seed
-torch.cuda.empty_cache()
-seed = 0
-random.seed(seed)
-np.random.seed(seed)
-torch.manual_seed(seed)
-torch.cuda.manual_seed(seed)
-torch.cuda.manual_seed_all(seed)
-    
+
 dataset = OGBArxivDataset()
 graph = dataset[0]
 graph.add_remaining_self_loops()
@@ -154,6 +143,9 @@ with torch.autograd.graph.saved_tensors_hooks(pack_hook, unpack_hook):
     patience = 0
     epoch_iter = tqdm(range(args.epochs))
 
+    if get_mem:
+       init_mem = get_memory_usage(True)
+ 
     for i in epoch_iter:
         
         if get_speed:
@@ -277,9 +269,6 @@ with torch.autograd.graph.saved_tensors_hooks(pack_hook, unpack_hook):
         print("Final Test Acc:", test_acc)
         wandb.log({"test_acc": test_acc})
 
-    print(batch_time.summary())
-    print(data_time.summary())
-    print(losses.summary())
     if get_mem:
         print("Peak %d MB" % (peak_mem.get_value() / 1024 / 1024))
         print("Total %d MB" % (total_mem.get_value() / 1024 / 1024))

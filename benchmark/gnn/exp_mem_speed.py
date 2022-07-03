@@ -131,7 +131,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     networks = ['gcn']
-    algs = ['L1', 'L1.2']
+    algs = ['L0', "L1", "L2", "L2.2"]
     
     if args.mode == 'linear_scan':
         pass                  

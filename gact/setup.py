@@ -1,4 +1,4 @@
-from setuptools import setup, Extension, find_packages
+from setuptools import setup, find_packages
 from torch.utils import cpp_extension
 
 setup(name='gact',

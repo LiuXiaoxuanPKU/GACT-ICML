@@ -1,17 +1,14 @@
 """Test the activation quantized ops"""
 
 import math
-import random
-
 import numpy as np
 import torch
-from torch import nn, autograd
+from torch import nn
 from torch.nn import functional as F
-from torch.autograd.function import Function
 
 from timeit_v2 import py_benchmark
 
-from gact.ops import ext_quantization, op_quantize, op_dequantize, op_quantize_mask, op_dequantize_mask
+from gact.ops import op_quantize, op_dequantize, op_quantize_mask, op_dequantize_mask
 from gact.ops import self_atten
 from utils import setup_seed, error_rate
 

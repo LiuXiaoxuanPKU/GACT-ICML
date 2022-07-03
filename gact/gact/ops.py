@@ -6,6 +6,7 @@ import torch.nn as nn
 from gact.conf import config
 import gact.cpp_extension.quantization as ext_quantization
 import gact.cpp_extension.minimax as ext_minimax
+from torch.utils.checkpoint import checkpoint
 
 def no_scheme_quantize_pack(input, q_bit, seed):
     N = (input.numel() + config.group_size - 1) //  config.group_size
@@ -109,7 +110,7 @@ def self_atten(dropout_p, query_layer, key_layer, value_layer,
                                 key_chunk_size: (i+1) * key_chunk_size, :]
             if use_checkpoint:
                 chunk_value, chunk_weight, chunk_max = \
-                    torch.utils.checkpoint.checkpoint(
+                    checkpoint(
                         summarize_chunk, query, key_chunk, value_chunk)
             else:
                 chunk_value, chunk_weight, chunk_max = summarize_chunk(

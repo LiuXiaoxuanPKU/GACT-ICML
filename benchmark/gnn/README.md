@@ -24,6 +24,7 @@ python test_gcn.py --model ARCH --gact --level LEVEL
 ```
 
 The choices for ARCH are {gcn, sage, gat}
+
 The choices for LEVEL are {L1, L1.1, L1.2, L2, L2.1, L2.2, L3}
 
 ### Benchmark memory
@@ -36,6 +37,7 @@ python test_gcn.py --model ARCH --gact --level LEVEL --get-mem
 ```
 
 The choices for ARCH are {gcn, sage, gat}
+
 The choices for LEVEL are {L1, L1.1, L1.2, L2, L2.1, L2.2, L3}
 
 ### Find the biggest model with full precision/GACT

@@ -14,9 +14,7 @@ import torch
 import torch.nn as nn
 import torch.nn.parallel
 import torch.backends.cudnn as cudnn
-import torch.distributed as dist
 import torch.optim
-import torch.multiprocessing as mp
 import torch.utils.data
 import torch.utils.data.distributed
 import torchvision.transforms as transforms
@@ -25,9 +23,9 @@ import torchvision.models as models
 import numpy as np
 
 from scaled_resnet import scaled_resnet, scaled_wide_resnet
-import actnn
-from actnn import config
-from actnn.utils import get_memory_usage, compute_tensor_bytes, exp_recorder, empty_cache
+import gact
+from gact import config
+from gact.utils import get_memory_usage, compute_tensor_bytes, exp_recorder
 
 MB = 1024**2
 GB = 1024**3
@@ -93,7 +91,7 @@ parser.add_argument('--ablation', action="store_true",
 parser.add_argument('--benchmark', type=str, default='exact')
 parser.add_argument('--limit', type=float, default=1, help="memory percentage")
 parser.add_argument('--alg', type=str, default="L0",
-                    help="Actnn optimization level, default does not quantize")
+                    help="gact optimization level, default does not quantize")
 parser.add_argument('--input-size', type=int)
 parser.add_argument('--get_macs', action='store_true')
 
@@ -192,11 +190,6 @@ def main_worker(gpu, ngpus_per_node, args):
             train_sampler is None),
         num_workers=args.workers, pin_memory=True, sampler=train_sampler)
 
-    # train_loader = quantize.dataloader.DataLoader(
-    #     train_dataset, batch_size=args.batch_size, shuffle=(
-    #         train_sampler is None),
-    #     num_workers=args.workers, pin_memory=True, sampler=train_sampler)
-
     val_loader = torch.utils.data.DataLoader(
         datasets.ImageFolder(valdir, transforms.Compose([
             transforms.Resize(input_size),
@@ -262,21 +255,12 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         [batch_time, data_time, losses, top1, top5, ips],
         prefix="Epoch: [{}]".format(epoch))
 
-    measure_sample = False
     if args.benchmark == "exact":
         pass
-    elif args.benchmark == "actnn":
-        actnn.set_optimization_level(args.alg)
-        controller = actnn.controller.Controller(model)
-
-        def pack_hook(input):
-            return controller.quantize(input)
-
-        def unpack_hook(input):
-            return controller.dequantize(input)
-
-        torch._C._autograd._register_saved_tensors_default_hooks(
-            pack_hook, unpack_hook)
+    elif args.benchmark == "gact":
+        gact.set_optimization_level(args.alg)
+        controller = gact.controller.Controller(model)
+        controller.install_hook()
 
     # switch to train mode
     model.train()
@@ -350,6 +334,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
 
         # only use 8 batch size to get sensitivity
         def backprop():
+            model.train()
             partial_bz = 8
             partial_image = images[:partial_bz, :, :, :]
             partial_target = target[:partial_bz]
@@ -361,7 +346,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
             del output
             del partial_image
             del partial_target
-        if args.benchmark == "actnn":
+        if args.benchmark == "gact":
             controller.iterate(backprop)
         bs = len(images)
         del images
@@ -385,8 +370,8 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
                 exit(0)
             train_step_ct += 1
         
-    if args.benchmark == "actnn":
-        torch._C._autograd._reset_saved_tensors_default_hooks()
+    if args.benchmark == "gact":
+        controller.uninstall_hook()
     
 
 

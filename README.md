@@ -6,9 +6,9 @@ GACT is a PyTorch library for memory-efficient training for general network arch
 ## Abstract
 Training large neural network (NN) models requires extensive memory resources, and Activation Compressed Training (ACT) is a promising approach to reduce training memory footprint. This paper presents GACT, an ACT framework to support a broad range of machine learning tasks for generic NN architectures with limited domain knowledge. By analyzing a linearized version of ACT's approximate gradient, we prove the convergence of GACT without prior knowledge on operator type or model architecture. To make training stable, we propose an algorithm that decides the compression ratio for each tensor by estimating its impact on the gradient at run time. We implement GACT as a PyTorch library that readily applies to any NN architecture. GACT reduces the activation memory for convolutional NNs, transformers, and graph NNs by up to 8.1x, enabling training with a 4.2x to 24.7x larger batch size, with negligible accuracy loss.
 
-![Resnet](./graphs/resnet.png)
+<!-- ![Resnet](./graphs/resnet.png) -->
 ![Bert](./graphs/bert_large.png)
-![Swin](./graphs/swin_tiny.png)
+<!-- ![Swin](./graphs/swin_tiny.png) -->
 
 ## Install
 - Requirements

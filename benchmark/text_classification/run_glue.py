@@ -26,8 +26,8 @@ from datasets import load_dataset, load_metric
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 import time
-import actnn
-from actnn.utils import get_memory_usage, compute_tensor_bytes, exp_recorder
+import gact
+from gact.utils import get_memory_usage, exp_recorder
 from utils import AverageMeter
 
 import transformers
@@ -47,7 +47,7 @@ from transformers import (
 )
 from transformers.file_utils import get_full_repo_name
 from transformers.utils.versions import require_version
-from actnn.controller import Controller
+from gact.controller import Controller
 import json
 from transformers.models.bert.modeling_bert import BertForSequenceClassification
 
@@ -170,17 +170,16 @@ def parse_args():
         "--hub_model_id", type=str, help="The name of the repository to keep in sync with the local `output_dir`."
     )
     parser.add_argument("--hub_token", type=str, help="The token to use to push to the Model Hub.")
-    parser.add_argument("--get_mem", action="store_true", help="Whether or not to check the usage of memory")
-    parser.add_argument("--get_speed", action="store_true", help="Whether or not to get ips")
-    parser.add_argument("--actnn", action="store_true", help="Whether or not to use actnn")
-    parser.add_argument("--opt_level", type=str, help="Optimization level of actnn")
+    parser.add_argument("--get-mem", action="store_true", help="Whether or not to check the usage of memory")
+    parser.add_argument("--get-speed", action="store_true", help="Whether or not to get ips")
+    parser.add_argument("--gact", action="store_true", help="Whether or not to use gact")
+    parser.add_argument("--opt_level", type=str, help="Optimization level of gact")
     parser.add_argument("--get_macs", action="store_true", help="Get Number of Macs")
     parser.add_argument('--customize', action='store_true')
     parser.add_argument("--layer_num", type=int, default=24, help="Number of Bert layers")
     parser.add_argument("--hidden_size", type=int, default=1024, help="hidden size")
     parser.add_argument("--intermediate_size", type=int, default=4096, help='customize intermediate size')
     parser.add_argument("--ckpt", action='store_true', help='enable gradient checkpoint')
-    parser.add_argument("--eff", action='store_true', help='efficient softmax')
     args = parser.parse_args()
 
     # Sanity checks
@@ -197,8 +196,8 @@ def parse_args():
     if args.push_to_hub:
         assert args.output_dir is not None, "Need an `output_dir` to create a repo when `--push_to_hub` is passed."
 
-    if args.actnn:
-        assert args.gradient_accumulation_steps == 1, "ACTNN works with accumulation step = 1"
+    if args.gact:
+        assert args.gradient_accumulation_steps == 1, "gact works with accumulation step = 1"
 
     return args
 
@@ -302,8 +301,6 @@ def main():
         model = BertForSequenceClassification(config)        # I assume that we only use BERT.
     else:
         config = AutoConfig.from_pretrained(args.model_name_or_path, num_labels=num_labels, finetuning_task=args.task_name)
-        if args.eff:
-            config.efficient_softmax = True
         model = AutoModelForSequenceClassification.from_pretrained(
             args.model_name_or_path,
             from_tf=bool(".ckpt" in args.model_name_or_path),
@@ -313,16 +310,15 @@ def main():
         model.gradient_checkpointing_enable()
         
     model.to(args.device)
-    if args.actnn:
-        actnn.set_optimization_level(args.opt_level)
+    if args.gact:
+        gact.set_optimization_level(args.opt_level)
         controller = Controller(model)
 
+    # update optimization level, this is only for logging output
     if args.ckpt and args.actnn:
         args.opt_level += '_ckpt'
     elif args.ckpt:
         args.opt_level = 'ckpt'
-    if args.eff:
-        args.opt_level += '_eff'
             
     # Preprocessing the datasets
     if args.task_name is not None:
@@ -490,12 +486,12 @@ def main():
     activation_mem = AverageMeter('Activation Memory', ':.4e')
 
     def pack_hook(tensor): # quantize hook
-        if args.actnn:
+        if args.gact:
             return controller.quantize(tensor)
         return tensor
 
     def unpack_hook(tensor): # dequantize hook
-        if args.actnn:
+        if args.gact:
             return controller.dequantize(tensor)
         return tensor
 
@@ -547,13 +543,12 @@ def main():
                     
                 outputs = model(**batch)
                 loss = outputs.loss
-                # loss = loss / args.gradient_accumulation_steps
+                loss = loss / args.gradient_accumulation_steps
                 if args.get_mem and iter > 1:
                     # accelerator.print("===============Before Backward=======================")
                     torch.cuda.synchronize()
                     before_backward = get_memory_usage(True)
                 optimizer.zero_grad()
-                # accelerator.backward(loss)
                 loss.backward()
                 torch.utils.checkpoint.first_iter = False
                 if args.get_mem and iter > 1:
@@ -613,16 +608,14 @@ def main():
                 if completed_steps >= args.max_train_steps:
                     break
 
-                if args.actnn:
+                if args.gact:
                     def backprop():
                         small_batch = {}
                         for k, v in batch.items():
                             small_batch[k] = v[:8]
                         outputs = model(**small_batch)
                         loss = outputs.loss
-                        # loss = loss / args.gradient_accumulation_steps
                         optimizer.zero_grad()
-                        # accelerator.backward(loss)
                         loss.backward()
                         del loss
                         del outputs

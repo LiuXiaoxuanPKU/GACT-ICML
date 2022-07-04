@@ -29,26 +29,18 @@ def run_benchmark(network, alg, batch_size, debug_mem=False, debug_speed=False,
         cmd += " --ckpt "
     elif alg == 'L1_ckpt':
         cmd += " --ckpt "
-        cmd += " --actnn --opt_level L1 "
-    elif alg == 'L1_ckpt_eff':
-        cmd += " --ckpt "
-        cmd += " --actnn --opt_level L1 "
-        cmd += " --eff "
+        cmd += " --gact --opt_level L1 "
     elif alg == "L1.4_ckpt":
         cmd += " --ckpt "
-        cmd += " --actnn --opt_level L1.4 "
-    elif alg == "L1.4_ckpt_effi":
-        cmd += " --ckpt "
-        cmd += " --actnn --opt_level L1.4 "
-        cmd += " --eff "
+        cmd += " --gact --opt_level L1.4 "
     elif alg != None:
-        cmd += " --output_dir log/sst2/LEVEL/ --actnn --opt_level LEVEL ".replace("LEVEL", alg)
+        cmd += " --output_dir log/sst2/LEVEL/ --gact --opt_level LEVEL ".replace("LEVEL", alg)
         
     if debug_speed:
-        cmd += " --get_speed "
+        cmd += " --get-speed "
     
     if debug_mem:
-        cmd += " --get_mem "
+        cmd += " --get-mem "
     
     if intermediate_size is not None:
         cmd += f" --customize "
@@ -189,12 +181,11 @@ if __name__ == "__main__":
 
     if args.mode == 'linear_scan':
         networks = ['bert-base-cased']
-        # batch_sizes = list(range(4, 20, 4)) + list(range(20, 240, 8))
-        batch_sizes = list(range(896, 2000, 32))
-        algs = ["L1_ckpt", "L1_ckpt_eff"]
+        batch_sizes = list(range(4, 20, 4)) + list(range(20, 240, 8))
+        algs = ["L1", "L2", "L1_ckpt"]
     else:
         networks = ['bert-large-cased']
-        algs = [None, 'L1', 'L1.2']
+        algs = [None, 'L1', 'L2']
 
     if args.mode == 'linear_scan':
         for network in networks:
@@ -232,8 +223,8 @@ if __name__ == "__main__":
             max_hidden_size = binary_search_max_hidden_size(
                 alg, low, high, network, batch_size)
             ips = get_ips(network, alg, batch_size, hidden_size=max_hidden_size)
-            macs, params = get_macs(
-                network, alg, batch_size, hidden_size=max_hidden_size)
+            # macs, params = get_macs(
+            #    network, alg, batch_size, hidden_size=max_hidden_size)
 
             out_file = "max_hidden_size_results.json"
             with open(out_file, "a") as fout:
@@ -242,10 +233,10 @@ if __name__ == "__main__":
                     "algorithm": alg,
                     "max_hidden_size": max_hidden_size,
                     "ips": ips,
-                    "macs": macs,
-                    "params": params,
+                    #"macs": macs,
+                    #"params": params,
                     "batch_size": batch_size,
-                    "TFLOPS": round(macs * ips / batch_size / 1e12, 2),
+                    #"TFLOPS": round(macs * ips / batch_size / 1e12, 2),
                     "tstamp": time.time()
                 }
                 fout.write(json.dumps(val_dict) + "\n")
@@ -257,7 +248,7 @@ if __name__ == "__main__":
             max_layer = binary_search_max_layer(alg, low, high, batch_size)
             network = 'bert-large-cased'
             ips = get_ips(network, alg, batch_size, layer_num=max_layer)
-            macs, params = get_macs(network, alg, batch_size, layer_num=max_layer)
+            # macs, params = get_macs(network, alg, batch_size, layer_num=max_layer)
             out_file = "max_layer_results.json"
             with open(out_file, "a") as fout:
                 val_dict = {
@@ -265,10 +256,10 @@ if __name__ == "__main__":
                     "algorithm": alg,
                     "max_layer": max_layer,
                     "ips": ips,
-                    "macs": macs,
+                    # "macs": macs,
                     "batch_size": batch_size,
-                    "params": params,
-                    "TFLOPS": round(macs * ips / batch_size / 1e12, 2),
+                    # "params": params,
+                    # "TFLOPS": round(macs * ips / batch_size / 1e12, 2),
                     "tstamp": time.time()
                 }
                 fout.write(json.dumps(val_dict) + "\n")
@@ -281,7 +272,7 @@ if __name__ == "__main__":
                 alg, low, high, batch_size=batch_size)
             network = 'bert-large-cased'
             ips = get_ips(network, alg, batch_size, intermediate_size=max_intermediate_size)
-            macs, params = get_macs(network, alg, batch_size, intermediate_size=max_intermediate_size)
+            #macs, params = get_macs(network, alg, batch_size, intermediate_size=max_intermediate_size)
 
             out_file = "max_intermediate_results.json"
             with open(out_file, "a") as fout:
@@ -290,15 +281,15 @@ if __name__ == "__main__":
                     "algorithm": alg,
                     "max_intermediate_size": max_intermediate_size,
                     "ips": ips,
-                    "macs": macs,
+                    #"macs": macs,
                     "batch_size": batch_size,
-                    "params": params,
-                    "TFLOPS": round(macs * ips / batch_size / 1e12, 2),
+                    #"params": params,
+                    #"TFLOPS": round(macs * ips / batch_size / 1e12, 2),
                     "tstamp": time.time()
                 }
                 fout.write(json.dumps(val_dict) + "\n")
             print(f"save results to {out_file}")
-    elif args.mode == 'swap_prefetch':
+    elif args.mode == 'swap':
         networks = ['bert-large-cased', 'bert-base-cased']
         batch_size = 16
         for network in networks:
@@ -310,18 +301,11 @@ if __name__ == "__main__":
             alg = 'swap'
             run_benchmark(network, alg, batch_size, debug_mem=True, debug_speed=False)
             
-            # # swap actnn 4 bit blocking
-            # alg = 'L4bit-block'
-            # run_benchmark(network, alg, batch_size, debug_mem=False, debug_speed=True)
-            
-            # swap actnn 4 bit
-            alg = 'L4bit-swap'
+            # swap gact 4 bit
+            alg = 'L3'
             run_benchmark(network, alg, batch_size, debug_mem=True, debug_speed=False)
             
-            # swap actnn 4 bit + prefetch
-            alg = 'L4bit-swap-prefetch'
-            run_benchmark(network, alg, batch_size, debug_mem=True, debug_speed=False)
-    elif args.mode == 'ckpt-softmax':
+    elif args.mode == 'ckpt':
         networks = ['bert-large-cased', 'bert-base-cased']
         batch_size = 16
         for network in networks:
@@ -333,15 +317,6 @@ if __name__ == "__main__":
             alg = 'ckpt'
             run_benchmark(network, alg, batch_size, debug_mem=True, debug_speed=False)
             
-            # swap actnn 4 bit
+            # gact fix 4 bit with gradient checkpoint
             alg = 'L1_ckpt'
-            run_benchmark(network, alg, batch_size, debug_mem=True, debug_speed=False)
-            
-            # swap actnn 4 bit + prefetch
-            alg = 'L1_ckpt_eff'
-            run_benchmark(network, alg, batch_size, debug_mem=True, debug_speed=False)      
-    elif args.mode == 'mem':
-        network = 'bert-large-cased'
-        batch_size = 16
-        alg = 'L2.4'
-        run_benchmark(network, alg, batch_size, debug_mem=True, debug_speed=False)
+            run_benchmark(network, alg, batch_size, debug_mem=True, debug_speed=False)    

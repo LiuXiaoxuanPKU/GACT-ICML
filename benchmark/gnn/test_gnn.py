@@ -101,6 +101,7 @@ if args.get_macs:
     exit()
 
 gact.set_optimization_level(args.level)
+gact.set_adapt_interval(20)
 controller = Controller(model)
 
 optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)

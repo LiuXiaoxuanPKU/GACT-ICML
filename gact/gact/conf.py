@@ -24,10 +24,10 @@ def set_optimization_level(level):
         config.bit = 4
         config.swap = True
         config.prefetch = True
-    elif level == 'swap':  # naive swap
+    elif level == 'swap':  # vanilla swap
         config.swap = True
         config.compress_activation = False
-    elif level == 'L4bit-swap':
+    elif level == 'L4bit-swap': # fix 4 bit with swap
         config.bit = 4
         config.swap = True
         config.prefetch = True
@@ -35,7 +35,9 @@ def set_optimization_level(level):
     else:
         raise ValueError("Invalid level: " + level)
 
-
+def set_adapt_interval(i):
+    config.adapt_interval = i
+    
 class QuantizationConfig:
     def __init__(self):
         # compress activation, this field is set to False when optimization level is L0
@@ -57,7 +59,8 @@ class QuantizationConfig:
         self.adapt_interval = 1000  # the interval to adapt activation sensitivity
         self.work_dir = "./log/"  # log debug information under the self.work_dir directory
         # self.log_interval >= self.adapt_interval to avoid log repeat information
-        self.log_interval = 1000 
+        # set log_interval = -1 to disable logging
+        self.log_interval = -1 
         # debug sensitivity (compare estimate sensitivity with true sensitivity) for auto precision
         self.debug = False
 

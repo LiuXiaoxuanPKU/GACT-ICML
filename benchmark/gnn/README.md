@@ -10,7 +10,7 @@ Please follow the instructions here to install PyTorch (https://github.com/pytor
 When PyTorch has been installed,  please install the dependencies as follows
 
 ```bash
-pip install cogdl thop
+pip install cogdl thop wandb
 ```
 
 ## Train GCN/GAT/SAGE on ogbn-arxiv dataset

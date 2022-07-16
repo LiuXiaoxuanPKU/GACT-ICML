@@ -3,14 +3,14 @@
 ## Requirements
 
 - Python version >= 3.7
-- PyTorch version >= 1.10
+- PyTorch version == 1.10.1
 
 Please follow the instructions here to install PyTorch (https://github.com/pytorch/pytorch#installation).
 
-When PyTorch has been installed, cogdl can be installed using pip as follows:
+When PyTorch has been installed,  please install the dependencies as follows
 
 ```bash
-pip install cogdl, thop
+pip install cogdl thop wandb
 ```
 
 ## Train GCN/GAT/SAGE on ogbn-arxiv dataset

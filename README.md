@@ -13,7 +13,7 @@ Training large neural network (NN) models requires extensive memory resources, a
 ## Install
 - Requirements
 ```
-torch>=1.10
+torch==1.10.1
 ```
 GPU and CUDA Toolkit are required.
 

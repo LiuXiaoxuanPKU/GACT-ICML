@@ -8,7 +8,7 @@ Make sure you have PyTorch 1.10 and GACT installed.
 ```bash
 pip install timm opencv-python==4.4.0.46 termcolor==1.1.0 yacs==0.1.8
 ```
-2. put imagenet dataset under `~/imagenet` , 
+2. put imagenet dataset under `~/imagenet`.
 
 ## Benchmark Swin on ImageNet dataset
 ### Benchmark Memory

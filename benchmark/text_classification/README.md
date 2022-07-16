@@ -56,6 +56,11 @@ python exp_mem_speed.py --mode swap
 ```
 The results will be stored in `speed_results.json`.
 
+Lastly, you can use the following command to sweep different optmization levels and different batch sizes.
+```bash
+python exp_mem_speed.py --mode linear_scan 
+```
+The results will be stored in `speed_results.json`.
 
 
 

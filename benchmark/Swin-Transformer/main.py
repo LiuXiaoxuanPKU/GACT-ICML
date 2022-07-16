@@ -27,8 +27,8 @@ from optimizer import build_optimizer
 from logger import create_logger
 from utils import load_checkpoint, load_pretrained, save_checkpoint, get_grad_norm, auto_resume_helper, reduce_tensor
 
-import actnn
-from actnn.utils import get_memory_usage, compute_tensor_bytes, exp_recorder
+import gact
+from gact.utils import get_memory_usage, compute_tensor_bytes, exp_recorder
 
 try:
     # noinspection PyUnresolvedReferences
@@ -74,7 +74,7 @@ def parse_option():
 
     # distributed training
     parser.add_argument("--local_rank", type=int, required=True, help='local rank for DistributedDataParallel')
-    parser.add_argument("--level", type=str, default=None, help="actnn optimization level")
+    parser.add_argument("--level", type=str, default=None, help="gact optimization level")
     parser.add_argument("--get-speed", action='store_true', help="get train speed")
     parser.add_argument("--get-mem", action='store_true', help="get train memory")
 
@@ -168,17 +168,9 @@ def main(args, config):
 def train_one_epoch(args, config, model, criterion, data_loader, optimizer, epoch, mixup_fn, lr_scheduler):
     model.train()
     if args.level is not None:
-        actnn.set_optimization_level(args.level)
-        controller = actnn.controller.Controller(model)
-
-        def pack_hook(input):
-            return controller.quantize(input)
-
-        def unpack_hook(input):
-            return controller.dequantize(input)
-        
-        torch._C._autograd._register_saved_tensors_default_hooks(
-            pack_hook, unpack_hook)
+        gact.set_optimization_level(args.level)
+        controller = gact.controller.Controller(model)
+        controller.install_hook()
         
     optimizer.zero_grad()
 
@@ -189,8 +181,6 @@ def train_one_epoch(args, config, model, criterion, data_loader, optimizer, epoc
 
     start = time.time()
     end = time.time()
-    
-        
     for idx, (samples, targets) in enumerate(data_loader):
         samples = samples.cuda(non_blocking=True)
         targets = targets.cuda(non_blocking=True)
@@ -200,7 +190,6 @@ def train_one_epoch(args, config, model, criterion, data_loader, optimizer, epoc
 
         if args.get_mem and idx > 0:
             print("========== Init Data Loader ===========")
-            print(samples.shape)
             init_mem = get_memory_usage(True)
         
         if args.get_speed:
@@ -236,9 +225,7 @@ def train_one_epoch(args, config, model, criterion, data_loader, optimizer, epoc
                 before_backward = get_memory_usage(True)
                 act_mem = before_backward - init_mem - \
                     compute_tensor_bytes([loss, outputs])
-                res = "Batch size: %d\tTotal Mem: %.2f MB\tAct Mem: %.2f MB" % (
-                    samples.shape[0], before_backward / MB, act_mem / MB)
-            
+
             optimizer.zero_grad()
             if config.AMP_OPT_LEVEL != "O0":
                 with amp.scale_loss(loss, optimizer) as scaled_loss:
@@ -317,7 +304,6 @@ def train_one_epoch(args, config, model, criterion, data_loader, optimizer, epoc
 
         if args.level is not None:
             controller.iterate(backprop)
-            torch.cuda.empty_cache()
             
         if args.get_speed:
             torch.cuda.synchronize()
@@ -366,8 +352,6 @@ def train_one_epoch(args, config, model, criterion, data_loader, optimizer, epoc
                 f'mem {memory_used:.0f}MB')
     epoch_time = time.time() - start
     logger.info(f"EPOCH {epoch} training takes {datetime.timedelta(seconds=int(epoch_time))}")
-    
-    torch._C._autograd._reset_saved_tensors_default_hooks()
 
 
 @torch.no_grad()

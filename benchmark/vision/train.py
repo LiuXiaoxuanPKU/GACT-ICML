@@ -16,7 +16,6 @@ import torch.nn.parallel
 import torch.backends.cudnn as cudnn
 import torch.optim
 import torch.utils.data
-import torch.utils.data.distributed
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
@@ -51,9 +50,7 @@ parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
 parser.add_argument('-b', '--batch-size', default=256, type=int,
                     metavar='N',
-                    help='mini-batch size (default: 256), this is the total '
-                         'batch size of all GPUs on the current node when '
-                         'using Data Parallel or Distributed Data Parallel')
+                    help='mini-batch size (default: 256)')
 parser.add_argument('--lr', '--learning-rate', default=0.1, type=float,
                     metavar='LR', help='initial learning rate', dest='lr')
 parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
@@ -69,23 +66,10 @@ parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true',
                     help='evaluate model on validation set')
 parser.add_argument('--pretrained', dest='pretrained', action='store_true',
                     help='use pre-trained model')
-parser.add_argument('--world-size', default=-1, type=int,
-                    help='number of nodes for distributed training')
-parser.add_argument('--rank', default=-1, type=int,
-                    help='node rank for distributed training')
-parser.add_argument('--dist-url', default='tcp://224.66.41.62:23456', type=str,
-                    help='url used to set up distributed training')
-parser.add_argument('--dist-backend', default='nccl', type=str,
-                    help='distributed backend')
 parser.add_argument('--seed', default=None, type=int,
                     help='seed for initializing training. ')
 parser.add_argument('--gpu', default=None, type=int,
                     help='GPU id to use.')
-parser.add_argument('--multiprocessing-distributed', action='store_true',
-                    help='Use multi-processing distributed training to launch '
-                         'N processes per node, which has N GPUs. This is the '
-                         'fastest way to use PyTorch for either single node or '
-                         'multi node data parallel training')
 parser.add_argument('--ablation', action="store_true",
                     help="Do ablation?")
 parser.add_argument('--benchmark', type=str, default='exact')
@@ -94,6 +78,8 @@ parser.add_argument('--alg', type=str, default="L0",
                     help="gact optimization level, default does not quantize")
 parser.add_argument('--input-size', type=int)
 parser.add_argument('--get_macs', action='store_true')
+parser.add_argument('--get_mem', action='store_true')
+parser.add_argument('--get_speed', action='store_true')
 
 best_acc1 = 0
 
@@ -101,30 +87,12 @@ best_acc1 = 0
 def main():
     args = parser.parse_args()
     
-    if args.gpu is not None:
-        warnings.warn('You have chosen a specific GPU. This will completely '
-                      'disable data parallelism.')
-
     # Simply call main_worker function
-    ngpus_per_node = 1
-    main_worker(args.gpu, ngpus_per_node, args)
+    main_worker(args)
 
 
-def main_worker(gpu, ngpus_per_node, args):
-    torch.cuda.empty_cache()
-    seed = 0
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    
+def main_worker(args):
     global best_acc1
-    args.gpu = gpu
-
-    if args.gpu is not None:
-        print("Use GPU: {} for training".format(args.gpu))
-
     # create model
     if args.pretrained:
         print("=> using pre-trained model '{}'".format(args.arch))
@@ -144,7 +112,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
     model.cuda()
 
-    if config.debug_memory_model:
+    if args.get_mem:
         print("========== Model Only ===========")
         usage = get_memory_usage(True)
         exp_recorder.record("network", args.arch)
@@ -227,15 +195,13 @@ def main_worker(gpu, ngpus_per_node, args):
         is_best = acc1 > best_acc1
         best_acc1 = max(acc1, best_acc1)
 
-        if not args.multiprocessing_distributed or (args.multiprocessing_distributed
-                                                    and args.rank % ngpus_per_node == 0):
-            save_checkpoint({
-                'epoch': epoch + 1,
-                'arch': args.arch,
-                'state_dict': model.state_dict(),
-                'best_acc1': best_acc1,
-                'optimizer': optimizer.state_dict(),
-            }, is_best)
+        save_checkpoint({
+            'epoch': epoch + 1,
+            'arch': args.arch,
+            'state_dict': model.state_dict(),
+            'best_acc1': best_acc1,
+            'optimizer': optimizer.state_dict(),
+        }, is_best)
 
 
 train_step_ct = 0
@@ -273,7 +239,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         torch.cuda.synchronize()
         start.record()
         
-        if config.debug_memory_model:
+        if args.get_mem:
             print("========== Init Data Loader ===========")
             init_mem = get_memory_usage(True)
             exp_recorder.record("data_loader", init_mem /
@@ -283,7 +249,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         output = model(images)
         loss = criterion(output, target)
 
-        if config.debug_memory_model:
+        if args.get_mem:
             torch.cuda.reset_peak_memory_stats()
 
             print("========== Before Backward ===========")
@@ -294,7 +260,8 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            controller.iterate(None)
+            if args.benchmark == "gact": 
+                controller.iterate(None)
             del loss
 
             print("========== After Backward ===========")
@@ -352,7 +319,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         del images
         train_ips_list.append(bs / cur_batch_time)
            
-        if config.debug_speed:
+        if args.get_speed:
             global train_step_ct, train_max_batch
             train_max_batch = max(train_max_batch, bs)
             if train_step_ct >= 6:
@@ -478,9 +445,6 @@ def adjust_learning_rate(optimizer, epoch, args):
 
 def accuracy(output, target, topk=(1,)):
     """Computes the accuracy over the k top predictions for the specified values of k"""
-    # if config.debug_speed:
-    #     return [[-1]] * len(topk)
-
     with torch.no_grad():
         maxk = max(topk)
         batch_size = target.size(0)

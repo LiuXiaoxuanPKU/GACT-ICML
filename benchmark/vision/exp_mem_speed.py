@@ -18,16 +18,20 @@ def network_to_command(network):
 
 
 def run_benchmark(network, alg, batch_size, debug_mem=False, debug_speed=False, input_size=None, get_macs=False):
-    os.environ['DEBUG_MEM'] = str(debug_mem)
-    os.environ['DEBUG_SPEED'] = str(debug_speed)
     cmd = network_to_command(network)
     cmd = cmd.replace("BS", f"{batch_size}").replace(
         "CONFIG", alg_to_config(alg))
     
+    if debug_mem:
+        cmd += ' --get_mem'
+    
+    if debug_speed:
+        cmd += ' --get_speed'
+        
     if alg is None:
         cmd += f' --benchmark exact'
     else:
-        cmd += f' --benchmark actnn'
+        cmd += f' --benchmark gact'
         
     if input_size is not None:
         cmd += f' --input-size {input_size} '
@@ -153,13 +157,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.mode == 'linear_scan':
-        networks = ['resnet50', 'resnet152', 'densenet201', 'wide_resnet101_2']
+        networks = ['resnet50', 'resnet152']
         batch_sizes = list(range(32, 256, 16)) + list(range(256, 1280, 32))
-        algs = ['L0', 'L1', 'L2', 'L3']
-         
-        networks = ["resnet152"]
-        batch_sizes = list(range(320, 1280, 32))
-        algs = ['L4bit-swap']
+        algs = ['L0', 'L1', 'L2']
     else:
         networks = ['resnet152']
         algs = ['L1']

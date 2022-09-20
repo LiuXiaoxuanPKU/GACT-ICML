@@ -42,6 +42,7 @@ for epoch in ...
         optimizer.zero_grad() # this line must be present!
         loss.backward() # backward
 
+    optimizer.step() # update the parameters
     controller.iterate(backprop) # tell gact how to perform forward/backward
 
 controller.uninstall_hook()

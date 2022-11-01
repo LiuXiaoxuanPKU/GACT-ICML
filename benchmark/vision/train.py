@@ -260,8 +260,21 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            if args.benchmark == "gact": 
-                controller.iterate(None)
+            if args.benchmark == "gact":
+                def backprop():
+                    model.train()
+                    partial_bz = 8
+                    partial_image = images[:partial_bz, :, :, :]
+                    partial_target = target[:partial_bz]
+                    output = model(partial_image)
+                    loss = criterion(output, partial_target)
+                    optimizer.zero_grad()
+                    loss.backward()
+                    del loss
+                    del output
+                    del partial_image
+                    del partial_target
+                controller.iterate(backprop)
             del loss
 
             print("========== After Backward ===========")

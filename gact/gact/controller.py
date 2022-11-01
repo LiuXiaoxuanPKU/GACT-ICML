@@ -10,7 +10,11 @@ class Controller:
             return
 
         self.model = model
-        if config.bit <= 4:
+        
+        assert(config.bit <= 16 and config.bit > 1)
+        if config.bit == 2:
+            default_bit = 2
+        elif config.bit <= 4:
             default_bit = 4
         elif config.bit <= 8:
             default_bit = 8
